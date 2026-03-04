@@ -1,110 +1,112 @@
 # 🌿 Pollencounter
 
-**Pollencounter** è uno strumento per la conta pollinica, pensato per supportare i monitoraggi aerobiologici e la produzione di bollettini ufficiali.
+**Pollencounter** is a tool for pollen counting, designed to support aerobiological monitoring and the production of official bulletins.
 
-L’obiettivo principale è ridurre il lavoro manuale su file Excel, standardizzare i calcoli e rendere più semplice la gestione delle letture settimanali e dei report. Non è necessario essere programmatori per usare la versione Windows.
-
----
-
-## ✨ Caratteristiche principali
-* ✅ **Automazione**: Riduce drasticamente l'inserimento manuale e i calcoli ripetitivi.
-* ✅ **Standardizzazione**: Calcoli uniformi per garantire la qualità dei dati aerobiologici.
-* ✅ **Versatilità**: Utilizzabile tramite interfaccia grafica (GUI) o script Python.
-* ✅ **Pronto all'uso**: Versione eseguibile per Windows inclusa, senza necessità di installare Python.
+The main goal is to reduce manual work on Excel files, standardize calculations, and make the management of weekly readings and reports easier. You do not need to be a programmer to use the Windows version.
 
 ---
 
-## 📂 Struttura della Repository
+## ✨ Main Features
+* ✅ **Automation**: Drastically reduces manual data entry and repetitive calculations.
+* ✅ **Standardization**: Uniform calculations to ensure the quality of aerobiological data.
+* ✅ **Versatility**: Can be used via a Graphical User Interface (GUI) or Python scripts.
+* ✅ **Ready to Use**: Includes a standalone Windows executable, requiring no Python installation.
+
+---
+
+## 📂 Repository Structure
 
 ```text
 pollencounter/
-├── codice/                 # Core del software e configurazione
-│   ├── pollencounter.cfg   # Impostazioni dei percorsi e parametri
-│   ├── polline_counter.py  # Logica di elaborazione (riga di comando)
-│   ├── polline_counter_gui.py # Versione con interfaccia grafica
-│   ├── Polline_Template_Settimanale.xlsx # Template base per i calcoli
-│   └── concentrazioni_polliniche.xlsx     # Template per le concentrazioni
-├── letture_settimanali/    # Cartella di INPUT (file di conta settimanale)
+├── codice/                 # Core software and configuration
+│   ├── pollencounter.cfg   # Path settings and parameters
+│   ├── polline_counter.py  # Processing logic (command line)
+│   ├── polline_counter_gui.py # Version with Graphical User Interface
+│   ├── Polline_Template_Settimanale.xlsx # Base template for calculations
+│   └── concentrazioni_polliniche.xlsx     # Template for concentrations
+├── letture_settimanali/    # INPUT folder (weekly count files)
 │   ├── Conta_Pollinica_16-02-2026.xlsx
 │   └── Conta_Pollinica_23-02-2026.xlsx
-├── riferimenti/            # Tabelle storiche e dati di riferimento
-├── script_aiuto/           # Utility per formattazione e avvio rapido (Bash/Python)
-├── windows/                # Risorse specifiche per utenti Windows
-│   ├── Conta_Pollinica.exe # Eseguibile pronto all'uso
-│   ├── AVVIA_CONTA_POLLINICA.bat # Script di avvio rapido
-│   ├── ISTRUZIONI_WINDOWS.txt     # Guida specifica per Windows
-│   └── build_exe.bat       # Script per compilare l'eseguibile (dev)
-├── esempio di bollettino.pdf # Esempio del risultato finale
-├── CHANGELOG.md            # Cronologia delle modifiche
-└── ISTRUZIONI.txt          # Documentazione generale
+├── riferimenti/            # Historical tables and reference data
+├── script_aiuto/           # Utilities for formatting and quick start (Bash/Python)
+├── windows/                # Specific resources for Windows users
+│   ├── Conta_Pollinica.exe # Ready-to-use executable
+│   ├── AVVIA_CONTA_POLLINICA.bat # Quick start script
+│   ├── ISTRUZIONI_WINDOWS.txt     # Specific guide for Windows
+│   └── build_exe.bat       # Script to compile the executable (dev)
+├── esempio di bollettino.pdf # Example of the final output
+├── CHANGELOG.md            # Modification history
+└── ISTRUZIONI.txt          # General documentation
 ```
 
-## 🔄 Flusso di Lavoro Tipico
+## 🔄 Typical Workflow
 
+* Data Collection: The operator fills in the weekly count Excel files in the letture_settimanali/ folder, following the naming convention Conta_Pollinica_DD-MM-YYYY.xlsx.
 
-1.  **Raccolta dati**: L’operatore compila i file Excel di conta settimanale nella cartella `letture_settimanali/` seguendo la convenzione di nome `Conta_Pollinica_GG-MM-AAAA.xlsx`.
-2.  **Elaborazione**: L’utente avvia l’applicazione tramite l'eseguibile Windows (`Conta_Pollinica.exe`) o tramite script Python. Il programma legge i file di lettura, i template e la configurazione nella cartella `codice/`.
-3.  **Output**: Vengono generati file Excel aggiornati e report pronti per la redazione del bollettino (come mostrato in `esempio di bollettino.pdf`).
+* Processing: The user launches the application via the Windows executable (Conta_Pollinica.exe) or via Python scripts. The program reads the input files, templates, and configuration in the codice/ folder.
 
----
+* Output: The tool generates updated Excel files and reports ready for drafting the bulletin (as shown in esempio di bollettino.pdf).
 
-## 🚀 Guida all'Uso
+## 🚀 Usage Guide
+🪟 Windows Users (Non-technical)
 
-### 🪟 Utenti Windows (Non tecnici)
-*Questa modalità non richiede l'installazione di Python.*
+This mode does not require Python installation.
 
-1.  **Scarica** il progetto da GitHub (`Code` -> `Download ZIP`) ed estrailo.
-2.  Apri la cartella **`windows/`**.
-3.  Leggi il file **`ISTRUZIONI_WINDOWS.txt`**.
-4.  Avvia l'applicazione con un doppio clic su **`Conta_Pollinica.exe`** o **`AVVIA_CONTA_POLLINICA.bat`**.
+ * 1 Download the project from GitHub (Code -> Download ZIP) and extract it.
 
-### 🐍 Utenti Python (Sviluppatori)
-*Per chi desidera modificare il codice o integrare lo script in altri flussi.*
+ * 2 Open the windows/ folder.
 
-1.  **Clona il repository**:
-    ```bash
+ * 3 Read the ISTRUZIONI_WINDOWS.txt file.
+
+    Launch the application by double-clicking on Conta_Pollinica.exe or AVVIA_CONTA_POLLINICA.bat.
+
+## 🐍 Python Users (Developers)
+
+For those who want to modify the code or integrate the script into other workflows.
+
+Clone the repository:
+    
+
     git clone [https://github.com/Max-K-Nexus/pollencounter.git](https://github.com/Max-K-Nexus/pollencounter.git)
     cd pollencounter
-    ```
-2.  **Installa le dipendenze** (assicurati di avere `pandas` e `openpyxl` installati):
-    ```bash
+
+Install dependencies (make sure you have pandas and openpyxl installed):
+    
+
     pip install pandas openpyxl
-    ```
-3.  **Esegui lo script**:
-    ```bash
+
+Run the script:
+
+
     python codice/polline_counter_gui.py
-    ```
 
----
+## ⚙️ Configuration and Conventions
 
-## ⚙️ Configurazione e Convenzioni
+.cfg File: The codice/pollencounter.cfg file allows you to modify folder paths and calculation parameters without editing the source code.
 
-* **File `.cfg`**: Il file `codice/pollencounter.cfg` permette di modificare i percorsi delle cartelle e i parametri di calcolo senza dover mettere mano al codice sorgente.
-* **Nomenclatura**: È fondamentale mantenere i nomi dei file originali e la struttura delle cartelle. I file in `letture_settimanali/` devono tassativamente seguire il formato data indicato (`GG-MM-AAAA`).
+Naming Convention: It is crucial to keep the original file names and folder structure. Files in the letture_settimanali/ folder must strictly follow the indicated date format (DD-MM-YYYY).
 
----
+## 🛠️ Troubleshooting (FAQ)
 
-## 🛠️ Risoluzione Problemi (FAQ)
+The executable won't start? Make sure you have extracted the ZIP archive correctly and that your antivirus is not blocking the executable file.
 
-* **L'eseguibile non parte?** Verifica di aver estratto correttamente l'archivio ZIP e che l'antivirus non stia bloccando il file eseguibile.
-* **Errore nei file Excel?** Assicurati di non aver modificato o spostato la struttura delle colonne nei template presenti nella cartella `codice/`.
-* **Uso su Mac/Linux?** L'eseguibile `.exe` è solo per Windows. Su altri sistemi è necessario utilizzare gli script Python presenti nella cartella `codice/`.
+Errors with Excel files? Ensure you haven't modified or moved the column structure in the templates located in the codice/ folder.
 
----
+Using Mac/Linux? The .exe file is for Windows only. On other operating systems, you must use the Python scripts in the codice/ folder.
 
-## 👥 Autori e Contributi
+## 👥 Authors and Contributions
 
-Il progetto **Pollencounter** è stato sviluppato da:
+The Pollencounter project was developed by:
 
-* **Simone Bettella** — Ideazione, sviluppo originale e logica di calcolo.
-* **Massimiliano Iotti** — Manutenzione, automazione, documentazione e supporto Windows.
+* Simone Bettella — Concept, original development, and calculation logic.
 
----
+* Massimiliano Iotti — Maintenance, automation, documentation, and Windows support.
 
-## 📜 Licenza
+## 📜 License
 
-Il progetto è distribuito sotto licenza **GNU General Public License v3.0 (GPL‑3.0)**.
-Se utilizzi Pollencounter in un tuo progetto o report, ti chiediamo gentilmente di citare gli autori:
+The project is distributed under the GNU General Public License v3.0 (GPL‑3.0).
+If you use Pollencounter in your project or report, please kindly cite the authors:
 
-> **Pollencounter** – sviluppato da Simone Bettella e Massimiliano Iotti  
-> [https://github.com/Max-K-Nexus/pollencounter](https://github.com/Max-K-Nexus/pollencounter)
+    Pollencounter – developed by Simone Bettella and Massimiliano Iotti
+
+    https://github.com/Max-K-Nexus/pollencounter
