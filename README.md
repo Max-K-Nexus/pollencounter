@@ -37,7 +37,7 @@ pollencounter/
 ├── esempio di bollettino.pdf # Esempio del risultato finale
 ├── CHANGELOG.md            # Cronologia delle modifiche
 └── ISTRUZIONI.txt          # Documentazione generale
-    ```
+```
 
 ## 🔄 Flusso di Lavoro Tipico
 
