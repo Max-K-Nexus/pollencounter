@@ -1,8 +1,7 @@
-```yaml
 cff-version: 1.2.0
 message: "Se utilizzi questo software, per favore cita il progetto come indicato."
 title: "Pollencounter"
-version: "1.0"
+version: "0.1.0-alpha"
 authors:
   - family-names: "Bettella"
     given-names: "Simone"
