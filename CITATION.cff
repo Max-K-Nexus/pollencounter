@@ -1,0 +1,25 @@
+```yaml
+cff-version: 1.2.0
+message: "Se utilizzi questo software, per favore cita il progetto come indicato."
+title: "Pollencounter"
+version: "1.0"
+authors:
+  - family-names: "Bettella"
+    given-names: "Simone"
+  - family-names: "Iotti"
+    given-names: "Massimiliano"
+license: "GPL-3.0"
+repository-code: "https://github.com/Max-K-Nexus/pollencounter"
+url: "https://github.com/Max-K-Nexus/pollencounter"
+date-released: "2026-03-04"
+preferred-citation:
+  type: software
+  authors:
+    - family-names: "Bettella"
+      given-names: "Simone"
+    - family-names: "Iotti"
+      given-names: "Massimiliano"
+  title: "Pollencounter"
+  year: 2026
+  url: "https://github.com/Max-K-Nexus/pollencounter"
+
