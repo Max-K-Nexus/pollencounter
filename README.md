@@ -1,29 +1,8 @@
 Pollencounter è uno strumento per la , pensato per supportare i monitoraggi aerobiologici e la produzione di bollettini.  
 L’obiettivo è ridurre il lavoro manuale su file Excel, standardizzare i calcoli e rendere più semplice la gestione delle letture settimanali e dei report.
 
----
-
-
-
-  parte del lavoro di compilazione dei file Excel per la conta pollinica.
-  dovuti a copia/incolla e calcoli manuali.
-  il formato dei dati e dei bollettini.
-  sia l’uso “da tecnico” (script Python).
-
----
-
-
-
-  che effettuano la conta pollinica settimanale.
-  che lavorano con dati aerobiologici.
-  che vogliono estendere o integrare lo strumento in altri flussi di lavoro.
-
-Non è necessario essere programmatori per usare la versione .  
-Per usare gli , è utile avere un minimo di familiarità con la riga di comando.
-
----
-
-
+Non è necessario essere programmatori per usare la versione Windows.  
+Per usare gli script Python, è utile avere un minimo di familiarità con la riga di comando.
 
 La struttura principale della cartella è:
 
