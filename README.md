@@ -37,8 +37,9 @@ pollencounter/
 ├── esempio di bollettino.pdf # Esempio del risultato finale
 ├── CHANGELOG.md            # Cronologia delle modifiche
 └── ISTRUZIONI.txt          # Documentazione generale
-## 🔄 Flusso di Lavoro Tipico
+    ```
 
+## 🔄 Flusso di Lavoro Tipico
 
 
 1.  **Raccolta dati**: L’operatore compila i file Excel di conta settimanale nella cartella `letture_settimanali/` seguendo la convenzione di nome `Conta_Pollinica_GG-MM-AAAA.xlsx`.
