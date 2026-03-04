@@ -312,7 +312,65 @@ Per proporre modifiche:
 
 📜 Licenza
 
-(Da definire)
+Il progetto Pollencounter è distribuito sotto GNU General Public License v3.0 (GPL‑3.0).
 
-Se vuoi rendere il progetto liberamente utilizzabile, una scelta comune è la licenza MIT.
-Puoi creare un file LICENSE con il testo della licenza MIT e aggiornare questa sezione di conseguenza.
+Questa licenza garantisce:
+
+    libertà di usare il software per qualsiasi scopo
+
+    libertà di studiare come funziona
+
+    libertà di modificare il codice
+
+    libertà di ridistribuire copie del programma
+
+    libertà di distribuire versioni modificate
+
+A condizione che:
+
+    venga citato l’autore originale
+
+    ogni versione modificata venga distribuita con la stessa licenza GPL‑3.0
+
+    venga mantenuto l’accesso al codice sorgente
+
+    non vengano aggiunte restrizioni ulteriori rispetto alla licenza originale
+
+La GPL‑3.0 è una licenza copyleft forte: chiunque utilizza, modifica o ridistribuisce il software deve mantenere le stesse libertà anche per gli altri utenti.
+
+Il testo completo della licenza è disponibile nel file LICENSE incluso nel repository.
+👥 Autori
+
+Il progetto Pollencounter è stato sviluppato da:
+
+    Simone Bettella — ideazione, sviluppo originale, struttura del progetto
+
+    Massimiliano Iotti — manutenzione, miglioramenti, automazioni, documentazione
+
+Contributi aggiuntivi sono benvenuti tramite pull request.
+📌 Nota sull’attribuzione
+
+Se utilizzi Pollencounter in un tuo progetto, in un report o in un lavoro accademico, è sufficiente citare:
+Codice
+
+Pollencounter – sviluppato da Simone Bettella e Massimiliano Iotti
+Licenza: GNU GPL v3
+https://github.com/Max-K-Nexus/pollencounter
+
+🔧 Contributi
+
+Chi desidera proporre modifiche deve:
+
+    creare un fork del repository
+
+    lavorare su un branch dedicato
+
+    aprire una pull request descrivendo:
+
+        cosa è stato modificato
+
+        perché
+
+        come testare la modifica
+
+Tutte le contribuzioni devono essere compatibili con la licenza GPL‑3.0.
