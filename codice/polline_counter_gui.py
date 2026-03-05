@@ -317,8 +317,23 @@ class PollineCounterGUI:
         else:
             self._poll_output_unix()
 
-    _GUI_MARKERS = ("__GUI_ASKDIR__", "__GUI_ASKOPENFILE__")
+    _GUI_MARKERS = ("__GUI_ASKDIR__", "__GUI_ASKOPENFILE__", "__GUI_ASKSAVEFILE__")
     _MAX_MARKER_LEN = max(len(m) for m in _GUI_MARKERS)
+
+    def _elabora_output(self, text, process_ended=False):
+        """Processa testo raw: bell, ANSI, marker GUI, inserimento nel widget."""
+        if "\a" in text:
+            self.root.bell()
+            text = text.replace("\a", "")
+        text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
+        display = self._handle_gui_markers(text, flush=process_ended)
+        if display:
+            self.text_output.config(state=tk.NORMAL)
+            self.text_output.insert(tk.END, display)
+            self._trim_output()
+            self.text_output.see(tk.END)
+            self.text_output.config(state=tk.DISABLED)
+            self._detect_tracked_file(display)
 
     def _poll_output_win32(self):
         chunks = []
@@ -333,21 +348,11 @@ class PollineCounterGUI:
         except queue.Empty:
             pass
         if chunks:
-            text = b"".join(chunks).decode("utf-8", errors="replace")
-            if "\a" in text:
-                self.root.bell()
-                text = text.replace("\a", "")
-            text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
-            display = self._handle_gui_markers(text, flush=process_ended)
-            if display:
-                self.text_output.config(state=tk.NORMAL)
-                self.text_output.insert(tk.END, display)
-                self._trim_output()
-                self.text_output.see(tk.END)
-                self.text_output.config(state=tk.DISABLED)
-                self._detect_tracked_file(display)
+            self._elabora_output(
+                b"".join(chunks).decode("utf-8", errors="replace"),
+                process_ended,
+            )
         if process_ended:
-            # Svuota eventuale residuo nel buffer marker
             remaining = self._flush_marker_buf()
             if remaining:
                 self.text_output.config(state=tk.NORMAL)
@@ -366,19 +371,10 @@ class PollineCounterGUI:
             if ready:
                 data = os.read(self.master_fd, 8192)
                 if data:
-                    text = data.decode("utf-8", errors="replace")
-                    if "\a" in text:
-                        self.root.bell()
-                        text = text.replace("\a", "")
-                    text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
-                    display = self._handle_gui_markers(text, flush=not process_alive)
-                    if display:
-                        self.text_output.config(state=tk.NORMAL)
-                        self.text_output.insert(tk.END, display)
-                        self._trim_output()
-                        self.text_output.see(tk.END)
-                        self.text_output.config(state=tk.DISABLED)
-                        self._detect_tracked_file(display)
+                    self._elabora_output(
+                        data.decode("utf-8", errors="replace"),
+                        not process_alive,
+                    )
         except OSError:
             pass
 
@@ -445,6 +441,14 @@ class PollineCounterGUI:
                     parent=self.root,
                     title="Scegli cartella di salvataggio",
                     initialdir=str(SCRIPT_DIR),
+                )
+            elif earliest_marker == "__GUI_ASKSAVEFILE__":
+                path = filedialog.asksaveasfilename(
+                    parent=self.root,
+                    title="Salva file conta pollinica",
+                    initialdir=str(SCRIPT_DIR),
+                    defaultextension=".xlsx",
+                    filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
                 )
             else:
                 path = filedialog.askopenfilename(

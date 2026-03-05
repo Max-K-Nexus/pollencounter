@@ -26,6 +26,11 @@ except ImportError:
     winsound = None
 
 try:
+    import docx as _docx_module
+except ImportError:
+    _docx_module = None
+
+try:
     import openpyxl
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
@@ -61,11 +66,6 @@ GIORNI_NOMI = {
     4: "giovedi", 5: "venerdi", 6: "sabato", 7: "domenica",
 }
 
-MESI_NOMI = {
-    1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile",
-    5: "Maggio", 6: "Giugno", 7: "Luglio", 8: "Agosto",
-    9: "Settembre", 10: "Ottobre", 11: "Novembre", 12: "Dicembre",
-}
 
 CODICI_SPECIE = {
     "01": "ACERACEAE", "02": "ALTRI POLLINI", "03": "BETULACEAE",
@@ -154,6 +154,52 @@ _ANN_CONC_POLL_START = _ANN_CONC_DATA + 1                    # 64
 _ANN_CONC_SEP = _ANN_CONC_POLL_START + len(POLLINI_CODICI)   # 111
 _ANN_CONC_SPORE_START = _ANN_CONC_SEP + 1                    # 112
 _ANN_CONC_SPORE_END = _ANN_CONC_SPORE_START + len(SPORE_CODICI) - 1  # 123
+
+# ── Costanti bollettino Word ──
+_MESI_ITA = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+             "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+_GIORNI_ITA_LONG = ["Lunedi", "Martedi", "Mercoledi", "Giovedi", "Venerdi", "Sabato", "Domenica"]
+_GIORNI_ENG_LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+# (nome_ita, nome_eng, riep_rows, assente_max, bassa_max, media_max)
+# riep_rows: righe nel foglio riepilogo_settimana da sommare (vedi codice_to_row)
+BOLL_WORD_RIGHE = [
+    ("ACERACEAE",           "ACERACEAE",              [6],                  0.9,   19.9,  39.9),
+    ("BETULACEAE",          "BETULACEAE",              [8, 9, 10],           0.5,   15.9,  49.9),
+    ("Alnus",               "Alnus",                  [9],                  0.5,   15.9,  49.9),
+    ("Betula",              "Betula",                 [10],                  0.5,   15.9,  49.9),
+    ("CHENO-AMAR",          "CHENO-AMAR",             [12],                  0.0,    4.9,  24.9),
+    ("COMPOSITAE",          "COMPOSITAE",             [13, 14, 15, 16],      0.0,    4.9,  24.9),
+    ("Altre compositae",    "Other composites",       [14],                  0.0,    4.9,  24.9),
+    ("Ambrosia",            "Ragweed",                [15],                  0.0,    4.9,  24.9),
+    ("Artemisia",           "Mugwort",                [16],                  0.0,    4.9,  24.9),
+    ("CORYLACEAE",          "CORYLACEAE",             [17, 18, 19, 20, 21],  0.5,   15.9,  49.9),
+    ("Carpinus/Ostrya",     "Hornbeam/Hop hornbeam",  [18],                  0.5,   15.9,  49.9),
+    ("Carpinus",            "Hornbeam",               [19],                  0.5,   15.9,  49.9),
+    ("Ostrya carpinifolia", "Hop hornbeam",           [20],                  0.5,   15.9,  49.9),
+    ("Corylus avellana",    "Hazel",                  [21],                  0.5,   15.9,  49.9),
+    ("CUP-TAXACEAE",        "Cup-Taxaceae",           [22],                  3.9,   29.9,  89.9),
+    ("FAGACEAE",            "FAGACEAE",               [25, 26, 27, 28],      0.9,   19.9,  39.9),
+    ("Castanea sativa",     "Sweet chestnut",         [26],                  0.9,   19.9,  39.9),
+    ("Fagus sylvatica",     "Beech",                  [27],                  0.9,   19.9,  39.9),
+    ("Quercus",             "Oak",                    [28],                  0.9,   19.9,  39.9),
+    ("GRAMINEAE",           "Grasses",                [29],                  0.5,    9.9,  29.9),
+    ("OLEACEAE",            "OLEACEAE",               [36, 37, 38, 39, 40],  0.5,    4.9,  24.9),
+    ("Altre oleaceae",      "Other olive family",     [37],                  0.5,    4.9,  24.9),
+    ("Fraxinus",            "Ash",                    [38],                  0.5,    4.9,  24.9),
+    ("Ligustrum",           "Privet",                 [39],                  0.5,    4.9,  24.9),
+    ("Olea",                "Olive",                  [40],                  0.5,    4.9,  24.9),
+    ("PINACEAE",            "PINACEAE",               [41],                  0.9,   14.9,  49.9),
+    ("PLANTAGINACEAE",      "PLANTAGINACEAE",         [42],                  0.0,    0.4,   1.9),
+    ("PLATANACEAE",         "Plane tree",             [43],                  0.9,   19.9,  39.9),
+    ("SALICACEAE",          "SALICACEAE",             [46, 47, 48],          0.9,   19.9,  39.9),
+    ("Populus",             "Poplar",                 [47],                  0.9,   19.9,  39.9),
+    ("Salix",               "Willow",                 [48],                  0.9,   19.9,  39.9),
+    ("ULMACEAE",            "Elm family",             [50],                  0.9,   19.9,  39.9),
+    ("URTICACEAE",          "Nettle",                 [52],                  1.9,   19.9,  69.9),
+    ("Alternaria",          "Alternaria",             [58],                  1.9,   19.0, 100.0),
+    ("Cladosporium",        "Cladosporium",           [60],                100.0,  499.0,1000.0),
+]
 
 # Layout foglio Calendario (specie in righe, date in colonne)
 _CAL_HEADER_ROW = 3       # riga date intestazione
@@ -385,7 +431,7 @@ def chiedi_giorno(lunedi):
 def compila_intestazione(ws, lunedi):
     """Compila i metadati della settimana nel foglio riepilogo (riga 3)."""
     domenica = lunedi + timedelta(days=6)
-    mese_nome = MESI_NOMI[lunedi.month]
+    mese_nome = _MESI_ITA[lunedi.month - 1]
     anno = lunedi.year
     fmt = "%d-%m-%Y"
 
@@ -411,127 +457,64 @@ def find_next_log_row(ws):
     return ws.max_row + 1
 
 
-def chiedi_nome_file(data_str, nome_ripreso=None):
-    if nome_ripreso:
-        default_name = nome_ripreso
-    else:
-        # Pulisci data_str da prefissi di file precedenti (autosave, incompleto, ecc.)
-        data_pulita = re.sub(r"^(Conta_Pollinica_|~autosave_|incompleto_)+", "", data_str)
-        if not data_pulita:
-            data_pulita = data_str
-        default_name = f"Conta_Pollinica_{data_pulita}.xlsx"
-    print(f"\nNome file di output [{default_name}]: ", end="", flush=True)
-    nome = input().strip()
-    if not nome:
-        nome = default_name
-    if not nome.endswith(".xlsx"):
-        nome += ".xlsx"
-    # Conferma sovrascrittura se il file esiste (escluso il file ripreso)
-    output_path = OUTPUT_DIR / nome
-    if output_path.exists() and nome != nome_ripreso:
-        risposta = input(f"  '{nome}' esiste gia'. Sovrascrivere? (s/n): ").strip().lower()
-        if risposta != "s":
-            return chiedi_nome_file(data_str, nome_ripreso)
-    return nome
+def chiedi_percorso_salvataggio(nome_default):
+    """Chiede il percorso di salvataggio del file.
+
+    GUI: il marker apre asksaveasfilename; la risposta e' il percorso completo.
+    CLI: l'utente digita il nome (o invio per il default) nella cartella corrente.
+    Ritorna un Path, oppure None se l'utente ha annullato dalla dialog GUI.
+    """
+    print(f"\n  File: {nome_default}")
+    print("__GUI_ASKSAVEFILE__", flush=True)
+    risposta = input("  Percorso (invio = nome predefinito nella cartella corrente): ").strip()
+    if not risposta:
+        if _GUI_MODE:
+            return None          # GUI: dialog annullata
+        return OUTPUT_DIR / nome_default   # CLI: usa il default
+    p = Path(risposta)
+    if p.suffix.lower() != ".xlsx":
+        p = p.with_suffix(".xlsx")
+    if not p.is_absolute():
+        p = OUTPUT_DIR / p
+    return p
 
 
 def menu_uscita_salvataggio(wb, prima_data, nome_ripreso, file_ripreso):
-    """Menu di uscita con tre opzioni: salva nuovo, sovrascrivere, o uscire senza salvare.
+    """Chiede se salvare e dove. Ritorna (True, cartella) o (False, None)."""
+    # Nome predefinito: file ripreso se disponibile, altrimenti Conta_Pollinica_<data>
+    data_pulita = re.sub(r"^(Conta_Pollinica_|~autosave_|incompleto_)+", "", prima_data)
+    nome_default = nome_ripreso or f"Conta_Pollinica_{data_pulita or prima_data}.xlsx"
+    if not nome_default.endswith(".xlsx"):
+        nome_default += ".xlsx"
 
-    Ritorna:
-        (True, cartella) se ha salvato il file
-        (False, None) se esce senza salvare
-    """
     print("\n" + "=" * 60)
-    print("USCITA DAL PROGRAMMA")
-    print("=" * 60)
-    print("\nCosa vuoi fare?")
-    print("  1) Salvare su un FILE NUOVO (con nuovo nome)")
-    print("  2) SOVRASCRIVERE un file esistente")
-    print("  3) USCIRE SENZA SALVARE")
-    print()
-
     while True:
-        scelta = input("Scelta (1/2/3): ").strip()
-
-        if scelta == "1":
-            # Salva su file nuovo
-            nome_file = chiedi_nome_file(prima_data, nome_ripreso=None)
-            cartella = chiedi_cartella_salvataggio()
-            output_path = cartella / nome_file
+        risp = input("\nSalvare e uscire? (s/n): ").strip().lower()
+        if risp == "s":
+            percorso = chiedi_percorso_salvataggio(nome_default)
+            if percorso is None:
+                continue   # GUI: dialog annullata, riproponi
+            if percorso.exists() and not _GUI_MODE:
+                risp2 = input(f"  '{percorso.name}' esiste gia'. Sovrascrivere? (s/n): ").strip().lower()
+                if risp2 != "s":
+                    continue
             _attendi_autosave()
-            wb.save(output_path)
-            print(f"\n  [OK] File salvato: {output_path}")
-            return (True, cartella)
-
-        elif scelta == "2":
-            # Sovrascrivere file esistente
-            file_esistenti = cerca_file_esistenti()
-            if not file_esistenti:
-                print("\n  Nessun file esistente trovato.")
-                continue
-
-            print("\n  File disponibili per sovrascrittura:")
-            for i, f in enumerate(file_esistenti, 1):
-                try:
-                    wb_tmp = openpyxl.load_workbook(f, read_only=True)
-                    ws_tmp = wb_tmp["dati_grezzi"]
-                    righe_log = sum(1 for row in ws_tmp.iter_rows(min_row=2, max_col=1)
-                                   if row[0].value is not None)
-                    wb_tmp.close()
-                    info = f"({righe_log} righe log)"
-                except Exception:
-                    info = ""
-                print(f"    {i}) {f.name}  {info}")
-            print(f"    0) Annulla")
-
-            while True:
-                scelta_file = input("\n  Scelta (numero o 0 per annullare): ").strip()
-                if scelta_file == "0":
-                    break
-                if scelta_file.isdigit():
-                    idx = int(scelta_file) - 1
-                    if 0 <= idx < len(file_esistenti):
-                        file_scelto = file_esistenti[idx]
-                        risp = input(f"\n  Sovrascrivere '{file_scelto.name}'? (s/n): ").strip().lower()
-                        if risp == "s":
-                            _attendi_autosave()
-                            wb.save(file_scelto)
-                            print(f"\n  [OK] File sovrascritto: {file_scelto}")
-                            return (True, file_scelto.parent)
-                        break
-            continue
-
-        elif scelta == "3":
-            # Uscire senza salvare
-            risp = input("\n  Confermi di uscire SENZA salvare? (s/n): ").strip().lower()
-            if risp == "s":
+            wb.save(percorso)
+            print(f"\n  [OK] File salvato: {percorso}")
+            return True, percorso.parent
+        elif risp == "n":
+            risp2 = input("Uscire senza salvare? I dati non salvati andranno persi. (s/n): ").strip().lower()
+            if risp2 == "s":
                 print("\n  [OK] Uscita senza salvataggio.")
-                return (False, None)
-            continue
-
-        else:
-            print("  Scelta non valida. Inserisci 1, 2 o 3.")
-            continue
+                return False, None
 
 
-def cerca_file_esistenti():
-    """Cerca file .xlsx in OUTPUT_DIR escludendo il template.
+def cerca_file_esistenti(cartella=None):
+    """Cerca file .xlsx in cartella (default OUTPUT_DIR) escludendo il template.
     Ritorna lista di Path ordinata per data modifica (piu' recente prima).
     """
-    template_name = TEMPLATE_FILE.name
-    files = [
-        f for f in OUTPUT_DIR.glob("*.xlsx")
-        if f.name != template_name and f.is_file()
-    ]
-    files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-    return files
-
-
-def cerca_file_in_cartella(cartella: Path):
-    """Cerca file .xlsx in una cartella arbitraria escludendo il template.
-    Ritorna lista di Path ordinata per data modifica (piu' recente prima).
-    """
+    if cartella is None:
+        cartella = OUTPUT_DIR
     template_name = TEMPLATE_FILE.name
     files = [f for f in cartella.glob("*.xlsx")
              if f.name != template_name and f.is_file()]
@@ -539,36 +522,25 @@ def cerca_file_in_cartella(cartella: Path):
     return files
 
 
-def chiedi_cartella_salvataggio():
-    """Chiede all'utente la cartella di salvataggio. Ritorna un Path."""
-    print(f"  Cartella: {OUTPUT_DIR}")
-    print("__GUI_ASKDIR__", flush=True)
-    risposta = input("  [invio per confermare, oppure inserisci altro percorso]: ").strip()
-    if not risposta:
-        return OUTPUT_DIR
-    p = Path(risposta)
+def _conta_righe_log(path):
+    """Ritorna una stringa '(N righe log)' per il file .xlsx indicato."""
     try:
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+        wb_tmp = openpyxl.load_workbook(path, read_only=True)
+        ws_tmp = wb_tmp["dati_grezzi"]
+        n = sum(1 for row in ws_tmp.iter_rows(min_row=2, max_col=1)
+                if row[0].value is not None)
+        wb_tmp.close()
+        return f"({n} righe log)"
     except Exception:
-        print("  Percorso non valido, uso la cartella predefinita.")
-        return OUTPUT_DIR
+        return ""
+
 
 
 def chiedi_ripresa_o_nuovo(file_esistenti):
     """Mostra menu di ripresa. Ritorna Path scelto oppure None (= nuovo)."""
     print("\nFile esistenti trovati:")
     for i, f in enumerate(file_esistenti, 1):
-        try:
-            wb_tmp = openpyxl.load_workbook(f, read_only=True)
-            ws_tmp = wb_tmp["dati_grezzi"]
-            righe_log = sum(1 for row in ws_tmp.iter_rows(min_row=2, max_col=1)
-                           if row[0].value is not None)
-            wb_tmp.close()
-            info = f"({righe_log} righe log)"
-        except Exception:
-            info = ""
-        print(f"  {i}) {f.name}  {info}")
+        print(f"  {i}) {f.name}  {_conta_righe_log(f)}")
     print(f"  n) Nuovo file (dal template)")
     print(f"  i) Importa da altra cartella")
 
@@ -585,22 +557,13 @@ def chiedi_ripresa_o_nuovo(file_esistenti):
             if p.is_file() and p.suffix.lower() == ".xlsx":
                 return p
             elif p.is_dir():
-                files_import = cerca_file_in_cartella(p)
+                files_import = cerca_file_esistenti(p)
                 if not files_import:
                     print("  Nessun file .xlsx trovato in quella cartella.")
                     continue
                 print(f"\n  File trovati in {p}:")
                 for j, f in enumerate(files_import, 1):
-                    try:
-                        wb_tmp = openpyxl.load_workbook(f, read_only=True)
-                        ws_tmp = wb_tmp["dati_grezzi"]
-                        righe_log = sum(1 for row in ws_tmp.iter_rows(min_row=2, max_col=1)
-                                       if row[0].value is not None)
-                        wb_tmp.close()
-                        info = f"({righe_log} righe log)"
-                    except Exception:
-                        info = ""
-                    print(f"    {j}) {f.name}  {info}")
+                    print(f"    {j}) {f.name}  {_conta_righe_log(f)}")
                 while True:
                     sc = input("  Scelta (numero, invio per annullare): ").strip()
                     if not sc:
@@ -1251,6 +1214,121 @@ def esporta_riepilogo_annuale(ws_riepilogo, lunedi, cartella):
         print(f"       Foglio settimanale: {nome_sett}")
     except Exception as e:
         print(f"  ERRORE salvataggio {nome_file}: {e}")
+
+
+def genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella):
+    """Genera i bollettini Word (ITA e ENG) a partire dai dati del foglio riepilogo."""
+    if _docx_module is None:
+        print("  ATTENZIONE: python3-docx non installato. Bollettini Word non generati.")
+        print("  Installa con: sudo apt install python3-docx")
+        return
+
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    # Fattore di conversione
+    fattore_val = ws_riepilogo["Q3"].value
+    fattore = float(fattore_val) if isinstance(fattore_val, (int, float)) and fattore_val > 0 else 0.4
+
+    # Calcola concentrazioni per ogni riga e filtra quelle con almeno un valore > 0
+    righe_dati = []
+    for ita_nome, eng_nome, riep_rows, assente_max, bassa_max, media_max in BOLL_WORD_RIGHE:
+        conc_giorni = []
+        for g in range(1, 8):
+            col = giorno_to_col(g)
+            raw = sum(leggi_valore(ws_riepilogo, r, col) for r in riep_rows)
+            conc_giorni.append(round(raw * fattore, 1))
+        if any(v > 0 for v in conc_giorni):
+            media = round(sum(conc_giorni) / 7, 1)
+            righe_dati.append((ita_nome, eng_nome, conc_giorni, media,
+                                assente_max, bassa_max, media_max))
+
+    if not righe_dati:
+        print("  Nessun dato presente: bollettini Word non generati.")
+        return
+
+    def _colore(valore, assente_max, bassa_max, media_max):
+        if valore > media_max:   return "C00000"
+        if valore > bassa_max:   return "FFC000"
+        if valore > assente_max: return "FFFF00"
+        return "92D050"
+
+    def _set_cell_color(cell, rgb_hex):
+        tc = cell._tc
+        tcPr = tc.find(qn("w:tcPr"))
+        if tcPr is None:
+            tcPr = OxmlElement("w:tcPr")
+            tc.insert(0, tcPr)
+        shd = tcPr.find(qn("w:shd"))
+        if shd is None:
+            shd = OxmlElement("w:shd")
+            tcPr.append(shd)
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), rgb_hex)
+
+    def _set_cell_text(cell, text, italic=False):
+        para = cell.paragraphs[0]
+        for r in para._p.findall(qn("w:r")):
+            para._p.remove(r)
+        run = para.add_run(text)
+        run.font.name = "Arial Narrow"
+        run.italic = italic
+
+    for lang in ("ITA", "ENG"):
+        template_name = f"{lang}_Template_Bollettino_pubblicazione.docx"
+        template_path = SCRIPT_DIR / template_name
+        if not template_path.exists():
+            print(f"  ATTENZIONE: template non trovato: {template_path}")
+            continue
+
+        doc = Document(str(template_path))
+        table = doc.tables[0]
+        tbl = table._tbl
+
+        # Aggiorna intestazione (riga 0)
+        header_cells = table.rows[0].cells
+        if lang == "ITA":
+            _set_cell_text(header_cells[0], f"POLLINI - {_MESI_ITA[lunedi.month - 1]} {lunedi.year}")
+            giorni_long = _GIORNI_ITA_LONG
+        else:
+            _set_cell_text(header_cells[0], f"POLLEN - {lunedi.strftime('%B')} {lunedi.year}")
+            giorni_long = _GIORNI_ENG_LONG
+
+        for i in range(7):
+            giorno_dt = lunedi + timedelta(days=i)
+            _set_cell_text(header_cells[i + 1], f"{giorni_long[i]} {giorno_dt.day}")
+
+        # Rimuovi tutte le righe dati esistenti (mantieni solo l'intestazione)
+        for row in list(table.rows[1:]):
+            tbl.remove(row._tr)
+
+        # Aggiungi righe con i dati
+        for ita_nome, eng_nome, conc_giorni, media, assente_max, bassa_max, media_max in righe_dati:
+            nome = ita_nome if lang == "ITA" else eng_nome
+            new_row = table.add_row()
+            cells = new_row.cells
+
+            # Colonna 0: nome specie (corsivo)
+            _set_cell_text(cells[0], nome, italic=True)
+
+            # Colonne 1-7: colore per ogni giorno (nessun testo)
+            for i, conc in enumerate(conc_giorni):
+                _set_cell_color(cells[i + 1], _colore(conc, assente_max, bassa_max, media_max))
+
+            # Colonna 8: colore media
+            _set_cell_color(cells[8], _colore(media, assente_max, bassa_max, media_max))
+
+            # Colonna 9: tendenza (vuota, da compilare manualmente)
+
+        # Salva
+        output_name = f"Bollettino_{lang}_{lunedi_str}.docx"
+        output_path = cartella / output_name
+        doc.save(str(output_path))
+        print(f"  Bollettino {lang}: {output_path}")
+
+    print("  Bollettini Word generati.")
 
 
 # ============================================================
@@ -2087,6 +2165,10 @@ def main():
         risp = input("\n  Aggiornare il riepilogo annuale? (s/n): ").strip().lower()
         if risp == "s":
             esporta_riepilogo_annuale(ws_riepilogo, lunedi, cartella_salvata)
+
+        risp_word = input("\n  Generare i bollettini Word (ITA/ENG)? (s/n): ").strip().lower()
+        if risp_word == "s":
+            genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella_salvata)
 
     wb.close()
     pulisci_file_temporanei(lunedi_str, file_ripreso, salvataggio_ok)

@@ -4,6 +4,77 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-03-05
+
+### Salvataggio: dialog nativa e semplificazione flusso
+
+**Problema:** il menu di uscita aveva 3 opzioni numeriche confuse; la scelta
+"sovrascrivere file esistente" era ridondante con la dialog nativa.
+
+**Correzione:**
+- `codice/polline_counter.py`: rimossa `chiedi_nome_file` e `chiedi_cartella_salvataggio`;
+  aggiunta `chiedi_percorso_salvataggio(nome_default)` che stampa il marker
+  `__GUI_ASKSAVEFILE__` (GUI: apre asksaveasfilename; CLI: prompt testuale con default).
+  `menu_uscita_salvataggio` ridotto a ~20 righe: chiede "Salvare e uscire? (s/n)",
+  poi apre la dialog. In CLI chiede conferma sovrascrittura se il file esiste già;
+  in GUI la dialog nativa gestisce la conferma autonomamente.
+- `codice/polline_counter_gui.py`: aggiunto `__GUI_ASKSAVEFILE__` a `_GUI_MARKERS`
+  e a `_handle_gui_markers` (apre `filedialog.asksaveasfilename`).
+- Riduzione netta: ~85 righe CLI, invariato GUI (aggiunta ~6 righe per la nuova dialog).
+
+
+### Generazione bollettini Word (ITA/ENG) al termine della sessione
+
+**Problema:** i bollettini Word venivano compilati manualmente ogni settimana.
+
+**Correzione:**
+- `codice/polline_counter.py`: aggiunta costante `BOLL_WORD_RIGHE` (35 righe, con
+  nome ITA, nome ENG, righe riepilogo da sommare, soglie) e funzione
+  `genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella)`.
+  Al termine della sessione (dopo salvataggio), viene proposto il prompt
+  "Generare i bollettini Word (ITA/ENG)? (s/n)"; se confermato, vengono
+  creati `Bollettino_ITA_{settimana}.docx` e `Bollettino_ENG_{settimana}.docx`
+  nella stessa cartella del file Excel.
+- Le specie/famiglie con tutti i valori a zero vengono escluse automaticamente.
+- Le celle dei 7 giorni e della media sono colorate secondo la scala
+  (verde/giallo/arancio/rosso) senza testo; la colonna Tendenza e' vuota.
+- `codice/ITA_Template_Bollettino_pubblicazione.docx` e
+  `codice/ENG_Template_Bollettino_pubblicazione.docx`: template copiati
+  da `/home/Simone/Documenti/Spec_Igiene/bollettini pollinici/`.
+- Import opzionale `python3-docx` con messaggio di errore chiaro se mancante.
+
+### Bollettino: aggregazione famiglie e formattazione condizionale nel template
+
+**Problema:**
+Le righe famiglia nel bollettino (es. BETULACEAE) referenziavano solo la riga
+della famiglia nel riepilogo, senza sommare le sottospecie (Alnus, Betula).
+Il bollettino non aveva formattazione condizionale per i livelli di concentrazione.
+
+**Correzione** (`script_aiuto/applica_formattazione.py`):
+- Aggiunto import `CellIsRule` da `openpyxl.formatting.rule`.
+- Aggiunti fill `CF_VERDE/GIALLO/ARANCIO/ROSSO` per la formattazione condizionale.
+- Definita struttura `BOLL_FAMIGLIE`: mappatura di ogni riga famiglia del
+  bollettino alle righe del riepilogo da sommare, con soglie assente/bassa/media.
+- Aggiunta funzione `aggiorna_bollettino(ws)` che:
+  - Azzera le CF pre-esistenti nel foglio (erano presenti CF generiche ereditate
+    su tutte le righe, anche le sottospecie).
+  - Per le 6 famiglie con sottospecie (BETULACEAE, COMPOSITAE, CORYLACEAE,
+    FAGACEAE, OLEACEAE, SALICACEAE): riscrive le formule giornaliere e media
+    come somma di famiglia + sottospecie, su entrambi i lati del bollettino
+    (E-L sinistra, Q-X destra).
+  - Per tutte le 17 famiglie/spore con soglie: applica 4 regole CF
+    (verde/giallo/arancio/rosso) sulle celle E-L e Q-X di ciascuna riga famiglia.
+    Le sottospecie non ricevono CF.
+- Chiamata `aggiorna_bollettino(ws)` aggiunta in `applica_formattazione()`.
+- Script eseguito: template `Polline_Template_Settimanale.xlsx` aggiornato.
+
+**Famiglie nel bollettino con soglie (17):**
+ACERACEAE, BETULACEAE, CHENO-AMAR, COMPOSITAE, CORYLACEAE, CUP-TAXACEAE,
+FAGACEAE, GRAMINEAE, OLEACEAE, PINACEAE, PLANTAGINACEAE, PLATANACEAE,
+SALICACEAE, ULMACEAE, URTICACEAE, Alternaria, Cladosporium.
+
+---
+
 ## 2026-03-04
 
 ### GUI: nascosti comandi r e w dal menu (ridondanti con le tab live)

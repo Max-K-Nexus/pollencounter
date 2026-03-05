@@ -16,7 +16,7 @@ if errorlevel 1 (
 )
 
 echo [1/3] Installazione dipendenze...
-pip install openpyxl pyinstaller sv-ttk
+pip install openpyxl pyinstaller sv-ttk python-docx
 if errorlevel 1 (
     echo ERRORE durante l'installazione delle dipendenze.
     pause
@@ -29,6 +29,8 @@ cd /d "%~dp0"
 pyinstaller --onefile --windowed ^
   --add-data "..\codice\Polline_Template_Settimanale.xlsx;." ^
   --add-data "..\codice\concentrazioni_polliniche.xlsx;." ^
+  --add-data "..\codice\ITA_Template_Bollettino_pubblicazione.docx;." ^
+  --add-data "..\codice\ENG_Template_Bollettino_pubblicazione.docx;." ^
   --hidden-import polline_counter ^
   --hidden-import sv_ttk ^
   --name "Conta_Pollinica" ^
