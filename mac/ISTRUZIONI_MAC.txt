@@ -1,0 +1,167 @@
+============================================================
+  CONTA POLLINICA - ISTRUZIONI PER macOS
+============================================================
+
+
+OPZIONE 1: USARE DIRETTAMENTE CON PYTHON (CONSIGLIATA)
+-------------------------------------------------------
+Non richiede la creazione di un eseguibile. Funziona su
+qualsiasi Mac con Python 3 installato.
+
+PASSI:
+
+  1. Installa Python 3 da:
+       https://www.python.org/downloads/
+     Scarica il pacchetto per macOS e segui l'installazione.
+
+     In alternativa, con Homebrew:
+       brew install python3
+
+  2. Installa la dipendenza openpyxl. Apri il Terminale
+     (Applicazioni > Utility > Terminale) e digita:
+       pip3 install openpyxl
+
+  3. Rendi eseguibili gli script (una sola volta):
+       chmod +x AVVIA_CONTA_POLLINICA_GUI.sh
+       chmod +x AVVIA_CONTA_POLLINICA.sh
+
+  4. Avvia l'interfaccia grafica con doppio clic su:
+       AVVIA_CONTA_POLLINICA_GUI.sh
+     oppure da Terminale:
+       ./AVVIA_CONTA_POLLINICA_GUI.sh
+
+     Per la versione da terminale:
+       ./AVVIA_CONTA_POLLINICA.sh
+
+  Nota su tkinter: se compare l'errore "tkinter non trovato"
+  e hai installato Python con Homebrew, esegui:
+    brew install python-tk
+
+
+OPZIONE 2: CREARE L'APPLICAZIONE .APP
+--------------------------------------
+Crea un'applicazione macOS che funziona con doppio clic,
+senza dover aprire il Terminale ogni volta.
+Da fare su un Mac con Python gia' installato.
+
+  1. Apri il Terminale e vai nella cartella mac/:
+       cd percorso/della/cartella/mac
+
+  2. Rendi eseguibile lo script di build (una sola volta):
+       chmod +x build_app.sh
+
+  3. Esegui lo script:
+       ./build_app.sh
+     Lo script installa le dipendenze e crea l'applicazione.
+     Richiede qualche minuto.
+
+  4. Al termine troverai:
+       mac/Conta_Pollinica.app
+
+  5. Per usarla: doppio clic su Conta_Pollinica.app.
+
+  6. Prima apertura su altri Mac (Gatekeeper):
+     macOS blocca le applicazioni non firmate con un
+     certificato Apple Developer. Per aprirla la prima volta:
+       - Clic destro (o Ctrl+clic) sull'icona
+       - Scegli "Apri"
+       - Conferma nella finestra di avviso
+     Dalla seconda apertura in poi, funzionera' normalmente.
+
+  7. Per distribuirla: comprimi la cartella Conta_Pollinica.app
+     in un archivio .zip (clic destro > Comprimi).
+
+
+NOTA SUI FILE .SH (script di avvio)
+-------------------------------------
+Su macOS gli script .sh non si aprono con doppio clic
+per default. Due possibilita':
+
+  a) Da Terminale:
+       cd /percorso/cartella/mac
+       ./AVVIA_CONTA_POLLINICA_GUI.sh
+
+  b) Aprire il file con Terminale:
+       Clic destro sullo script > Apri con > Terminale
+
+
+INTERFACCIA GRAFICA
+--------------------
+La finestra e' divisa in due pannelli:
+
+  PANNELLO SINISTRO - Terminale interattivo
+    Mostra l'output dello script e il prompt di inserimento.
+    Digita i comandi nel campo in basso e premi INVIO.
+
+  PANNELLO DESTRO - Riepilogo live
+    Si aggiorna automaticamente ogni 3 secondi durante la
+    sessione, mostrando i conteggi del file Excel corrente.
+
+    Scheda "Settimanale": totale per specie sull'intera
+      settimana, con subtotali pollini / spore / TOTALE.
+
+    Scheda "Giornaliero": griglia specie x giorno (lun-dom)
+      con subtotali per ciascun giorno.
+
+
+UTILIZZO DEL PROGRAMMA
+-----------------------
+All'avvio viene mostrata la lista dei codici disponibili.
+
+  PASSO 1 - Scegliere il file di lavoro
+    Se nella cartella esistono file .xlsx precedenti, viene
+    proposto di riprenderli oppure di iniziare un file nuovo.
+
+  PASSO 2 - Scegliere la settimana
+    Inserisci una data qualsiasi della settimana di lavoro.
+    Formati accettati (giorno e mese anche senza zero):
+      9-2-2026    09/02/2026    9 feb 2026
+    Premi INVIO per usare la settimana corrente.
+
+  PASSO 3 - Scegliere il giorno
+    Viene mostrato il calendario della settimana con le date.
+    Digita il numero del giorno (1=Lun ... 7=Dom).
+
+  PASSO 4 - Inserire i dati
+    Digita il codice specie (01-59) e premi INVIO.
+    Il contatore nel prompt si aggiorna ad ogni inserimento.
+
+
+COMANDI DISPONIBILI
+--------------------
+  01-59       Inserisce la specie corrispondente
+  NNxQ        Inserisce Q occorrenze (es. 48x4 = 4 Alternaria)
+  .           Ripete l'ultimo codice inserito
+  u           Annulla l'ultimo inserimento
+  r           Riepilogo della giornata corrente
+  w           Riepilogo settimanale (tutti i giorni)
+  l           Ultimi 10 inserimenti (storico)
+  c           Correggi un valore di un giorno precedente
+  n           Aggiungi una nota testuale alla giornata
+  b           Attiva/disattiva beep sonoro ad ogni inserimento
+  h           Mostra la tabella dei codici
+  d           Chiudi la giornata e passa a un altro giorno
+  s           Sospendi sessione (salva e riprendi dopo)
+  q           Esci (apre menu salvataggio)
+
+
+SALVATAGGIO
+-----------
+  Autosave automatico
+    Ogni 5 inserimenti il file viene salvato silenziosamente
+    come "~autosave_<data-lunedi>.xlsx". In caso di chiusura
+    improvvisa il lavoro e' protetto.
+
+  Comando "s" - Sospensione
+    Salva immediatamente come "incompleto_<data>.xlsx" e
+    chiude lo script. Alla prossima apertura verra' proposto
+    di riprendere da dove si era rimasti.
+
+  Comando "q" - Uscita con menu
+    Vengono proposte tre opzioni:
+      1) Salvare su un file nuovo (con nome personalizzabile)
+      2) Sovrascrivere un file esistente
+      3) Uscire senza salvare
+
+  Il template "Polline_Template_Settimanale.xlsx" non viene
+  mai modificato.

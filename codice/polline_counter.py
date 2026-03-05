@@ -169,11 +169,9 @@ SCRIPT_DIR = Path(__file__).parent if not getattr(sys, "frozen", False) else Pat
 _CONFIG_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
 CONFIG_FILE = _CONFIG_DIR / "pollencounter.cfg"
 
-# Colori bollettino
-FILL_ASSENTE = PatternFill("solid", fgColor="00B050")   # Verde
-FILL_BASSA   = PatternFill("solid", fgColor="FFD966")   # Giallo
-FILL_MEDIA   = PatternFill("solid", fgColor="F4B084")   # Arancione
-FILL_ALTA    = PatternFill("solid", fgColor="FF0000")   # Rosso
+# True quando lo script e' avviato come subprocess dalla GUI (--gui in argv)
+_GUI_MODE = "--gui" in sys.argv
+
 
 
 # ============================================================
@@ -251,14 +249,14 @@ def display_menu():
     print("  01-59   Inserisce la specie corrispondente")
     print("  NNxQ    Inserisce Q occorrenze (es. 48x4 = 4 Alternaria)")
     print("  .       Ripete l'ultimo codice inserito")
-    print("  r       Riepilogo giornata corrente")
-    print("  w       Riepilogo settimanale (tutti i giorni)")
+    if not _GUI_MODE:
+        print("  r       Riepilogo giornata corrente")
+        print("  w       Riepilogo settimanale (tutti i giorni)")
     print("  l       Ultimi inserimenti (storico)")
     print("  c       Correggi un giorno precedente")
     print("  n       Aggiungi una nota per la giornata")
     print("  u       Annulla ultimo inserimento")
     print("  b       Attiva/disattiva beep sonoro")
-    print("  g       Genera bollettino pollinico (foglio Excel)")
     print("  h       Mostra questo menu")
     print("  d       Chiudi giornata (puoi continuare con un altro giorno)")
     print("  q       Salva il file e esci")
@@ -393,8 +391,10 @@ def compila_intestazione(ws, lunedi):
 
     # Lato sinistro (grezzi)
     ws["H3"] = mese_nome
-    ws["J3"] = lunedi.strftime(fmt)
-    ws["K3"] = domenica.strftime(fmt)
+    ws["J3"] = lunedi          # data Excel: le formule del bollettino la referenziano
+    ws["J3"].number_format = "DD-MM-YYYY"
+    ws["K3"] = domenica
+    ws["K3"].number_format = "DD-MM-YYYY"
     ws["M3"] = anno
 
     # Lato destro (concentrazione) — stessi valori
@@ -700,206 +700,6 @@ def carica_soglie(wb=None):
     soglie = _parse_soglie_da_foglio(wb_soglie.active)
     wb_soglie.close()
     return soglie
-
-
-def _colore_concentrazione(valore, soglia_tuple):
-    """Ritorna il PatternFill appropriato per il valore dato."""
-    max_assente, max_bassa, max_media = soglia_tuple
-    if valore <= max_assente:
-        return FILL_ASSENTE
-    if valore <= max_bassa:
-        return FILL_BASSA
-    if valore <= max_media:
-        return FILL_MEDIA
-    return FILL_ALTA
-
-
-def genera_bollettino(wb, ws_riepilogo, lunedi):
-    """Genera il bollettino pollinico nel foglio riepilogo_settimana (da riga 73)."""
-    soglie = carica_soglie(wb)
-    if soglie is None:
-        return
-
-    # Leggi fattore di conversione da Q3
-    fattore_val = ws_riepilogo["Q3"].value
-    if isinstance(fattore_val, (int, float)) and fattore_val > 0:
-        fattore = float(fattore_val)
-    else:
-        fattore = 0.4
-
-    # Pulisci area bollettino (righe 72-115, colonne D-Y) per evitare residui
-    no_fill = PatternFill(fill_type=None)
-    no_border = Border()
-    for r in range(72, 116):
-        for c in range(4, 26):  # D=4 .. Y=25
-            cell = ws_riepilogo.cell(row=r, column=c)
-            cell.value = None
-            cell.fill = no_fill
-            cell.border = no_border
-            cell.font = Font()
-            cell.alignment = Alignment()
-            cell.number_format = "General"
-
-    # Stili
-    thin_border = Border(
-        left=Side(style="thin"), right=Side(style="thin"),
-        top=Side(style="thin"), bottom=Side(style="thin"),
-    )
-    giallo_fill      = PatternFill("solid", fgColor="FFFF00")
-    blu_fill         = PatternFill("solid", fgColor="4472C4")
-    font_nero        = Font(color="000000", size=10)
-    font_nero_bold   = Font(color="000000", bold=True, size=11)
-    font_bianco_bold = Font(color="FFFFFF", bold=True, size=11)
-
-    # Colonne: Tabella 1 in D-L (4-12), Tabella 2 in P-Y (16-25)
-    T1_START = 4   # colonna D
-    T2_START = 16  # colonna P
-
-    # Riga 72: separatore visivo
-    sep_fill = PatternFill("solid", fgColor="808080")
-    for c in range(T1_START, 26):  # D..Y
-        cell = ws_riepilogo.cell(row=72, column=c)
-        cell.fill = sep_fill
-
-    # Riga 73: titolo
-    mese_nome = MESI_NOMI[lunedi.month]
-    titolo_cell = ws_riepilogo.cell(
-        row=BOLL_START_ROW, column=T1_START,
-        value=f"BOLLETTINO POLLINICO - {mese_nome} {lunedi.year}",
-    )
-    titolo_cell.font = Font(bold=True, size=14)
-
-    # Riga 75: intestazioni
-    giorni_headers = []
-    for g in range(7):
-        data_g = lunedi + timedelta(days=g)
-        nome_g = GIORNI_NOMI[g + 1].capitalize()
-        giorni_headers.append(f"{nome_g} {data_g.day}")
-
-    # Tabella 1 (D75-L75): sfondo giallo, font nero bold
-    headers_t1 = ["Famiglia/Specie"] + giorni_headers + ["Media (p/m3)"]
-    for c, h in enumerate(headers_t1, T1_START):
-        cell = ws_riepilogo.cell(row=BOLL_START_ROW + 2, column=c, value=h)
-        cell.font = font_nero_bold
-        cell.fill = giallo_fill
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
-        cell.border = thin_border
-
-    # Tabella 2 (P75-Y75): sfondo blu, font bianco bold
-    headers_t2 = ["Famiglia/Specie"] + giorni_headers + ["Media (p/m3)", "Tendenza"]
-    for c, h in enumerate(headers_t2, T2_START):
-        cell = ws_riepilogo.cell(row=BOLL_START_ROW + 2, column=c, value=h)
-        cell.font = font_bianco_bold
-        cell.fill = blu_fill
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
-        cell.border = thin_border
-
-    # Raccogli dati per ogni codice in SOGLIE_MAPPING
-    righe_dati = []
-    for codice, famiglia_soglia in SOGLIE_MAPPING.items():
-        row_riep = codice_to_row(codice)
-        if row_riep is None:
-            continue
-        vals_conta = []
-        for g in range(1, 8):
-            col = giorno_to_col(g)
-            vals_conta.append(leggi_valore(ws_riepilogo, row_riep, col))
-
-        if all(v == 0 for v in vals_conta):
-            continue
-
-        # Concentrazioni = conta * fattore
-        conc = [v * fattore for v in vals_conta]
-        media = sum(conc) / 7.0
-
-        nome_display = CODICI_SPECIE.get(codice, famiglia_soglia)
-        # Spore: prefisso speciale
-        if codice in ("48", "50"):
-            nome_display = f"Spore fungine di {nome_display}"
-
-        soglia_tuple = soglie.get(famiglia_soglia)
-        if soglia_tuple is None:
-            # Fallback generico se la famiglia non e' nel file soglie
-            soglia_tuple = (0.9, 19.9, 39.9)
-
-        righe_dati.append((nome_display, conc, media, soglia_tuple))
-
-    if not righe_dati:
-        ws_riepilogo.cell(row=BOLL_START_ROW + 3, column=T1_START,
-                          value="Nessun dato nella settimana.")
-        return
-
-    # Scrivi righe dati (da riga 76 = BOLL_START_ROW + 3)
-    riga_dati_start = BOLL_START_ROW + 3
-    for i, (nome, conc, media, soglia_tuple) in enumerate(righe_dati):
-        riga = riga_dati_start + i
-
-        # -- Tabella 1 (sinistra, senza colore) --
-        cell_nome1 = ws_riepilogo.cell(row=riga, column=T1_START, value=nome)
-        cell_nome1.font = font_nero
-        cell_nome1.border = thin_border
-
-        for g in range(7):
-            cell = ws_riepilogo.cell(row=riga, column=T1_START + 1 + g)
-            val = conc[g]
-            cell.value = round(val, 1) if val > 0 else 0
-            cell.font = font_nero
-            cell.alignment = Alignment(horizontal="center")
-            cell.border = thin_border
-            cell.number_format = "0.0"
-
-        cell_media1 = ws_riepilogo.cell(row=riga, column=T1_START + 8)
-        cell_media1.value = round(media, 1)
-        cell_media1.font = font_nero
-        cell_media1.alignment = Alignment(horizontal="center")
-        cell_media1.border = thin_border
-        cell_media1.number_format = "0.0"
-
-        # -- Tabella 2 (destra, colorata) --
-        cell_nome2 = ws_riepilogo.cell(row=riga, column=T2_START, value=nome)
-        cell_nome2.font = font_nero
-        cell_nome2.border = thin_border
-
-        for g in range(7):
-            cell = ws_riepilogo.cell(row=riga, column=T2_START + 1 + g)
-            val = conc[g]
-            cell.value = round(val, 1) if val > 0 else 0
-            cell.fill = _colore_concentrazione(val, soglia_tuple)
-            cell.font = font_nero
-            cell.alignment = Alignment(horizontal="center")
-            cell.border = thin_border
-            cell.number_format = "0.0"
-
-        cell_media2 = ws_riepilogo.cell(row=riga, column=T2_START + 8)
-        cell_media2.value = round(media, 1)
-        cell_media2.fill = _colore_concentrazione(media, soglia_tuple)
-        cell_media2.font = font_nero
-        cell_media2.alignment = Alignment(horizontal="center")
-        cell_media2.border = thin_border
-        cell_media2.number_format = "0.0"
-
-        # Colonna Tendenza (T2_START + 9) — vuota, bordo
-        cell_tend = ws_riepilogo.cell(row=riga, column=T2_START + 9)
-        cell_tend.border = thin_border
-        cell_tend.alignment = Alignment(horizontal="center")
-
-    # Legenda in fondo (2 righe sotto l'ultima riga dati)
-    riga_legenda = riga_dati_start + len(righe_dati) + 1
-    ws_riepilogo.cell(row=riga_legenda, column=T1_START,
-                      value="Concentrazioni di riferimento").font = Font(bold=True)
-    legenda = [
-        ("Assente", FILL_ASSENTE), ("Bassa", FILL_BASSA),
-        ("Media", FILL_MEDIA), ("Alta", FILL_ALTA),
-    ]
-    for j, (etichetta, fill) in enumerate(legenda):
-        cell = ws_riepilogo.cell(row=riga_legenda, column=T1_START + 1 + j,
-                                 value=etichetta)
-        cell.fill = fill
-        cell.alignment = Alignment(horizontal="center")
-        cell.font = Font(bold=True)
-        cell.border = thin_border
-
-    print(f"  Bollettino generato: {len(righe_dati)} famiglie/specie, fattore={fattore}")
 
 
 # ============================================================
@@ -1818,17 +1618,12 @@ _autosave_thread = None
 _autosave_running = False
 
 
-def autosave(wb, lunedi_str, ws_riepilogo=None, lunedi=None):
+def autosave(wb, lunedi_str):
     """Salva silenziosamente su file autosave in un thread background.
     Se un autosave e' gia' in corso, salta (evita lag da save sovrapposti)."""
     global _autosave_thread, _autosave_running
     if _autosave_running:
         return
-    if ws_riepilogo is not None and lunedi is not None:
-        try:
-            genera_bollettino(wb, ws_riepilogo, lunedi)
-        except Exception:
-            pass
     path = OUTPUT_DIR / f"~autosave_{lunedi_str}.xlsx"
     _autosave_running = True
 
@@ -1882,28 +1677,33 @@ def _safe_rename(src, dst, tentativi=3, pausa=0.5):
 def pulisci_file_temporanei(lunedi_str, file_ripreso=None, salvataggio_ok=False):
     """Gestisce i file temporanei dopo la chiusura dello script.
 
-    Se salvataggio_ok=True: rimuove autosave e file temporanei ripreso.
-    Se salvataggio_ok=False: converte autosave in incompleto_ per ripresa futura.
+    Se salvataggio_ok=True: chiede se eliminare l'autosave; rimuove il file ripreso.
+    Se salvataggio_ok=False: chiede se conservare l'autosave per ripresa futura.
     """
     autosave_path = OUTPUT_DIR / f"~autosave_{lunedi_str}.xlsx"
 
     if salvataggio_ok:
-        # Salvataggio riuscito: cancella l'autosave e il file temporaneo ripreso
+        # Salvataggio riuscito: elimina sempre l'autosave (il file definitivo e' gia' stato salvato)
         if autosave_path.exists():
             _safe_remove(autosave_path)
+        # Cancella sempre il file temporaneo ripreso (gia' sostituito dal salvataggio)
         if file_ripreso and file_ripreso.name.startswith(("~autosave_", "incompleto_")):
             if file_ripreso.exists():
                 _safe_remove(file_ripreso)
     else:
-        # Uscita senza salvare: rinomina autosave in incompleto_ per ripresa
+        # Uscita senza salvare: chiedi se conservare il lavoro per ripresa
         if autosave_path.exists():
-            incompleto_path = OUTPUT_DIR / f"incompleto_{lunedi_str}.xlsx"
-            if _safe_rename(autosave_path, incompleto_path):
-                print(f"\n  Il lavoro è stato salvato in: {incompleto_path.name}")
-                print(f"  Puoi riprenderlo alla prossima esecuzione.")
+            risp = input("\n  Conservare il lavoro per riprenderlo alla prossima sessione? (s/n): ").strip().lower()
+            if risp == "s":
+                incompleto_path = OUTPUT_DIR / f"incompleto_{lunedi_str}.xlsx"
+                if _safe_rename(autosave_path, incompleto_path):
+                    print(f"  Il lavoro e' salvato in: {incompleto_path.name}")
+                    print(f"  Puoi riprenderlo alla prossima esecuzione.")
+                else:
+                    print(f"  Il lavoro e' in: {autosave_path.name}")
+                    print(f"  Puoi riprenderlo alla prossima esecuzione.")
             else:
-                print(f"\n  Il lavoro è in: {autosave_path.name}")
-                print(f"  Puoi riprenderlo alla prossima esecuzione.")
+                _safe_remove(autosave_path)
         # Non toccare file_ripreso se l'utente era partito da un incompleto
 
 
@@ -1996,7 +1796,7 @@ def sessione_giorno(ws_riepilogo, ws_log, giorno_num, data_str, log_row,
 
     # Autosave immediato: crea subito il file autosave cosi' la GUI puo'
     # iniziare a tracciarlo senza aspettare i primi 5 inserimenti.
-    autosave(wb, lunedi_str, ws_riepilogo, lunedi)
+    autosave(wb, lunedi_str)
     print(f"  [auto-salvato]: {OUTPUT_DIR / f'~autosave_{lunedi_str}.xlsx'}")
 
     conteggio = controlla_giorno_esistente(ws_riepilogo, giorno_num)
@@ -2048,11 +1848,6 @@ def sessione_giorno(ws_riepilogo, ws_log, giorno_num, data_str, log_row,
                 continue
             if cmd == "n":
                 log_row = aggiungi_nota(ws_log, log_row, data_str)
-                continue
-
-            if cmd == "g":
-                genera_bollettino(wb, ws_riepilogo, lunedi)
-                print("  Bollettino aggiornato nel riepilogo")
                 continue
 
             # ── Undo ──
@@ -2111,11 +1906,11 @@ def sessione_giorno(ws_riepilogo, ws_log, giorno_num, data_str, log_row,
             conteggio_autosave += quantita
 
             if conteggio_autosave % AUTOSAVE_INTERVAL == 0:
-                autosave(wb, lunedi_str, ws_riepilogo, lunedi)
+                autosave(wb, lunedi_str)
                 print(f"  [auto-salvato]: {OUTPUT_DIR / f'~autosave_{lunedi_str}.xlsx'}")
 
         except KeyboardInterrupt:
-            autosave(wb, lunedi_str, ws_riepilogo, lunedi)
+            autosave(wb, lunedi_str)
             print(f"\n\n  Interrotto. {nome_giorno}: {conteggio} osservazioni.")
             print(f"  Auto-salvato su ~autosave_{lunedi_str}.xlsx")
             return "quit", log_row

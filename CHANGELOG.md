@@ -4,7 +4,148 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-03-04
+
+### GUI: nascosti comandi r e w dal menu (ridondanti con le tab live)
+
+**Problema:** nella versione GUI i comandi `r` (riepilogo giornaliero) e `w`
+(riepilogo settimanale) comparivano nel menu del terminale emulato, ma le stesse
+informazioni sono già visibili in tempo reale nelle tab "Giornaliero" e
+"Settimanale" del pannello destro.
+
+**Correzione:**
+- `codice/polline_counter_gui.py`, `_start_subprocess()`: aggiunto `"--gui"`
+  alla riga di comando del subprocess (sia Linux/pty che Windows/pipe).
+- `codice/polline_counter.py`: aggiunto flag `_GUI_MODE = "--gui" in sys.argv`;
+  in `display_menu()` le righe `r` e `w` vengono stampate solo se
+  `not _GUI_MODE`. I comandi restano funzionanti da CLI.
+
+---
+
+### Bollettino integrato nel template Excel
+
+**Problema:** il bollettino pollinico veniva generato dinamicamente da Python
+(`genera_bollettino`) ad ogni autosave e al comando `g`. Richiedeva codice
+ridondante e non era sempre presente nel file se la sessione era breve.
+
+**Correzione:**
+- `codice/Polline_Template_Settimanale.xlsx`: pre-popolato con tutte e 35 le
+  specie di `SOGLIE_MAPPING` nelle righe 76–110, con formule Excel che
+  referenziano la tabella dati grezzi (`=IF(G6>0,ROUND(G6*$Q$3,1),0)` ecc.),
+  intestazioni giornaliere dinamiche (`=IFERROR(PROPER(TEXT($J$3+n,"DDDD"))…`),
+  e formattazione condizionale per i colori (140 regole CF, `stopIfTrue=True`).
+  Il bollettino è ora sempre presente e si aggiorna automaticamente in Excel.
+- `codice/polline_counter.py`:
+  - Rimossa funzione `genera_bollettino()` (~190 righe).
+  - Rimossa funzione `_colore_concentrazione()`.
+  - Rimossi i costanti `FILL_ASSENTE/BASSA/MEDIA/ALTA`.
+  - `compila_intestazione()`: J3 e K3 ora memorizzano la data come valore
+    Excel (non stringa), con `number_format = "DD-MM-YYYY"`, per consentire
+    alle formule del bollettino di calcolare i nomi dei giorni.
+  - `autosave()`: rimossi parametri `ws_riepilogo` e `lunedi` (non più usati);
+    aggiornate tutte le chiamate.
+  - Rimosso il comando `g` (genera bollettino) dal loop di inserimento e dal menu.
+- `script_aiuto/setup_bollettino_template.py`: nuovo script di manutenzione da
+  eseguire manualmente se si aggiorna `SOGLIE_MAPPING` o le soglie di
+  concentrazione, per rigenerare la sezione bollettino nel template.
+
+---
+
+### Soglia Alternaria: "Assente" estesa a 0–1,9
+
+**Problema:** la soglia "Assente" per Alternaria era "0 – 1" (max 1,0 p/m³).
+
+**Correzione:** `codice/concentrazioni_polliniche.xlsx`, riga 19, colonna B:
+valore aggiornato da `0 – 1` a `0 – 1,9`.
+
+---
+
+### Gestione autosave fine sessione: domanda all'utente
+
+**Problema:** alla fine della sessione il file autosave veniva gestito in modo
+automatico senza coinvolgere l'utente: se si usciva senza salvare veniva sempre
+rinominato in `incompleto_*`; se si salvava veniva sempre eliminato silenziosamente.
+L'utente non poteva scegliere e restava sempre un file nella cartella.
+
+**Correzione:** `codice/polline_counter.py`, funzione `pulisci_file_temporanei()`:
+- Uscita **senza** salvare: se l'autosave esiste, chiede
+  "Conservare il lavoro per riprenderlo alla prossima sessione? (s/n)".
+  Risposta `s` → rinomina in `incompleto_*` come prima;
+  risposta `n` → elimina l'autosave.
+- Uscita **con** salvataggio: l'autosave viene eliminato automaticamente
+  (il file definitivo è già stato salvato, nessuna domanda necessaria).
+- Il file ripreso (`incompleto_` o `~autosave_`) viene comunque eliminato
+  dopo un salvataggio riuscito (comportamento invariato).
+- Se l'autosave non esiste (sessione breve, nessun dato inserito), nessuna
+  domanda viene posta.
+
+---
+
+### Bollettino: celle con formule Excel invece di valori statici
+
+**Problema:** le celle dei valori giornalieri e della media nelle due tabelle
+del bollettino (righe 73+, colonne D–L e P–Y del foglio `riepilogo_settimana`)
+contenevano dati numerici calcolati da Python e scritti come valori statici.
+Modificando i dati grezzi dopo la generazione del bollettino, i valori del
+bollettino rimanevano obsoleti.
+
+**Causa:** `genera_bollettino()` calcolava `conc = vals * fattore` in Python
+e scriveva `round(val, 1)` direttamente nella cella.
+
+**Correzione:** `codice/polline_counter.py`, funzione `genera_bollettino()`:
+- `righe_dati` ora include `row_riep` (riga del dato grezzo nel foglio).
+- Celle giornaliere T1 e T2 (es. colonna E riga 76): formula
+  `=IF(G{row_riep}>0,ROUND(G{row_riep}*$Q$3,1),0)` che referenzia la cella
+  grezza corrispondente moltiplicata per il fattore di conversione in `$Q$3`.
+- Celle media T1 e T2 (es. colonna L riga 76): formula
+  `=ROUND(SUM(G{row_riep}:M{row_riep})*$Q$3/7,1)`.
+- I colori nella tabella T2 continuano a essere calcolati in Python al momento
+  della generazione (invariato).
+
+---
+
 ## 2026-03-03
+
+### Fix launcher Desktop e aggiornamento regole CLAUDE.md
+
+**Problema:** il launcher GNOME sul Desktop (`~/Scrivania/ContaPollinica.desktop`)
+puntava a `pollencounter/AVVIA_CONTA_POLLINICA_GUI.sh` (root del progetto), ma
+dopo la riorganizzazione del 2026-03-03 lo script e' stato spostato in
+`script_aiuto/`. Il launcher era quindi rotto.
+
+**Causa:** la riorganizzazione delle cartelle non aveva incluso l'aggiornamento
+del file `.desktop`. Il CLAUDE.md non conteneva la regola di aggiornarlo.
+
+**Correzione:**
+- `~/Scrivania/ContaPollinica.desktop`: campo `Exec` aggiornato da
+  `.../pollencounter/AVVIA_CONTA_POLLINICA_GUI.sh` a
+  `.../pollencounter/script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh`.
+- `CLAUDE.md` (sezione "Note operative"): aggiunta regola che impone di
+  aggiornare il launcher `.desktop` dopo ogni spostamento di script o cambio
+  di percorsi, con il path completo e il valore attuale del campo `Exec`.
+
+---
+
+## 2026-03-03
+
+### Aggiunta cartella mac/ con script di avvio e istruzioni per macOS
+
+**Motivazione:** fornire supporto per utenti macOS, in parallelo con quanto
+gia' disponibile per Windows e Linux.
+
+**Correzione:** creazione della cartella `mac/` con i seguenti file:
+- `AVVIA_CONTA_POLLINICA_GUI.sh` — avvio GUI da Terminale (macOS)
+- `AVVIA_CONTA_POLLINICA.sh` — avvio CLI da Terminale (macOS)
+- `build_app.sh` — script per creare `Conta_Pollinica.app` con PyInstaller
+  (da eseguire su un Mac; usa separatore `:` in `--add-data` come richiesto
+  da PyInstaller su sistemi POSIX, e `--windowed` senza `--onefile` per
+  produrre un vero bundle `.app`)
+- `ISTRUZIONI_MAC.txt` — istruzioni d'uso per utenti macOS
+
+**Nota:** l'eseguibile `.app` non e' incluso perche' non compilabile da Linux;
+il file `build_app.sh` va eseguito su un Mac quando disponibile.
+
+---
 
 ### Riorganizzazione struttura cartelle del progetto
 

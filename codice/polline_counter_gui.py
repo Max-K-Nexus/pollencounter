@@ -267,7 +267,7 @@ class PollineCounterGUI:
             if getattr(sys, 'frozen', False):
                 cmd = [sys.executable, "--cli"]
             else:
-                cmd = [sys.executable, "-u", str(SCRIPT_PATH)]
+                cmd = [sys.executable, "-u", str(SCRIPT_PATH), "--gui"]
             self.process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -287,7 +287,7 @@ class PollineCounterGUI:
             winsize = struct.pack("HHHH", 40, 100, 0, 0)
             fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
             self.process = subprocess.Popen(
-                [sys.executable, str(SCRIPT_PATH)],
+                [sys.executable, str(SCRIPT_PATH), "--gui"],
                 stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
                 close_fds=True, cwd=str(SCRIPT_DIR),
             )
