@@ -1,0 +1,320 @@
+==============================================================
+  CONTA POLLINICA - ISTRUZIONI D'USO
+  Sistema automatizzato per riepilogo settimanale
+==============================================================
+
+REQUISITI
+---------
+- Python 3
+- Libreria openpyxl:  pip3 install openpyxl
+- Il file Polline_Template_Settimanale.xlsx nella cartella codice/
+
+
+AVVIO
+-----
+  python3 codice/polline_counter.py          (CLI, dalla cartella pollencounter/)
+  python3 codice/polline_counter_gui.py      (GUI, dalla cartella pollencounter/)
+
+oppure con gli script di avvio:
+  ./script_aiuto/AVVIA_CONTA_POLLINICA.sh       (CLI)
+  ./script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh   (GUI)
+
+
+FLUSSO DI LAVORO
+----------------
+
+1. RIPRESA O NUOVO FILE
+   All'avvio, se nella cartella ci sono file .xlsx gia' salvati,
+   lo script propone di riprenderne uno oppure partire da zero:
+
+     File esistenti trovati:
+       1) incompleto_09-02-2026.xlsx  (164 righe log)
+       2) Conta_Pollinica_02-02-2026.xlsx  (80 righe log)
+       n) Nuovo file (dal template)
+     Scelta:
+
+   Scegliere il numero per riprendere, oppure "n" per un file nuovo.
+
+2. SCELTA DELLA SETTIMANA
+   Lo script chiede la settimana da analizzare. La settimana
+   corrente e' proposta come default (basta premere Invio):
+
+     Che settimana stiamo analizzando?
+       Invio = settimana corrente (dal 09-02-2026 al 15-02-2026)
+       Settimana:
+
+   Si puo' inserire una data in molti formati (vedi sotto).
+   Lo script risale automaticamente al lunedi' corretto.
+
+   Formati data riconosciuti:
+     9-2-2026    09-02-2026    9/2/2026    09/02/2026
+     9-2-26      09-02-26      (anno a 2 cifre: assume 20xx)
+     9 feb 2026  9 febbraio 2026  (mesi italiani)
+     dal 09-02-2026 al 15-02-2026  (estrae la prima data)
+
+3. SCELTA DEL GIORNO
+   Lo script mostra i 7 giorni con le date reali:
+
+     Seleziona il giorno di lavoro:
+       1) LUNEDI       09-02-2026
+       2) MARTEDI      10-02-2026
+       3) MERCOLEDI    11-02-2026
+       ...
+     Scegli (1-7):
+
+   Se il giorno scelto contiene gia' dati, viene mostrato un
+   avviso con il totale e si chiede conferma prima di continuare.
+
+4. INSERIMENTO DATI
+   Il prompt mostra il giorno e il conteggio totale del giorno:
+
+     MER [0] >>
+
+   Il numero tra parentesi e' il totale reale delle osservazioni
+   per quel giorno (compresi eventuali dati precedenti se si
+   sta riprendendo un file).
+
+   Inserire il codice numerico della specie (01-59).
+   Il codice puo' essere inserito con o senza lo zero iniziale
+   (es. "5" equivale a "05").
+
+
+COMANDI DURANTE L'INSERIMENTO
+------------------------------
+
+  CODICE    Inserisce la specie corrispondente (01-59)
+            Esempio: 48 -> Alternaria (+1)
+
+  NNxQ      Inserimento multiplo: NN = codice, Q = quantita'
+            Esempio: 48x4 -> 4 Alternaria in un colpo
+            Accetta anche: 48X4, 48*4
+
+  .         Ripete l'ultimo codice inserito (+1)
+            Ideale al microscopio: 48 . . . = 4 Alternaria
+            senza mai staccare gli occhi dall'oculare
+
+  u         Annulla l'ultimo inserimento (o l'ultimo blocco NNxQ)
+            Dopo 5 annullamenti consecutivi chiede conferma.
+            Ogni annullamento viene registrato nel log.
+
+  r         Riepilogo giornata corrente: mostra pollini e spore
+            separatamente, con totali per sezione e totale giorno
+
+  w         Riepilogo settimanale: tabella lun-dom affiancata
+            con tutte le specie che hanno dati e i totali
+
+  l         Storico: mostra gli ultimi 10 inserimenti con orario
+
+  c         Correggi un giorno precedente (o il giorno corrente):
+            - scelta del giorno
+            - visualizzazione dati attuali
+            - scelta della specie da correggere
+            - inserimento del nuovo valore
+            La correzione viene registrata nel log.
+
+  n         Aggiungi una nota per la giornata. La nota viene
+            registrata nel foglio dati_grezzi (log) con la data
+            e l'orario corrente. Utile per annotare condizioni
+            particolari (es. "vetrino rovinato", "preparato scarso",
+            "pioggia forte").
+
+  b         Attiva/disattiva il beep sonoro (spento di default).
+            Quando attivo, emette un suono a ogni inserimento
+            valido, utile come conferma uditiva al microscopio.
+
+  h         Mostra il menu con tutti i codici e i comandi
+
+  d         Chiudi la giornata corrente. Lo script chiede se
+            si vuole continuare con un altro giorno.
+
+  s         Sospendi la sessione: salva immediatamente su
+            "incompleto_{settimana}.xlsx" e esce.
+            Alla prossima esecuzione il file apparira' nel menu
+            di ripresa.
+
+  q         Salva il file con nome definitivo e esci.
+            Chiede conferma prima di procedere (per evitare
+            uscite accidentali).
+
+
+CODICI SPECIE
+-------------
+
+  POLLINI (01-47):
+  01: ACERACEAE                 02: ALTRI POLLINI
+  03: BETULACEAE                04: Alnus
+  05: Betula                    06: CANNABACEAE
+  07: CHENO-AMAR                08: COMPOSITAE
+  09: Altre compositae          10: Ambrosia
+  11: Artemisia                 12: CORYLACEAE (somma c+o)
+  13: Carpinus/Ostrya           14: Carpinus
+  15: Ostrya carpinifolia       16: Corylus avellana
+  17: CUP-TAXACEAE              18: ERICACEAE
+  19: EUPHORBIACEAE             20: FAGACEAE
+  21: Castanea sativa           22: Fagus sylvatica
+  23: Quercus                   24: GRAMINEAE
+  25: HIPPOCASTANACEAE          26: JUGLANDACEAE
+  27: LAURACEAE                 28: MIMOSACEAE
+  29: MORACEAE                  30: MYRTACEAE
+  31: OLEACEAE                  32: Altre oleaceae
+  33: Fraxinus                  34: Ligustrum
+  35: Olea                      36: PINACEAE
+  37: PLANTAGINACEAE            38: PLATANACEAE
+  39: POLLINI NON IDENTIFICATI  40: POLYGONACEAE
+  41: SALICACEAE                42: Populus
+  43: Salix                     44: TILIACEAE
+  45: ULMACEAE                  46: UMBELLIFERAE
+  47: URTICACEAE
+
+  SPORE (48-59):
+  48: Alternaria                49: Botrytis
+  50: Cladosporium              51: Curvularia
+  52: Epicoccum                 53: Helminthosporium
+  54: Pithomyces                55: Pleospora
+  56: Polythrincium             57: Stemphylium
+  58: Tetraploa                 59: Torula
+
+
+SALVATAGGIO E FILE
+------------------
+
+- AUTO-SAVE: ogni 10 inserimenti lo script salva automaticamente
+  su "~autosave_{settimana}.xlsx". Anche in caso di Ctrl+C o
+  chiusura improvvisa i dati non vengono persi.
+
+- SOSPENSIONE (comando "s"): salva su "incompleto_{settimana}.xlsx"
+  per riprendere in un secondo momento.
+
+- SALVATAGGIO DEFINITIVO (comando "q"): chiede conferma, poi
+  chiede il nome del file. Il default e'
+  "Conta_Pollinica_{data}.xlsx" per file nuovi, oppure il nome
+  originale per file ripresi.
+  Se il file esiste gia' viene chiesta conferma prima di
+  sovrascriverlo.
+
+- Dopo il salvataggio definitivo i file temporanei (~autosave_*
+  e incompleto_*) vengono rimossi automaticamente.
+
+- Il template originale non viene MAI modificato.
+
+
+STRUTTURA DEL FILE EXCEL
+-------------------------
+
+Foglio "riepilogo_settimana":
+  - Riga 3: intestazione (mese, settimana, anno, fattore conv.)
+  - Righe 6-52: dati pollini (grezzi colonne G-M, concentrazione S-Y)
+  - Riga 53: totali pollini
+  - Righe 58-69: dati spore
+  - Riga 70: totali spore
+  - Colonna Z: MEDIA settimanale (formula AVERAGE automatica)
+  - Le formule di concentrazione (=grezzo * 0.4) si aggiornano
+    automaticamente.
+
+Foglio "dati_grezzi" (log):
+  - Colonna A: data (dd-mm-aaaa)
+  - Colonna B: codice specie (o "--" per le note)
+  - Colonna C: nome specie (o "NOTA" per le note)
+  - Colonna D: orario (HH:MM:SS)
+  - Colonna E: note (CORREZIONE / ANNULLATO / testo nota)
+
+
+FORMATTAZIONE COLORI DEL TEMPLATE
+----------------------------------
+  - Giallo: righe intestazione (POLLINI, SPORE, giorni settimana)
+  - Verde: specie di maggiore interesse (Betula, CORYLACEAE,
+    GRAMINEAE, Olea, URTICACEAE, ecc.)
+  - Rosso sfondo: celle MEDIA, Fatt.conv, 0.4
+  - Font nero: celle dati/formula tabelle sinistre (D:M)
+  - Font rosso: celle dati/formula tabelle destre (S:Z)
+  - Bordo sinistro nero: colonna MEDIA (Z)
+
+
+AGGIORNAMENTO DEL TEMPLATE
+---------------------------
+Per modificare la formattazione o le formule del template,
+eseguire lo script una tantum:
+
+  python3 script_aiuto/applica_formattazione.py
+
+Questo aggiorna il file Polline_Template_Settimanale.xlsx in-place.
+Si puo' anche modificare il template manualmente con LibreOffice
+Calc senza conflitti.
+
+
+ESEMPIO DI SESSIONE TIPICA
+---------------------------
+
+  $ python3 polline_counter.py
+
+  File esistenti trovati:
+    1) incompleto_09-02-2026.xlsx  (45 righe log)
+    n) Nuovo file (dal template)
+  Scelta: 1
+
+    Ripreso: incompleto_09-02-2026.xlsx
+
+  Che settimana stiamo analizzando?
+    Invio = settimana corrente (dal 09-02-2026 al 15-02-2026)
+    Settimana: [Invio]
+    -> Settimana: 09-02-2026 (lun) - 15-02-2026 (dom)
+
+  Seleziona il giorno di lavoro:
+    1) LUNEDI       09-02-2026
+    ...
+    3) MERCOLEDI    11-02-2026
+    ...
+  Scegli (1-7): 3
+
+    Giorno:   MERCOLEDI
+    Data:     11-02-2026
+    Colonna:  I (riepilogo settimanale)
+
+  MER [0] >> 48
+    -> [48] Alternaria  (totale giorno: 1)
+  MER [1] >> .
+    -> [48] Alternaria  (totale giorno: 2)
+  MER [2] >> .
+    -> [48] Alternaria  (totale giorno: 3)
+  MER [3] >> 24x5
+    -> [24] GRAMINEAE x5  (totale giorno: 5)
+  MER [8] >> r
+
+    Riepilogo MERCOLEDI:
+    POLLINI:
+      [24] GRAMINEAE: 5
+      --- Totale pollini: 5
+    SPORE:
+      [48] Alternaria: 3
+      --- Totale spore: 3
+    === TOTALE GIORNO: 8
+
+  MER [8] >> n
+    Nota: vetrino con bolle d'aria
+    Nota registrata: vetrino con bolle d'aria
+
+  MER [8] >> u
+    <- Annullato: [24] GRAMINEAE x5
+  MER [3] >> w
+
+                                LUN  MAR  MER  GIO  VEN  SAB  DOM
+    ---------------------------------------------------------
+    [05] Betula                   2    1    -    -    -    -    -
+    --- Totale pollini            2    1    0    0    0    0    0
+
+    [48] Alternaria               -    -    3    -    -    -    -
+    --- Totale spore              0    0    3    0    0    0    0
+
+  MER [3] >> d
+
+    Chiusura MERCOLEDI: 3 osservazioni.
+
+  Vuoi continuare con un altro giorno? (s/n): n
+
+  MER [3] >> q
+    Salvare e uscire? (s/n): s
+
+  Nome file di output [incompleto_09-02-2026.xlsx]: Conta_Pollinica_09-02-2026
+    File salvato: .../Conta_Pollinica_09-02-2026.xlsx
+
+    Sessione terminata.

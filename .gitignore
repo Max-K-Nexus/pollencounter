@@ -1,0 +1,23 @@
+# Impostazioni locali Claude Code
+.claude/settings.local.json
+
+# Backup template (file temporanei)
+codice/*_BACKUP.xlsx
+codice/*_bak.xlsx
+
+# Output sessioni (dati reali, non vanno nel repo)
+letture_settimanali/
+
+# File temporanei dello script
+~autosave_*.xlsx
+incompleto_*.xlsx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller (artefatti di build)
+windows/build/
+windows/dist/
+windows/*.spec
