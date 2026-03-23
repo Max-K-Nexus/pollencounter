@@ -4,6 +4,228 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-03-23
+
+### Miglioramento flusso salvataggio e selezione cartella
+
+**Problema:** I dialog nativi della GUI (salva file, apri file, scegli cartella)
+si aprivano sempre nella cartella dello script (`codice/`) invece che nella
+cartella di lavoro configurata dall'utente. Il flusso di uscita richiedeva 3
+domande separate (salva? annuale? bollettini?). Non esisteva un modo per salvare
+durante la sessione senza uscire dal programma.
+
+**Causa:** I marker GUI (`__GUI_ASKSAVEFILE__`, `__GUI_ASKDIR__`,
+`__GUI_ASKOPENFILE__`) non trasportavano parametri — la GUI usava `SCRIPT_DIR`
+come `initialdir` di default. Le domande post-salvataggio erano distribuite tra
+`menu_uscita_salvataggio()` e `main()`.
+
+**Correzione:**
+- `codice/polline_counter.py`:
+  - Marker parametrizzati: formato `__GUI_MARKER__|dir|filename` con `OUTPUT_DIR`
+    come directory iniziale e nome file suggerito (righe ~487, ~571, ~2103).
+  - `menu_uscita_salvataggio()` (riga ~502): nuova signature con `ctx` e `stato`;
+    salvataggio rapido per file gia' salvati mid-session o file ripresi; menu
+    operazioni aggiuntive unificato (annuale + bollettini) in un'unica scelta 1/2/3.
+  - Rimosso codice duplicato in `main()` (domande separate annuale/bollettini).
+  - Nuovo comando `s` in `sessione_giorno()` (riga ~2038): salva il file senza
+    uscire, ricorda il percorso per salvataggi successivi.
+  - `display_menu()`: aggiunta riga help per il comando `s`.
+- `codice/polline_counter_gui.py`:
+  - `_handle_gui_markers()` (riga ~429): parsing parametri dopo il marker base,
+    delimitati da `|` e terminati da `\n`; fallback a `SCRIPT_DIR` se assenti.
+  - `initialdir` e `initialfile` dinamici nei dialog `filedialog`.
+  - Fix Enter vagante: flag `_dialog_active` previene che un evento `<Return>`
+    propagato dalla chiusura del filedialog invii una stringa vuota allo stdin,
+    saltando l'input successivo dello script.
+
+### Template bollettino: rimozione "Dott.ssa Marta Pezzato" e larghezze legenda
+
+**Problema:** I template Word del bollettino pollinico (ITA e ENG) riportavano
+nell'intestazione il nome "Dott.ssa Marta Pezzato / Dr. Marta Pezzato" tra i
+collaboratori. Inoltre le celle della tabella legenda erano troppo strette e il
+testo andava a capo.
+
+**Causa:** Il nome era presente direttamente nei file `.docx` template. Le
+larghezze delle colonne della tabella legenda (totale ~6269 dxa ≈ 11 cm) erano
+insufficienti per contenere il testo su una sola riga.
+
+**Correzione:**
+- `codice/ITA_Template_Bollettino_pubblicazione.docx`: rimosso
+  "- Dott.ssa Marta Pezzato " dal run del paragrafo intestazione.
+- `codice/ENG_Template_Bollettino_pubblicazione.docx`: rimossi i runs
+  "– Dr. Marta Pezzato" dal paragrafo intestazione.
+- Entrambi i template: larghezze colonne tabella legenda aggiornate da
+  ~6269 dxa a 11800 dxa (~20.8 cm), con distribuzione
+  [4200, 2200, 1900, 1900, 1600] dxa per le cinque celle.
+
+### Revisione codice: fix critici, ridondanze e pulizia
+
+**Fix 1-2 — Thread safety autosave e SIGTERM sincrono**
+- `polline_counter.py`: sostituito flag booleano `_autosave_running` con
+  `threading.Lock` (`_autosave_lock`) per serializzare `wb.save()` rispetto
+  alle modifiche del main thread. Aggiunto parametro `sincrono=True` per
+  salvataggi in contesti dove il thread non puo' completarsi (SIGTERM,
+  KeyboardInterrupt).
+- Il SIGTERM handler ora chiama `_attendi_autosave()` + `autosave(sincrono=True)`
+  invece di lanciare un thread daemon che rischiava di non completarsi.
+
+**Fix 3 — `conteggio_autosave` dopo undo**
+- `sessione_giorno`: dopo un undo, `conteggio_autosave` viene decrementato
+  coerentemente con `conteggio`, evitando desincronizzazione degli autosave.
+
+**Fix 4 — Errori lettura Excel nella GUI**
+- `polline_counter_gui.py`: `_leggi_dati_thread` ora mostra l'errore nella
+  label info del tab Bollettino invece di ignorarlo silenziosamente.
+
+**Fix 5 — Soglie unificate per bollettino Word**
+- `BOLL_WORD_RIGHE`: aggiunto campo `soglie_famiglia` a ogni riga.
+- `genera_bollettini_word`: ora carica le soglie da `carica_soglie()` (foglio
+  integrato o file esterno) e usa i valori hardcoded solo come fallback.
+  Eliminata la doppia fonte di verita'.
+
+**Fix 6 — Helper `leggi_fattore(ws)`**
+- Nuova funzione `leggi_fattore()` che centralizza la lettura del fattore
+  di conversione da cella Q3. Sostituisce il pattern inline ripetuto in
+  `genera_bollettini_word`, `esporta_riepilogo_annuale` e `_raccogli_dati` (GUI).
+
+**Fix 7 — Costanti stili openpyxl a livello di modulo**
+- Estratte 9 costanti di modulo: `THIN_BORDER`, `FILL_GIALLO`, `FILL_VERDE`,
+  `FILL_VERDE_CHIARO`, `FILL_BLU`, `FONT_BOLD`, `FONT_BOLD_BIG`,
+  `FONT_BIANCO_BOLD`, `ALIGN_CENTER`, `ALIGN_CENTER_WRAP`.
+- Sostituite le variabili locali omonime in 5 funzioni:
+  `crea_intestazione_annuale`, `scrivi_riga_annuale`,
+  `crea_foglio_settimana_annuale`, `scrivi_colonna_calendario`,
+  `crea_intestazione_calendario`.
+
+**Fix 8 — Rimozione dead code**
+- Rimossa costante `BOLL_START_ROW` (mai usata).
+- Rimossa funzione `formatta_data_annuale` (wrapper di `strftime`, una riga,
+  un solo punto di utilizzo — inlineato).
+- Rimossa funzione `giorno_abbrev` (un solo punto di utilizzo — inlineato).
+
+**Fix 10 — Riduzione parametri `sessione_giorno`**
+- Da 12 parametri a 5: `ctx, giorno_num, data_str, log_row, stato`.
+- Il dict `ctx` raggruppa i parametri invarianti della sessione
+  (`ws_riepilogo`, `ws_log`, `wb`, `lunedi`, `lunedi_str`, `prima_data`,
+  `nome_ripreso`, `file_ripreso`), creato una volta in `main()`.
+
+---
+
+## 2026-03-17
+
+### GUI: compatibilità tkinter con macOS 26 (Tahoe / Tk 9.0)
+
+**Problema:** la GUI (`polline_counter_gui.py`) presentava quattro problemi
+di incompatibilità con macOS 26 (Tahoe) e Tk 9.0:
+1. Font `"Monospace"` non valido su macOS (causava fallback su font sans-serif).
+2. Con Tk 9.0 e il tema `aqua` nativo, `tag_configure(background=...)` sui
+   widget `Treeview` veniva ignorato (tab Bollettino senza colori).
+3. `focus_force()` su macOS causa conflitti con la gestione del focus nelle
+   finestre di dialogo native.
+4. Il tema `sv_ttk` (Sun Valley, stile Windows 11) veniva attivato anche su
+   macOS se installato, alterando l'aspetto nativo.
+
+**Causa:** il codice non distingueva macOS (`darwin`) dagli altri sistemi Unix,
+trattandolo identicamente a Linux. macOS usa font diversi, il tema Tk `aqua`
+con comportamento diverso in Tk 9.0, e politiche di focus più restrittive.
+
+**Correzione** (`codice/polline_counter_gui.py`):
+- `_MONO_FONT`: aggiunto caso `darwin` → `"Menlo"` (font monospace nativo macOS).
+- `_build_ui()`: aggiunto `style.map("Treeview", background=[], foreground=[])`
+  solo su `darwin`, per azzerare il mapping del tema `aqua` e permettere a
+  `tag_configure` di avere effetto.
+- `_handle_gui_markers()`: `focus_force()` saltato su `darwin`; si usa solo
+  `lift()` che è sufficiente su macOS.
+- `main()`: `sv_ttk.set_theme("light")` condizionato a `sys.platform == "win32"`.
+- `_start_subprocess()`: aggiunto controllo `frozen` nel ramo Unix/macOS.
+  In modalità frozen (PyInstaller `.app`) il file `polline_counter.py` non
+  esiste nel bundle; il subprocess ora si rilancia con `--cli` come fa già
+  il ramo Windows. Senza questa fix l'app `.app` si avviava ma il pannello
+  terminale restava vuoto (processo non partiva).
+
+---
+
+## 2026-03-06
+
+### Bollettino Word: ridistribuzione larghezze colonne tabella
+
+**Problema:** le celle dei giorni della settimana avevano larghezze
+disomogenee (1.47–1.96 cm) e insufficienti per contenere il testo su
+una riga sola (es. "Mercoledì 17" in Arial Narrow 9pt bold).
+La tabella usava solo 22.73 cm dei 27.16 cm disponibili (pagina landscape,
+margini 1.27 cm).
+
+**Causa:** le larghezze originali del template erano progettate per una
+settimana specifica; colonne asimmetriche e spazio inutilizzato sulla destra.
+
+**Correzione** (`codice/polline_counter.py`, `genera_bollettini_word`):
+- Aggiunta costante `_COL_WIDTHS = [2000, 1300×7, 1800, 2498]` (dxa):
+  tutte e 7 le colonne giorno uguali a 1300 dxa (2.29 cm).
+- Aggiunta funzione interna `_set_table_widths(table)`: modifica
+  `w:tblGrid/w:gridCol` e `w:tblPr/w:tblW` per applicare le nuove
+  larghezze e portare la tabella a 15398 dxa (27.16 cm, area piena).
+- Chiamata `_set_table_widths(table)` subito dopo `Document(template_path)`.
+- Colonna specie: 2000 dxa (3.53 cm, invariata);
+  colonna Media: 1800 dxa (3.17 cm, +282 dxa);
+  colonna Tendenza: 2498 dxa (4.41 cm, invariata circa).
+
+---
+
+### Aggiornamento CLAUDE.md e ISTRUZIONI.txt
+
+**CLAUDE.md:**
+- Struttura file: aggiunti `ITA_Template_Bollettino_pubblicazione.docx` e
+  `ENG_Template_Bollettino_pubblicazione.docx` nella cartella `codice/`.
+- Tabella funzioni principali: aggiornata — rimossa `chiedi_cartella_salvataggio`
+  (eliminata) e `genera_bollettino` (rimossa); aggiunte `chiedi_percorso_salvataggio`
+  e `genera_bollettini_word`; aggiornata descrizione di `menu_uscita_salvataggio`.
+- Marker GUI: aggiunto `__GUI_ASKSAVEFILE__` → `filedialog.asksaveasfilename()`.
+- Tracking file: corretto — `[auto-salvato]` ora include il path completo nel
+  messaggio (`[auto-salvato]: /path/...`), non usa più glob in `SCRIPT_DIR`.
+- Dipendenze: aggiunto `python-docx` come opzionale.
+- Build Windows: aggiunto `python-docx` nel comando pip install.
+- `applica_formattazione.py`: corretto "tre copie (root, linux/, windows/)" in
+  "due copie (codice/, windows/)"; `linux/` non esiste piu'.
+
+**ISTRUZIONI.txt:**
+- REQUISITI: aggiunta dipendenza opzionale `python3-docx`.
+- SALVATAGGIO: corretto "ogni 10 inserimenti" in "ogni 5"; aggiornata
+  descrizione del salvataggio definitivo.
+- Aggiunta sezione "BOLLETTINI WORD (ITA/ENG)".
+
+---
+
+### Bollettino Word: allineamento completo alla formattazione del template
+
+**Problema:**
+1. Giorni ITA senza i accentate ("Lunedi" invece di "Lunedì", ecc.).
+2. Colore blu `002060` del testo perduto in intestazione e colonna nomi:
+   `_set_cell_text` eliminava i run originali senza ripristinare il colore.
+3. Righe dati senza bordi neri (`add_row()` non eredita `tcBorders`).
+4. Font size non impostato (template: 10pt per cella 0, 9pt per il resto).
+5. Font bold non impostato per le celle intestazione.
+6. Allineamento verticale (`center`) e paragrafo (`center`) assenti nelle
+   righe dati.
+7. Altezza righe dati non impostata (template: 360 twips = 18pt).
+8. En-dash ("–") nel titolo sostituito da trattino semplice ("-").
+
+**Causa:** confronto sistematico tra XML del template e del file generato.
+
+**Correzione** (`codice/polline_counter.py`):
+- `_GIORNI_ITA_LONG` aggiornata con i accentate (Lunedì, Martedì, ecc.).
+- Import `Pt` aggiunto a `from docx.shared import RGBColor, Pt`.
+- `_set_cell_text`: aggiunti parametri `color`, `bold`, `size_pt`.
+- Nuova `_set_cell_paragraph_format(cell)`: imposta `w:vAlign=center` e
+  `w:jc=center` sul paragrafo.
+- Nuova `_set_row_height(row, twips)`: imposta `w:trHeight` con `hRule=exact`.
+- Chiamate intestazione aggiornate: `color="002060"`, `bold=True`,
+  `size_pt=10` (cella 0) e `size_pt=9` (celle giorni); en-dash nel titolo.
+- Loop dati: `_set_cell_borders` + `_set_cell_paragraph_format` su ogni
+  cella; `color="002060"`, `size_pt=9` sul nome specie;
+  `_set_row_height(new_row, 360)` su ogni riga aggiunta.
+
+---
+
 ## 2026-03-05
 
 ### Salvataggio: dialog nativa e semplificazione flusso

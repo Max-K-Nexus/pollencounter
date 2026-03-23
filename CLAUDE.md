@@ -21,9 +21,11 @@ pollencounter/
   codice/                             ← script principali e file di riferimento del codice
     polline_counter.py                ← script CLI, cross-platform (Linux + Windows)
     polline_counter_gui.py            ← GUI tkinter, cross-platform
-    Polline_Template_Settimanale.xlsx ← template Excel master (NON modificare)
-    concentrazioni_polliniche.xlsx    ← soglie per il bollettino
-    pollencounter.cfg                 ← configurazione cartella di lavoro per anno
+    Polline_Template_Settimanale.xlsx          ← template Excel master (NON modificare)
+    concentrazioni_polliniche.xlsx             ← soglie per il bollettino (fallback esterno)
+    ITA_Template_Bollettino_pubblicazione.docx ← template Word bollettino italiano
+    ENG_Template_Bollettino_pubblicazione.docx ← template Word bollettino inglese
+    pollencounter.cfg                          ← configurazione cartella di lavoro per anno
   script_aiuto/                       ← avviatori e utility di manutenzione
     AVVIA_CONTA_POLLINICA_GUI.sh      ← avvio GUI da terminale (Linux)
     AVVIA_CONTA_POLLINICA.sh          ← avvio CLI da terminale (Linux)
@@ -70,13 +72,13 @@ Il flusso principale è in `main()`:
 | Funzione | Ruolo |
 |----------|-------|
 | `sessione_giorno()` | Loop di inserimento per un giorno; ritorna `"continue"` o `"quit"` |
-| `menu_uscita_salvataggio()` | Menu fine sessione: salva nuovo / sovrascrivi / esci senza salvare |
-| `chiedi_cartella_salvataggio()` | Chiede la cartella; stampa `__GUI_ASKDIR__` (intercettato dalla GUI) |
+| `menu_uscita_salvataggio()` | Menu fine sessione: chiede conferma, poi chiama `chiedi_percorso_salvataggio` |
+| `chiedi_percorso_salvataggio(nome_default)` | Stampa `__GUI_ASKSAVEFILE__` (GUI: asksaveasfilename; CLI: prompt con default) |
 | `chiedi_ripresa_o_nuovo()` | Menu iniziale; opzione `i` stampa `__GUI_ASKOPENFILE__` |
-| `autosave()` | Salva in `~autosave_{lunedi_str}.xlsx` silenziosamente |
+| `autosave()` | Salva in `~autosave_{lunedi_str}.xlsx` in thread daemon |
 | `pulisci_file_temporanei()` | Post-sessione: cancella o rinomina l'autosave in `incompleto_` |
-| `genera_bollettino()` | Crea il foglio "bollettino" con colori concentrazione |
-| `carica_soglie()` | Legge `concentrazioni_polliniche.xlsx` |
+| `genera_bollettini_word(ws, lunedi, lunedi_str, cartella)` | Genera `Bollettino_ITA_*.docx` e `Bollettino_ENG_*.docx`; richiede `python-docx` |
+| `carica_soglie()` | Legge soglie dal foglio interno "soglie" o dal file esterno |
 
 **SIGTERM handler** (solo Linux): registrato in `main()` dopo che `wb` e
 `lunedi_str` sono noti. Chiama `autosave()` e `sys.exit(0)`. Permette alla GUI
@@ -102,8 +104,9 @@ li rimuove dal testo visualizzato e apre un dialogo nativo:
 
 | Marker nello stdout dello script | Dialogo aperto dalla GUI |
 |----------------------------------|--------------------------|
-| `__GUI_ASKDIR__` | `filedialog.askdirectory()` — scegli cartella di salvataggio |
+| `__GUI_ASKDIR__` | `filedialog.askdirectory()` — scegli cartella (config anno) |
 | `__GUI_ASKOPENFILE__` | `filedialog.askopenfilename()` — scegli file da importare |
+| `__GUI_ASKSAVEFILE__` | `filedialog.asksaveasfilename()` — salva file definitivo |
 
 La GUI invia il percorso scelto (o stringa vuota se annullato) via stdin.
 Lo script riceve il percorso come risposta alla `input()` successiva.
@@ -113,7 +116,7 @@ In modalità CLI i marker sono visibili ma innocui.
 La GUI legge i path completi stampati dallo script tramite regex:
 - `Ripreso: (.+\.xlsx)` — file ripreso
 - `File salvato: (.+\.xlsx)` — salvataggio definitivo
-- `[auto-salvato]` — cerca il più recente `~autosave_*.xlsx` in `SCRIPT_DIR`
+- `[auto-salvato]: (.+\.xlsx)` — path completo dell'autosave incluso nel messaggio
 
 Queste stampe usano path completi (non `.name`) appositamente per questo tracking.
 
@@ -141,6 +144,7 @@ Queste stampe usano path completi (non `.name`) appositamente per questo trackin
 ```
 openpyxl      ← obbligatorio (lettura/scrittura Excel)
 tkinter       ← obbligatorio per la GUI (su Debian: sudo apt install python3-tk)
+python-docx   ← opzionale (bollettini Word; sudo apt install python3-docx)
 sv_ttk        ← opzionale (tema Windows; pip install sv-ttk)
 pyinstaller   ← solo per build Windows exe (vedi sezione sotto)
 winsound      ← solo Windows, incluso nella stdlib
@@ -174,7 +178,7 @@ Eseguire dalla directory `windows/`:
 cd /home/Simone/Documenti/Spec_Igiene/pollencounter/windows
 
 # Aggiorna dipendenze Python Windows (solo se necessario)
-WINEDEBUG=-all wine python -m pip install --quiet openpyxl sv-ttk
+WINEDEBUG=-all wine python -m pip install --quiet openpyxl sv-ttk python-docx
 
 # Compila l'exe (i file sorgente e xlsx sono in codice/)
 WINEDEBUG=-all wine python -m PyInstaller --onefile --windowed \
@@ -255,7 +259,7 @@ python3 script_aiuto/applica_formattazione.py
 - Applica bordi thin completi sulle sezioni dati
 - Applica grassetto selettivo su nomi specie importanti e intestazioni
 - Centra il contenuto delle celle dati
-- Aggiorna in parallelo le tre copie del template (root, `linux/`, `windows/`)
+- Aggiorna le due copie del template (`codice/` e `windows/`)
 - Crea automaticamente un backup prima di modificare il template principale
 
 **Nota:** non inserisce formule Excel. Opera esclusivamente sulla formattazione.

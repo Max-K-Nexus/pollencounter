@@ -50,7 +50,21 @@ else:
 TEMPLATE_FILE = BUNDLE_DIR / "Polline_Template_Settimanale.xlsx"
 
 AUTOSAVE_INTERVAL = 5  # salva ogni N inserimenti
-BOLL_START_ROW = 73    # riga iniziale del bollettino nel foglio riepilogo
+
+# ── Stili openpyxl riutilizzati in piu' funzioni ──
+THIN_BORDER = Border(
+    left=Side(style="thin"), right=Side(style="thin"),
+    top=Side(style="thin"), bottom=Side(style="thin"),
+)
+FILL_GIALLO = PatternFill("solid", fgColor="FFE699")
+FILL_VERDE = PatternFill("solid", fgColor="92D050")
+FILL_VERDE_CHIARO = PatternFill("solid", fgColor="C5E0B4")
+FILL_BLU = PatternFill("solid", fgColor="4472C4")
+FONT_BOLD = Font(bold=True)
+FONT_BOLD_BIG = Font(bold=True, size=14)
+FONT_BIANCO_BOLD = Font(color="FFFFFF", bold=True)
+ALIGN_CENTER = Alignment(horizontal="center")
+ALIGN_CENTER_WRAP = Alignment(horizontal="center", wrap_text=True)
 
 
 def _beep():
@@ -158,47 +172,48 @@ _ANN_CONC_SPORE_END = _ANN_CONC_SPORE_START + len(SPORE_CODICI) - 1  # 123
 # ── Costanti bollettino Word ──
 _MESI_ITA = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
              "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
-_GIORNI_ITA_LONG = ["Lunedi", "Martedi", "Mercoledi", "Giovedi", "Venerdi", "Sabato", "Domenica"]
+_GIORNI_ITA_LONG = ["Luned\xec", "Marted\xec", "Mercoled\xec", "Gioved\xec", "Venerd\xec", "Sabato", "Domenica"]
 _GIORNI_ENG_LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-# (nome_ita, nome_eng, riep_rows, assente_max, bassa_max, media_max)
+# (nome_ita, nome_eng, riep_rows, soglie_famiglia, fallback_assente, fallback_bassa, fallback_media)
 # riep_rows: righe nel foglio riepilogo_settimana da sommare (vedi codice_to_row)
+# soglie_famiglia: nome famiglia nel file soglie (sovrascrive i valori fallback se presente)
 BOLL_WORD_RIGHE = [
-    ("ACERACEAE",           "ACERACEAE",              [6],                  0.9,   19.9,  39.9),
-    ("BETULACEAE",          "BETULACEAE",              [8, 9, 10],           0.5,   15.9,  49.9),
-    ("Alnus",               "Alnus",                  [9],                  0.5,   15.9,  49.9),
-    ("Betula",              "Betula",                 [10],                  0.5,   15.9,  49.9),
-    ("CHENO-AMAR",          "CHENO-AMAR",             [12],                  0.0,    4.9,  24.9),
-    ("COMPOSITAE",          "COMPOSITAE",             [13, 14, 15, 16],      0.0,    4.9,  24.9),
-    ("Altre compositae",    "Other composites",       [14],                  0.0,    4.9,  24.9),
-    ("Ambrosia",            "Ragweed",                [15],                  0.0,    4.9,  24.9),
-    ("Artemisia",           "Mugwort",                [16],                  0.0,    4.9,  24.9),
-    ("CORYLACEAE",          "CORYLACEAE",             [17, 18, 19, 20, 21],  0.5,   15.9,  49.9),
-    ("Carpinus/Ostrya",     "Hornbeam/Hop hornbeam",  [18],                  0.5,   15.9,  49.9),
-    ("Carpinus",            "Hornbeam",               [19],                  0.5,   15.9,  49.9),
-    ("Ostrya carpinifolia", "Hop hornbeam",           [20],                  0.5,   15.9,  49.9),
-    ("Corylus avellana",    "Hazel",                  [21],                  0.5,   15.9,  49.9),
-    ("CUP-TAXACEAE",        "Cup-Taxaceae",           [22],                  3.9,   29.9,  89.9),
-    ("FAGACEAE",            "FAGACEAE",               [25, 26, 27, 28],      0.9,   19.9,  39.9),
-    ("Castanea sativa",     "Sweet chestnut",         [26],                  0.9,   19.9,  39.9),
-    ("Fagus sylvatica",     "Beech",                  [27],                  0.9,   19.9,  39.9),
-    ("Quercus",             "Oak",                    [28],                  0.9,   19.9,  39.9),
-    ("GRAMINEAE",           "Grasses",                [29],                  0.5,    9.9,  29.9),
-    ("OLEACEAE",            "OLEACEAE",               [36, 37, 38, 39, 40],  0.5,    4.9,  24.9),
-    ("Altre oleaceae",      "Other olive family",     [37],                  0.5,    4.9,  24.9),
-    ("Fraxinus",            "Ash",                    [38],                  0.5,    4.9,  24.9),
-    ("Ligustrum",           "Privet",                 [39],                  0.5,    4.9,  24.9),
-    ("Olea",                "Olive",                  [40],                  0.5,    4.9,  24.9),
-    ("PINACEAE",            "PINACEAE",               [41],                  0.9,   14.9,  49.9),
-    ("PLANTAGINACEAE",      "PLANTAGINACEAE",         [42],                  0.0,    0.4,   1.9),
-    ("PLATANACEAE",         "Plane tree",             [43],                  0.9,   19.9,  39.9),
-    ("SALICACEAE",          "SALICACEAE",             [46, 47, 48],          0.9,   19.9,  39.9),
-    ("Populus",             "Poplar",                 [47],                  0.9,   19.9,  39.9),
-    ("Salix",               "Willow",                 [48],                  0.9,   19.9,  39.9),
-    ("ULMACEAE",            "Elm family",             [50],                  0.9,   19.9,  39.9),
-    ("URTICACEAE",          "Nettle",                 [52],                  1.9,   19.9,  69.9),
-    ("Alternaria",          "Alternaria",             [58],                  1.9,   19.0, 100.0),
-    ("Cladosporium",        "Cladosporium",           [60],                100.0,  499.0,1000.0),
+    ("ACERACEAE",           "ACERACEAE",              [6],                  "Aceracee",                0.9,   19.9,  39.9),
+    ("BETULACEAE",          "BETULACEAE",              [8, 9, 10],           "Betulaceae",              0.5,   15.9,  49.9),
+    ("Alnus",               "Alnus",                  [9],                  "Betulaceae",              0.5,   15.9,  49.9),
+    ("Betula",              "Betula",                 [10],                  "Betulaceae",              0.5,   15.9,  49.9),
+    ("CHENO-AMAR",          "CHENO-AMAR",             [12],                  "Cheno-Amarantaceae",      0.0,    4.9,  24.9),
+    ("COMPOSITAE",          "COMPOSITAE",             [13, 14, 15, 16],      "Composite",               0.0,    4.9,  24.9),
+    ("Altre compositae",    "Other composites",       [14],                  "Composite",               0.0,    4.9,  24.9),
+    ("Ambrosia",            "Ragweed",                [15],                  "Composite",               0.0,    4.9,  24.9),
+    ("Artemisia",           "Mugwort",                [16],                  "Composite",               0.0,    4.9,  24.9),
+    ("CORYLACEAE",          "CORYLACEAE",             [17, 18, 19, 20, 21],  "Corilacee",               0.5,   15.9,  49.9),
+    ("Carpinus/Ostrya",     "Hornbeam/Hop hornbeam",  [18],                  "Corilacee",               0.5,   15.9,  49.9),
+    ("Carpinus",            "Hornbeam",               [19],                  "Corilacee",               0.5,   15.9,  49.9),
+    ("Ostrya carpinifolia", "Hop hornbeam",           [20],                  "Corilacee",               0.5,   15.9,  49.9),
+    ("Corylus avellana",    "Hazel",                  [21],                  "Corilacee",               0.5,   15.9,  49.9),
+    ("CUP-TAXACEAE",        "Cup-Taxaceae",           [22],                  "Cupressaceae + Taxaceae", 3.9,   29.9,  89.9),
+    ("FAGACEAE",            "FAGACEAE",               [25, 26, 27, 28],      "Fagaceae",                0.9,   19.9,  39.9),
+    ("Castanea sativa",     "Sweet chestnut",         [26],                  "Fagaceae",                0.9,   19.9,  39.9),
+    ("Fagus sylvatica",     "Beech",                  [27],                  "Fagaceae",                0.9,   19.9,  39.9),
+    ("Quercus",             "Oak",                    [28],                  "Fagaceae",                0.9,   19.9,  39.9),
+    ("GRAMINEAE",           "Grasses",                [29],                  "Graminaceae",             0.5,    9.9,  29.9),
+    ("OLEACEAE",            "OLEACEAE",               [36, 37, 38, 39, 40],  "Oleaceae",                0.5,    4.9,  24.9),
+    ("Altre oleaceae",      "Other olive family",     [37],                  "Oleaceae",                0.5,    4.9,  24.9),
+    ("Fraxinus",            "Ash",                    [38],                  "Oleaceae",                0.5,    4.9,  24.9),
+    ("Ligustrum",           "Privet",                 [39],                  "Oleaceae",                0.5,    4.9,  24.9),
+    ("Olea",                "Olive",                  [40],                  "Oleaceae",                0.5,    4.9,  24.9),
+    ("PINACEAE",            "PINACEAE",               [41],                  "Pinaceae",                0.9,   14.9,  49.9),
+    ("PLANTAGINACEAE",      "PLANTAGINACEAE",         [42],                  "Plantaginaceae",          0.0,    0.4,   1.9),
+    ("PLATANACEAE",         "Plane tree",             [43],                  "Platanaceae",             0.9,   19.9,  39.9),
+    ("SALICACEAE",          "SALICACEAE",             [46, 47, 48],          "Salicaceae",              0.9,   19.9,  39.9),
+    ("Populus",             "Poplar",                 [47],                  "Salicaceae",              0.9,   19.9,  39.9),
+    ("Salix",               "Willow",                 [48],                  "Salicaceae",              0.9,   19.9,  39.9),
+    ("ULMACEAE",            "Elm family",             [50],                  "Ulmaceae",                0.9,   19.9,  39.9),
+    ("URTICACEAE",          "Nettle",                 [52],                  "Urticaceae",              1.9,   19.9,  69.9),
+    ("Alternaria",          "Alternaria",             [58],                  "Alternaria",              1.9,   19.0, 100.0),
+    ("Cladosporium",        "Cladosporium",           [60],                  "Cladosporium",          100.0,  499.0,1000.0),
 ]
 
 # Layout foglio Calendario (specie in righe, date in colonne)
@@ -238,11 +253,6 @@ def giorno_to_col(giorno_num):
     return giorno_num + 6
 
 
-def giorno_abbrev(giorno_num):
-    """Ritorna l'abbreviazione a 3 lettere del giorno (es. 'LUN')."""
-    return GIORNI_NOMI[giorno_num][:3].upper()
-
-
 def normalizza_codice(codice):
     """Normalizza un codice a 2 cifre (es. '5' -> '05')."""
     if codice.isdigit() and len(codice) == 1:
@@ -256,6 +266,15 @@ def leggi_valore(ws, row, col):
     if isinstance(val, (int, float)):
         return int(val)
     return 0
+
+
+def leggi_fattore(ws_riepilogo):
+    """Legge il fattore di conversione dalla cella Q3 del foglio riepilogo.
+    Ritorna 0.4 come default se la cella e' vuota o non valida."""
+    val = ws_riepilogo["Q3"].value
+    if isinstance(val, (int, float)) and val > 0:
+        return float(val)
+    return 0.4
 
 
 def scrivi_log(ws_log, log_row, data_str, codice, specie, nota=None):
@@ -304,6 +323,7 @@ def display_menu():
     print("  u       Annulla ultimo inserimento")
     print("  b       Attiva/disattiva beep sonoro")
     print("  h       Mostra questo menu")
+    print("  s       Salva il file (senza uscire)")
     print("  d       Chiudi giornata (puoi continuare con un altro giorno)")
     print("  q       Salva il file e esci")
     print("-" * 60 + "\n")
@@ -465,7 +485,7 @@ def chiedi_percorso_salvataggio(nome_default):
     Ritorna un Path, oppure None se l'utente ha annullato dalla dialog GUI.
     """
     print(f"\n  File: {nome_default}")
-    print("__GUI_ASKSAVEFILE__", flush=True)
+    print(f"__GUI_ASKSAVEFILE__|{OUTPUT_DIR}|{nome_default}", flush=True)
     risposta = input("  Percorso (invio = nome predefinito nella cartella corrente): ").strip()
     if not risposta:
         if _GUI_MODE:
@@ -479,7 +499,7 @@ def chiedi_percorso_salvataggio(nome_default):
     return p
 
 
-def menu_uscita_salvataggio(wb, prima_data, nome_ripreso, file_ripreso):
+def menu_uscita_salvataggio(wb, prima_data, nome_ripreso, file_ripreso, stato=None):
     """Chiede se salvare e dove. Ritorna (True, cartella) o (False, None)."""
     # Nome predefinito: file ripreso se disponibile, altrimenti Conta_Pollinica_<data>
     data_pulita = re.sub(r"^(Conta_Pollinica_|~autosave_|incompleto_)+", "", prima_data)
@@ -487,17 +507,33 @@ def menu_uscita_salvataggio(wb, prima_data, nome_ripreso, file_ripreso):
     if not nome_default.endswith(".xlsx"):
         nome_default += ".xlsx"
 
+    # Se gia' salvato mid-session, proponi salvataggio rapido sullo stesso percorso
+    percorso_precedente = stato.get("percorso_salvato") if stato else None
+
     print("\n" + "=" * 60)
     while True:
         risp = input("\nSalvare e uscire? (s/n): ").strip().lower()
         if risp == "s":
-            percorso = chiedi_percorso_salvataggio(nome_default)
+            percorso = None
+            # Salvataggio rapido: file gia' salvato mid-session o file ripreso
+            if percorso_precedente:
+                risp_rapido = input(f"  Salvare su '{percorso_precedente.name}'? (s = si, n = altro percorso): ").strip().lower()
+                if risp_rapido == "s":
+                    percorso = percorso_precedente
+            elif file_ripreso and Path(file_ripreso).exists():
+                risp_rapido = input(f"  Salvare su '{Path(file_ripreso).name}'? (s = si, n = altro percorso): ").strip().lower()
+                if risp_rapido == "s":
+                    percorso = Path(file_ripreso)
+
             if percorso is None:
-                continue   # GUI: dialog annullata, riproponi
-            if percorso.exists() and not _GUI_MODE:
-                risp2 = input(f"  '{percorso.name}' esiste gia'. Sovrascrivere? (s/n): ").strip().lower()
-                if risp2 != "s":
-                    continue
+                percorso = chiedi_percorso_salvataggio(nome_default)
+                if percorso is None:
+                    continue   # GUI: dialog annullata, riproponi
+                if percorso.exists() and not _GUI_MODE:
+                    risp2 = input(f"  '{percorso.name}' esiste gia'. Sovrascrivere? (s/n): ").strip().lower()
+                    if risp2 != "s":
+                        continue
+
             _attendi_autosave()
             wb.save(percorso)
             print(f"\n  [OK] File salvato: {percorso}")
@@ -549,7 +585,7 @@ def chiedi_ripresa_o_nuovo(file_esistenti):
         if scelta == "n":
             return None
         if scelta == "i":
-            print("__GUI_ASKOPENFILE__", flush=True)
+            print(f"__GUI_ASKOPENFILE__|{OUTPUT_DIR}", flush=True)
             raw = input("  Percorso file (invio per annullare): ").strip()
             if not raw:
                 continue
@@ -668,11 +704,6 @@ def carica_soglie(wb=None):
 # ============================================================
 # Riepilogo annuale
 # ============================================================
-def formatta_data_annuale(dt):
-    """Formatta una data come '23/02/2026'."""
-    return dt.strftime("%d/%m/%Y")
-
-
 def raccogli_dati_giornalieri(ws_riepilogo):
     """Raccoglie dati dal foglio riepilogo settimanale.
     Ritorna {giorno_num: {codice: valore}} solo per giorni con dati."""
@@ -715,57 +746,48 @@ def _ann_col_conc(codice):
 
 def crea_intestazione_annuale(ws, anno):
     """Crea le righe 1-3 del riepilogo annuale (titolo, sezioni, intestazioni)."""
-    thin = Border(
-        left=Side(style="thin"), right=Side(style="thin"),
-        top=Side(style="thin"), bottom=Side(style="thin"),
-    )
-    giallo = PatternFill("solid", fgColor="FFE699")
-    verde = PatternFill("solid", fgColor="92D050")
-    verde_chiaro = PatternFill("solid", fgColor="C5E0B4")
-    font_bold = Font(bold=True)
-    font_bold_big = Font(bold=True, size=14)
-    center = Alignment(horizontal="center")
-
     # Riga 1: titolo
     cell = ws.cell(row=1, column=1, value=f"RIEPILOGO ANNUALE {anno}")
-    cell.font = font_bold_big
-    cell.alignment = center
+    cell.font = FONT_BOLD_BIG
+    cell.alignment = ALIGN_CENTER
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=_ANN_SPORE_END)
 
     # Riga 2: sezioni
     cell = ws.cell(row=2, column=1, value="CONTA GREZZA")
-    cell.font = font_bold
-    cell.alignment = center
-    cell.fill = giallo
+    cell.font = FONT_BOLD
+    cell.alignment = ALIGN_CENTER
+    cell.fill = FILL_GIALLO
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=_ANN_SPORE_END)
 
     cell = ws.cell(row=2, column=_ANN_CONC_DATA, value="CONCENTRAZIONI (p/m3)")
-    cell.font = font_bold
-    cell.alignment = center
-    cell.fill = giallo
+    cell.font = FONT_BOLD
+    cell.alignment = ALIGN_CENTER
+    cell.fill = FILL_GIALLO
     ws.merge_cells(start_row=2, start_column=_ANN_CONC_DATA,
                    end_row=2, end_column=_ANN_CONC_SPORE_END)
 
     # Riga 3: intestazioni colonne
+    align_rotated = Alignment(horizontal="center", text_rotation=90)
+
     def _scrivi_intestazione_colonna(col, codice):
         nome = CODICI_SPECIE[codice]
         cell = ws.cell(row=3, column=col, value=nome)
-        cell.font = Font(bold=True) if codice in ANNUALE_BOLD_CODICI else Font()
-        cell.border = thin
-        cell.alignment = Alignment(horizontal="center", text_rotation=90)
+        cell.font = FONT_BOLD if codice in ANNUALE_BOLD_CODICI else Font()
+        cell.border = THIN_BORDER
+        cell.alignment = align_rotated
         if codice in ANNUALE_VERDE_CODICI:
-            cell.fill = verde
+            cell.fill = FILL_VERDE
         elif codice in ANNUALE_VERDE_CHIARO_CODICI:
-            cell.fill = verde_chiaro
+            cell.fill = FILL_VERDE_CHIARO
         else:
-            cell.fill = giallo
+            cell.fill = FILL_GIALLO
 
     # Data (conta grezza)
     cell = ws.cell(row=3, column=1, value="Data")
-    cell.font = font_bold
-    cell.fill = giallo
-    cell.border = thin
-    cell.alignment = center
+    cell.font = FONT_BOLD
+    cell.fill = FILL_GIALLO
+    cell.border = THIN_BORDER
+    cell.alignment = ALIGN_CENTER
 
     # Pollini (conta grezza)
     for i, codice in enumerate(POLLINI_CODICI):
@@ -773,9 +795,9 @@ def crea_intestazione_annuale(ws, anno):
 
     # Separatore
     cell = ws.cell(row=3, column=_ANN_SEP1, value="||")
-    cell.font = font_bold
-    cell.border = thin
-    cell.alignment = center
+    cell.font = FONT_BOLD
+    cell.border = THIN_BORDER
+    cell.alignment = ALIGN_CENTER
 
     # Spore (conta grezza)
     for i, codice in enumerate(SPORE_CODICI):
@@ -783,10 +805,10 @@ def crea_intestazione_annuale(ws, anno):
 
     # Data (concentrazioni)
     cell = ws.cell(row=3, column=_ANN_CONC_DATA, value="Data")
-    cell.font = font_bold
-    cell.fill = giallo
-    cell.border = thin
-    cell.alignment = center
+    cell.font = FONT_BOLD
+    cell.fill = FILL_GIALLO
+    cell.border = THIN_BORDER
+    cell.alignment = ALIGN_CENTER
 
     # Pollini (concentrazioni)
     for i, codice in enumerate(POLLINI_CODICI):
@@ -794,9 +816,9 @@ def crea_intestazione_annuale(ws, anno):
 
     # Separatore concentrazioni
     cell = ws.cell(row=3, column=_ANN_CONC_SEP, value="||")
-    cell.font = font_bold
-    cell.border = thin
-    cell.alignment = center
+    cell.font = FONT_BOLD
+    cell.border = THIN_BORDER
+    cell.alignment = ALIGN_CENTER
 
     # Spore (concentrazioni)
     for i, codice in enumerate(SPORE_CODICI):
@@ -850,20 +872,13 @@ def scrivi_riga_annuale(ws, riga, data_str, dati, fattore, modo):
 
     modo: 'nuovo'/'sovrascrivi' = scrive i valori; 'somma' = aggiunge ai esistenti.
     """
-    thin = Border(
-        left=Side(style="thin"), right=Side(style="thin"),
-        top=Side(style="thin"), bottom=Side(style="thin"),
-    )
-    verde = PatternFill("solid", fgColor="92D050")
-    verde_chiaro = PatternFill("solid", fgColor="C5E0B4")
-
     # Data (conta grezza)
     cell = ws.cell(row=riga, column=1, value=data_str)
-    cell.border = thin
+    cell.border = THIN_BORDER
 
     # Data (concentrazioni)
     cell = ws.cell(row=riga, column=_ANN_CONC_DATA, value=data_str)
-    cell.border = thin
+    cell.border = THIN_BORDER
 
     tutti_codici = POLLINI_CODICI + SPORE_CODICI
     for codice in tutti_codici:
@@ -882,34 +897,34 @@ def scrivi_riga_annuale(ws, riga, data_str, dati, fattore, modo):
         # Conta grezza
         cell_g = ws.cell(row=riga, column=col_grezzo)
         cell_g.value = val_nuovo if val_nuovo > 0 else None
-        cell_g.border = thin
-        cell_g.alignment = Alignment(horizontal="center")
+        cell_g.border = THIN_BORDER
+        cell_g.alignment = ALIGN_CENTER
         if codice in ANNUALE_VERDE_CODICI:
-            cell_g.fill = verde
+            cell_g.fill = FILL_VERDE
         elif codice in ANNUALE_VERDE_CHIARO_CODICI:
-            cell_g.fill = verde_chiaro
+            cell_g.fill = FILL_VERDE_CHIARO
         if codice in ANNUALE_BOLD_CODICI:
-            cell_g.font = Font(bold=True)
+            cell_g.font = FONT_BOLD
 
         # Concentrazione
         conc = round(val_nuovo * fattore, 1) if val_nuovo > 0 else None
         cell_c = ws.cell(row=riga, column=col_conc)
         cell_c.value = conc
-        cell_c.border = thin
-        cell_c.alignment = Alignment(horizontal="center")
+        cell_c.border = THIN_BORDER
+        cell_c.alignment = ALIGN_CENTER
         cell_c.number_format = "0.0"
         if codice in ANNUALE_VERDE_CODICI:
-            cell_c.fill = verde
+            cell_c.fill = FILL_VERDE
         elif codice in ANNUALE_VERDE_CHIARO_CODICI:
-            cell_c.fill = verde_chiaro
+            cell_c.fill = FILL_VERDE_CHIARO
         if codice in ANNUALE_BOLD_CODICI:
-            cell_c.font = Font(bold=True)
+            cell_c.font = FONT_BOLD
 
     # Separatori
     for sep_col in (_ANN_SEP1, _ANN_CONC_SEP):
         cell = ws.cell(row=riga, column=sep_col, value="||")
-        cell.border = thin
-        cell.alignment = Alignment(horizontal="center")
+        cell.border = THIN_BORDER
+        cell.alignment = ALIGN_CENTER
 
 
 def _nome_foglio_settimana(lunedi):
@@ -952,26 +967,11 @@ def crea_foglio_settimana_annuale(wb_ann, ws_riepilogo, lunedi, fattore):
         pos = _posizione_foglio_settimana(wb_ann, nome_foglio)
         ws_s = wb_ann.create_sheet(nome_foglio, pos)
 
-    # ── Stili ──
-    thin = Border(
-        left=Side(style="thin"), right=Side(style="thin"),
-        top=Side(style="thin"), bottom=Side(style="thin"),
-    )
-    giallo = PatternFill("solid", fgColor="FFE699")
-    blu    = PatternFill("solid", fgColor="4472C4")
-    verde  = PatternFill("solid", fgColor="92D050")
-    verde_chiaro = PatternFill("solid", fgColor="C5E0B4")
-    font_bold      = Font(bold=True)
-    font_bold_big  = Font(bold=True, size=14)
-    font_bianco_b  = Font(color="FFFFFF", bold=True)
-    center         = Alignment(horizontal="center")
-    center_wrap    = Alignment(horizontal="center", wrap_text=True)
-
     # ── Riga 1: Titolo ──
     titolo = (f"SETTIMANA {settimana_num}  -  "
               f"{lunedi.strftime('%d/%m/%Y')} / {domenica.strftime('%d/%m/%Y')}")
     c = ws_s.cell(row=1, column=1, value=titolo)
-    c.font = font_bold_big
+    c.font = FONT_BOLD_BIG
     ws_s.merge_cells(start_row=1, start_column=1, end_row=1, end_column=9)
 
     # Intestazioni giorni (riutilizzate in entrambe le sezioni)
@@ -983,66 +983,66 @@ def crea_foglio_settimana_annuale(wb_ann, ws_riepilogo, lunedi, fattore):
     def _scrivi_header(riga, label_ultima, fill_hdr, font_hdr):
         """Scrive la riga intestazione colonne (specie + 7 giorni + label_ultima)."""
         c = ws_s.cell(row=riga, column=1, value="Specie")
-        c.font = font_hdr; c.fill = fill_hdr; c.border = thin; c.alignment = center
+        c.font = font_hdr; c.fill = fill_hdr; c.border = THIN_BORDER; c.alignment = ALIGN_CENTER
         for g, hdr in enumerate(giorni_hdr):
             c = ws_s.cell(row=riga, column=2 + g, value=hdr)
-            c.font = font_hdr; c.fill = fill_hdr; c.border = thin
-            c.alignment = center_wrap
+            c.font = font_hdr; c.fill = fill_hdr; c.border = THIN_BORDER
+            c.alignment = ALIGN_CENTER_WRAP
         c = ws_s.cell(row=riga, column=9, value=label_ultima)
-        c.font = font_hdr; c.fill = fill_hdr; c.border = thin; c.alignment = center
+        c.font = font_hdr; c.fill = fill_hdr; c.border = THIN_BORDER; c.alignment = ALIGN_CENTER
 
     def _scrivi_specie(riga, codice, vals, valore_finale, fmt="0"):
         """Scrive una riga specie con i valori (grezzi o concentrazioni)."""
         specie = CODICI_SPECIE[codice]
         c = ws_s.cell(row=riga, column=1, value=specie)
-        c.border = thin
+        c.border = THIN_BORDER
         if codice in ANNUALE_VERDE_CODICI:
-            c.fill = verde; c.font = font_bold
+            c.fill = FILL_VERDE; c.font = FONT_BOLD
         elif codice in ANNUALE_VERDE_CHIARO_CODICI:
-            c.fill = verde_chiaro; c.font = font_bold
+            c.fill = FILL_VERDE_CHIARO; c.font = FONT_BOLD
         for g, v in enumerate(vals):
             c = ws_s.cell(row=riga, column=2 + g,
                           value=(v if v else None))
-            c.border = thin; c.alignment = center; c.number_format = fmt
+            c.border = THIN_BORDER; c.alignment = ALIGN_CENTER; c.number_format = fmt
             if codice in ANNUALE_VERDE_CODICI:
-                c.fill = verde
-                if v: c.font = font_bold
+                c.fill = FILL_VERDE
+                if v: c.font = FONT_BOLD
             elif codice in ANNUALE_VERDE_CHIARO_CODICI:
-                c.fill = verde_chiaro
-                if v: c.font = font_bold
+                c.fill = FILL_VERDE_CHIARO
+                if v: c.font = FONT_BOLD
         c = ws_s.cell(row=riga, column=9,
                       value=(valore_finale if valore_finale else None))
-        c.border = thin; c.alignment = center; c.number_format = fmt
+        c.border = THIN_BORDER; c.alignment = ALIGN_CENTER; c.number_format = fmt
 
     def _scrivi_separatore(riga):
         for col in range(1, 10):
-            ws_s.cell(row=riga, column=col).border = thin
+            ws_s.cell(row=riga, column=col).border = THIN_BORDER
 
     def _scrivi_doy(riga, fill_hdr, font_hdr):
         """Scrive la riga con i numeri di giorno dell'anno (1-366)."""
         c = ws_s.cell(row=riga, column=1, value="G. anno")
-        c.border = thin; c.fill = fill_hdr; c.font = font_hdr; c.alignment = center
+        c.border = THIN_BORDER; c.fill = fill_hdr; c.font = font_hdr; c.alignment = ALIGN_CENTER
         for g in range(7):
             dt_g = lunedi + timedelta(days=g)
             doy = dt_g.timetuple().tm_yday
             c = ws_s.cell(row=riga, column=2 + g, value=doy)
-            c.border = thin; c.fill = fill_hdr; c.font = font_hdr; c.alignment = center
+            c.border = THIN_BORDER; c.fill = fill_hdr; c.font = font_hdr; c.alignment = ALIGN_CENTER
         c = ws_s.cell(row=riga, column=9)
-        c.border = thin; c.fill = fill_hdr
+        c.border = THIN_BORDER; c.fill = fill_hdr
 
     # ================================================================
     # SEZIONE A — CONTA GREZZA
     # ================================================================
     r = 2
     c = ws_s.cell(row=r, column=1, value="CONTA GREZZA")
-    c.font = font_bold; c.fill = giallo; c.alignment = center
+    c.font = FONT_BOLD; c.fill = FILL_GIALLO; c.alignment = ALIGN_CENTER
     ws_s.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
 
     r = 3
-    _scrivi_header(r, "Totale sett.", giallo, font_bold)
+    _scrivi_header(r, "Totale sett.", FILL_GIALLO, FONT_BOLD)
 
     r = 4
-    _scrivi_doy(r, giallo, font_bold)
+    _scrivi_doy(r, FILL_GIALLO, FONT_BOLD)
 
     r = 5
     for codice in POLLINI_CODICI:
@@ -1067,14 +1067,14 @@ def crea_foglio_settimana_annuale(wb_ann, ws_riepilogo, lunedi, fattore):
     r += 1  # riga vuota di separazione
 
     c = ws_s.cell(row=r, column=1, value="CONCENTRAZIONI (p/m3)")
-    c.font = font_bianco_b; c.fill = blu; c.alignment = center
+    c.font = FONT_BIANCO_BOLD; c.fill = FILL_BLU; c.alignment = ALIGN_CENTER
     ws_s.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
 
     r += 1
-    _scrivi_header(r, "Media sett.", blu, font_bianco_b)
+    _scrivi_header(r, "Media sett.", FILL_BLU, FONT_BIANCO_BOLD)
 
     r += 1
-    _scrivi_doy(r, blu, font_bianco_b)
+    _scrivi_doy(r, FILL_BLU, FONT_BIANCO_BOLD)
 
     r += 1
     for codice in POLLINI_CODICI:
@@ -1109,11 +1109,7 @@ def crea_foglio_settimana_annuale(wb_ann, ws_riepilogo, lunedi, fattore):
 
 def esporta_riepilogo_annuale(ws_riepilogo, lunedi, cartella):
     """Esporta i dati settimanali nel file riepilogo annuale."""
-    fattore_val = ws_riepilogo["Q3"].value
-    if isinstance(fattore_val, (int, float)) and fattore_val > 0:
-        fattore = float(fattore_val)
-    else:
-        fattore = 0.4
+    fattore = leggi_fattore(ws_riepilogo)
 
     anno = lunedi.year
     nome_file = f"Riepilogo_Annuale_{anno}.xlsx"
@@ -1150,7 +1146,7 @@ def esporta_riepilogo_annuale(ws_riepilogo, lunedi, cartella):
 
     for giorno_num in sorted(dati_settimana.keys()):
         dt = lunedi + timedelta(days=giorno_num - 1)
-        data_str = formatta_data_annuale(dt)
+        data_str = dt.strftime("%d/%m/%Y")
         dati = dati_settimana[giorno_num]
 
         # ── Foglio Dati (righe = giorni) ──
@@ -1226,14 +1222,18 @@ def genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella):
     from docx import Document
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
+    from docx.shared import RGBColor, Pt
 
     # Fattore di conversione
-    fattore_val = ws_riepilogo["Q3"].value
-    fattore = float(fattore_val) if isinstance(fattore_val, (int, float)) and fattore_val > 0 else 0.4
+    fattore = leggi_fattore(ws_riepilogo)
+
+    # Carica soglie dinamiche (dal workbook o dal file esterno)
+    soglie = carica_soglie(ws_riepilogo.parent) or carica_soglie() or {}
 
     # Calcola concentrazioni per ogni riga e filtra quelle con almeno un valore > 0
     righe_dati = []
-    for ita_nome, eng_nome, riep_rows, assente_max, bassa_max, media_max in BOLL_WORD_RIGHE:
+    for ita_nome, eng_nome, riep_rows, soglie_fam, fb_ass, fb_bas, fb_med in BOLL_WORD_RIGHE:
+        assente_max, bassa_max, media_max = soglie.get(soglie_fam, (fb_ass, fb_bas, fb_med))
         conc_giorni = []
         for g in range(1, 8):
             col = giorno_to_col(g)
@@ -1254,6 +1254,25 @@ def genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella):
         if valore > assente_max: return "FFFF00"
         return "92D050"
 
+    # Larghezze colonne in dxa: [specie, lun, mar, mer, gio, ven, sab, dom, media, tendenza]
+    # Totale 15398 dxa ≈ 27.16 cm (area di testo pagina landscape con margini 1.27 cm)
+    _COL_WIDTHS = [2000, 1300, 1300, 1300, 1300, 1300, 1300, 1300, 1800, 2498]
+
+    def _set_table_widths(table):
+        """Aggiorna tblGrid e tblW per ridistribuire le larghezze colonne."""
+        tbl = table._tbl
+        tblGrid = tbl.find(qn("w:tblGrid"))
+        if tblGrid is not None:
+            for i, gc in enumerate(tblGrid.findall(qn("w:gridCol"))):
+                if i < len(_COL_WIDTHS):
+                    gc.set(qn("w:w"), str(_COL_WIDTHS[i]))
+        tblPr = tbl.find(qn("w:tblPr"))
+        if tblPr is not None:
+            tblW = tblPr.find(qn("w:tblW"))
+            if tblW is not None:
+                tblW.set(qn("w:w"), str(sum(_COL_WIDTHS)))
+                tblW.set(qn("w:type"), "dxa")
+
     def _set_cell_color(cell, rgb_hex):
         tc = cell._tc
         tcPr = tc.find(qn("w:tcPr"))
@@ -1268,13 +1287,72 @@ def genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella):
         shd.set(qn("w:color"), "auto")
         shd.set(qn("w:fill"), rgb_hex)
 
-    def _set_cell_text(cell, text, italic=False):
+    def _set_cell_borders(cell):
+        tc = cell._tc
+        tcPr = tc.find(qn("w:tcPr"))
+        if tcPr is None:
+            tcPr = OxmlElement("w:tcPr")
+            tc.insert(0, tcPr)
+        tcBorders = tcPr.find(qn("w:tcBorders"))
+        if tcBorders is None:
+            tcBorders = OxmlElement("w:tcBorders")
+            tcPr.append(tcBorders)
+        for side in ("top", "left", "bottom", "right"):
+            border = OxmlElement(f"w:{side}")
+            border.set(qn("w:val"), "single")
+            border.set(qn("w:color"), "000000")
+            border.set(qn("w:sz"), "4")
+            tcBorders.append(border)
+
+    def _set_cell_paragraph_format(cell):
+        """Imposta allineamento verticale centrato e allineamento paragrafo centrato."""
+        tc = cell._tc
+        tcPr = tc.find(qn("w:tcPr"))
+        if tcPr is None:
+            tcPr = OxmlElement("w:tcPr")
+            tc.insert(0, tcPr)
+        vAlign = tcPr.find(qn("w:vAlign"))
+        if vAlign is None:
+            vAlign = OxmlElement("w:vAlign")
+            tcPr.append(vAlign)
+        vAlign.set(qn("w:val"), "center")
+        para = cell.paragraphs[0]
+        pPr = para._p.find(qn("w:pPr"))
+        if pPr is None:
+            pPr = OxmlElement("w:pPr")
+            para._p.insert(0, pPr)
+        jc = pPr.find(qn("w:jc"))
+        if jc is None:
+            jc = OxmlElement("w:jc")
+            pPr.append(jc)
+        jc.set(qn("w:val"), "center")
+
+    def _set_row_height(row, height_twips):
+        """Imposta altezza fissa riga in twips."""
+        trPr = row._tr.find(qn("w:trPr"))
+        if trPr is None:
+            trPr = OxmlElement("w:trPr")
+            row._tr.insert(0, trPr)
+        trH = trPr.find(qn("w:trHeight"))
+        if trH is None:
+            trH = OxmlElement("w:trHeight")
+            trPr.append(trH)
+        trH.set(qn("w:val"), str(height_twips))
+        trH.set(qn("w:hRule"), "exact")
+
+    def _set_cell_text(cell, text, italic=False, color=None, bold=None, size_pt=None):
         para = cell.paragraphs[0]
         for r in para._p.findall(qn("w:r")):
             para._p.remove(r)
         run = para.add_run(text)
         run.font.name = "Arial Narrow"
         run.italic = italic
+        if color:
+            run.font.color.rgb = RGBColor(int(color[:2], 16), int(color[2:4], 16), int(color[4:], 16))
+        if bold is not None:
+            run.font.bold = bold
+        if size_pt is not None:
+            run.font.size = Pt(size_pt)
 
     for lang in ("ITA", "ENG"):
         template_name = f"{lang}_Template_Bollettino_pubblicazione.docx"
@@ -1286,19 +1364,23 @@ def genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella):
         doc = Document(str(template_path))
         table = doc.tables[0]
         tbl = table._tbl
+        _set_table_widths(table)
 
         # Aggiorna intestazione (riga 0)
         header_cells = table.rows[0].cells
         if lang == "ITA":
-            _set_cell_text(header_cells[0], f"POLLINI - {_MESI_ITA[lunedi.month - 1]} {lunedi.year}")
+            _set_cell_text(header_cells[0], f"POLLINI \u2013 {_MESI_ITA[lunedi.month - 1]} {lunedi.year}",
+                           color="002060", bold=True, size_pt=10)
             giorni_long = _GIORNI_ITA_LONG
         else:
-            _set_cell_text(header_cells[0], f"POLLEN - {lunedi.strftime('%B')} {lunedi.year}")
+            _set_cell_text(header_cells[0], f"POLLEN \u2013 {lunedi.strftime('%B')} {lunedi.year}",
+                           color="002060", bold=True, size_pt=10)
             giorni_long = _GIORNI_ENG_LONG
 
         for i in range(7):
             giorno_dt = lunedi + timedelta(days=i)
-            _set_cell_text(header_cells[i + 1], f"{giorni_long[i]} {giorno_dt.day}")
+            _set_cell_text(header_cells[i + 1], f"{giorni_long[i]} {giorno_dt.day}",
+                           color="002060", bold=True, size_pt=9)
 
         # Rimuovi tutte le righe dati esistenti (mantieni solo l'intestazione)
         for row in list(table.rows[1:]):
@@ -1310,8 +1392,13 @@ def genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella):
             new_row = table.add_row()
             cells = new_row.cells
 
-            # Colonna 0: nome specie (corsivo)
-            _set_cell_text(cells[0], nome, italic=True)
+            # Formattazione base su tutte le celle
+            for cell in cells:
+                _set_cell_borders(cell)
+                _set_cell_paragraph_format(cell)
+
+            # Colonna 0: nome specie (corsivo, blu, 9pt)
+            _set_cell_text(cells[0], nome, italic=True, color="002060", size_pt=9)
 
             # Colonne 1-7: colore per ogni giorno (nessun testo)
             for i, conc in enumerate(conc_giorni):
@@ -1321,6 +1408,9 @@ def genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella):
             _set_cell_color(cells[8], _colore(media, assente_max, bassa_max, media_max))
 
             # Colonna 9: tendenza (vuota, da compilare manualmente)
+
+            # Altezza riga fissa (360 twips = 18pt, come nel template)
+            _set_row_height(new_row, 360)
 
         # Salva
         output_name = f"Bollettino_{lang}_{lunedi_str}.docx"
@@ -1346,66 +1436,55 @@ def _cal_row_for_codice(codice):
 
 def crea_intestazione_calendario(ws, anno):
     """Crea intestazione del foglio Calendario (righe 1-3 + specie in colonna A)."""
-    thin = Border(
-        left=Side(style="thin"), right=Side(style="thin"),
-        top=Side(style="thin"), bottom=Side(style="thin"),
-    )
-    giallo = PatternFill("solid", fgColor="FFE699")
-    verde = PatternFill("solid", fgColor="92D050")
-    verde_chiaro = PatternFill("solid", fgColor="C5E0B4")
-    font_bold = Font(bold=True)
-    font_bold_big = Font(bold=True, size=14)
-    center = Alignment(horizontal="center")
-
     # Riga 1: titolo
     cell = ws.cell(row=1, column=1, value=f"CALENDARIO POLLINICO {anno}")
-    cell.font = font_bold_big
-    cell.alignment = center
+    cell.font = FONT_BOLD_BIG
+    cell.alignment = ALIGN_CENTER
 
     # Riga 2: sezione
     cell = ws.cell(row=2, column=1, value="CONCENTRAZIONI (p/m3)")
-    cell.font = font_bold
-    cell.alignment = center
-    cell.fill = giallo
+    cell.font = FONT_BOLD
+    cell.alignment = ALIGN_CENTER
+    cell.fill = FILL_GIALLO
 
     # Riga 3 col A: intestazione date
     cell = ws.cell(row=_CAL_HEADER_ROW, column=1, value="Specie")
-    cell.font = font_bold
-    cell.fill = giallo
-    cell.border = thin
-    cell.alignment = center
+    cell.font = FONT_BOLD
+    cell.fill = FILL_GIALLO
+    cell.border = THIN_BORDER
+    cell.alignment = ALIGN_CENTER
 
     # Riga 4 col A: etichetta giorno dell'anno
     cell = ws.cell(row=_CAL_DOY_ROW, column=1, value="G. anno")
-    cell.font = font_bold
-    cell.fill = giallo
-    cell.border = thin
-    cell.alignment = center
+    cell.font = FONT_BOLD
+    cell.fill = FILL_GIALLO
+    cell.border = THIN_BORDER
+    cell.alignment = ALIGN_CENTER
 
     # Righe pollini
     for i, codice in enumerate(POLLINI_CODICI):
         row = _CAL_DATA_START_ROW + i
         cell = ws.cell(row=row, column=1, value=CODICI_SPECIE[codice])
-        cell.font = Font(bold=True) if codice in ANNUALE_BOLD_CODICI else Font()
-        cell.border = thin
+        cell.font = FONT_BOLD if codice in ANNUALE_BOLD_CODICI else Font()
+        cell.border = THIN_BORDER
         if codice in ANNUALE_VERDE_CODICI:
-            cell.fill = verde
+            cell.fill = FILL_VERDE
         elif codice in ANNUALE_VERDE_CHIARO_CODICI:
-            cell.fill = verde_chiaro
+            cell.fill = FILL_VERDE_CHIARO
 
     # Riga separatore
     cell = ws.cell(row=_CAL_SEP_ROW, column=1, value="||")
-    cell.border = thin
-    cell.alignment = center
+    cell.border = THIN_BORDER
+    cell.alignment = ALIGN_CENTER
 
     # Righe spore
     for i, codice in enumerate(SPORE_CODICI):
         row = _CAL_SEP_ROW + 1 + i
         cell = ws.cell(row=row, column=1, value=CODICI_SPECIE[codice])
-        cell.font = Font(bold=True) if codice in ANNUALE_BOLD_CODICI else Font()
-        cell.border = thin
+        cell.font = FONT_BOLD if codice in ANNUALE_BOLD_CODICI else Font()
+        cell.border = THIN_BORDER
         if codice in ANNUALE_VERDE_CHIARO_CODICI:
-            cell.fill = verde_chiaro
+            cell.fill = FILL_VERDE_CHIARO
 
     # Larghezza colonna specie, altezze righe, freeze
     ws.column_dimensions["A"].width = 26
@@ -1433,20 +1512,14 @@ def _prossima_colonna_calendario(ws):
 
 def scrivi_colonna_calendario(ws, col, data_str, dati, fattore, modo):
     """Scrive o aggiorna una colonna nel foglio Calendario."""
-    thin = Border(
-        left=Side(style="thin"), right=Side(style="thin"),
-        top=Side(style="thin"), bottom=Side(style="thin"),
-    )
-    giallo = PatternFill("solid", fgColor="FFE699")
-    verde = PatternFill("solid", fgColor="92D050")
-    verde_chiaro = PatternFill("solid", fgColor="C5E0B4")
+    align_rotated = Alignment(horizontal="center", text_rotation=90)
 
     # Intestazione data (ruotata)
     cell = ws.cell(row=_CAL_HEADER_ROW, column=col, value=data_str)
-    cell.font = Font(bold=True)
-    cell.fill = giallo
-    cell.border = thin
-    cell.alignment = Alignment(horizontal="center", text_rotation=90)
+    cell.font = FONT_BOLD
+    cell.fill = FILL_GIALLO
+    cell.border = THIN_BORDER
+    cell.alignment = align_rotated
     ws.column_dimensions[get_column_letter(col)].width = 5
 
     # Giorno dell'anno
@@ -1454,17 +1527,17 @@ def scrivi_colonna_calendario(ws, col, data_str, dati, fattore, modo):
         dt_col = datetime.strptime(data_str, "%d/%m/%Y")
         doy = dt_col.timetuple().tm_yday
         cell_doy = ws.cell(row=_CAL_DOY_ROW, column=col, value=doy)
-        cell_doy.font = Font(bold=True)
-        cell_doy.fill = giallo
-        cell_doy.border = thin
-        cell_doy.alignment = Alignment(horizontal="center")
+        cell_doy.font = FONT_BOLD
+        cell_doy.fill = FILL_GIALLO
+        cell_doy.border = THIN_BORDER
+        cell_doy.alignment = ALIGN_CENTER
     except ValueError:
         pass
 
     # Separatore
     cell = ws.cell(row=_CAL_SEP_ROW, column=col, value="||")
-    cell.border = thin
-    cell.alignment = Alignment(horizontal="center")
+    cell.border = THIN_BORDER
+    cell.alignment = ALIGN_CENTER
 
     # Concentrazioni specie
     tutti_codici = POLLINI_CODICI + SPORE_CODICI
@@ -1485,15 +1558,15 @@ def scrivi_colonna_calendario(ws, col, data_str, dati, fattore, modo):
 
         cell = ws.cell(row=row, column=col)
         cell.value = conc
-        cell.border = thin
-        cell.alignment = Alignment(horizontal="center")
+        cell.border = THIN_BORDER
+        cell.alignment = ALIGN_CENTER
         cell.number_format = "0.0"
         if codice in ANNUALE_VERDE_CODICI:
-            cell.fill = verde
+            cell.fill = FILL_VERDE
         elif codice in ANNUALE_VERDE_CHIARO_CODICI:
-            cell.fill = verde_chiaro
+            cell.fill = FILL_VERDE_CHIARO
         if codice in ANNUALE_BOLD_CODICI and conc:
-            cell.font = Font(bold=True)
+            cell.font = FONT_BOLD
 
 
 # ============================================================
@@ -1693,29 +1766,31 @@ def correggi_giorno(ws_riepilogo, ws_log, lunedi, log_row):
 # Autosave e pulizia
 # ============================================================
 _autosave_thread = None
-_autosave_running = False
+_autosave_lock = threading.Lock()
 
 
-def autosave(wb, lunedi_str):
-    """Salva silenziosamente su file autosave in un thread background.
+def autosave(wb, lunedi_str, sincrono=False):
+    """Salva su file autosave. Se sincrono=False (default) usa un thread background.
+    Il lock serializza il salvataggio rispetto alle modifiche del main thread.
     Se un autosave e' gia' in corso, salta (evita lag da save sovrapposti)."""
-    global _autosave_thread, _autosave_running
-    if _autosave_running:
+    global _autosave_thread
+    if not _autosave_lock.acquire(blocking=False):
         return
     path = OUTPUT_DIR / f"~autosave_{lunedi_str}.xlsx"
-    _autosave_running = True
 
     def _do_save():
-        global _autosave_running
         try:
             wb.save(path)
         except Exception:
             pass
         finally:
-            _autosave_running = False
+            _autosave_lock.release()
 
-    _autosave_thread = threading.Thread(target=_do_save, daemon=True)
-    _autosave_thread.start()
+    if sincrono:
+        _do_save()
+    else:
+        _autosave_thread = threading.Thread(target=_do_save, daemon=True)
+        _autosave_thread.start()
 
 
 def _attendi_autosave():
@@ -1850,9 +1925,12 @@ def esegui_undo(ws_riepilogo, ws_log, col, data_str, undo_stack, log_row):
 # ============================================================
 # Sessione di inserimento per un giorno
 # ============================================================
-def sessione_giorno(ws_riepilogo, ws_log, giorno_num, data_str, log_row,
-                    wb, lunedi, lunedi_str, stato, prima_data, nome_ripreso, file_ripreso):
+def sessione_giorno(ctx, giorno_num, data_str, log_row, stato):
     """Gestisce l'inserimento per un singolo giorno.
+
+    ctx e' un dizionario con il contesto invariante della sessione:
+        ws_riepilogo, ws_log, wb, lunedi, lunedi_str,
+        prima_data, nome_ripreso, file_ripreso
 
     stato e' un dizionario mutabile che mantiene:
         - ultimo_codice: per il comando '.'
@@ -1863,9 +1941,18 @@ def sessione_giorno(ws_riepilogo, ws_log, giorno_num, data_str, log_row,
     Ritorna:
         ("continue", log_row) o ("quit", log_row)
     """
+    ws_riepilogo = ctx["ws_riepilogo"]
+    ws_log = ctx["ws_log"]
+    wb = ctx["wb"]
+    lunedi = ctx["lunedi"]
+    lunedi_str = ctx["lunedi_str"]
+    prima_data = ctx["prima_data"]
+    nome_ripreso = ctx["nome_ripreso"]
+    file_ripreso = ctx["file_ripreso"]
+
     col = giorno_to_col(giorno_num)
     nome_giorno = GIORNI_NOMI[giorno_num].upper()
-    abbrev = giorno_abbrev(giorno_num)
+    abbrev = GIORNI_NOMI[giorno_num][:3].upper()
 
     print(f"\n  Giorno:   {nome_giorno}")
     print(f"  Data:     {data_str}")
@@ -1892,7 +1979,7 @@ def sessione_giorno(ws_riepilogo, ws_log, giorno_num, data_str, log_row,
             # ── Comandi di uscita ──
             if cmd == "q":
                 print(f"\n  Chiusura {nome_giorno}: {conteggio} osservazioni.")
-                salvataggio_eseguito, cartella_salvata = menu_uscita_salvataggio(wb, prima_data, nome_ripreso, file_ripreso)
+                salvataggio_eseguito, cartella_salvata = menu_uscita_salvataggio(wb, prima_data, nome_ripreso, file_ripreso, stato)
                 stato["file_salvato"] = salvataggio_eseguito
                 stato["cartella_salvata"] = cartella_salvata
                 return "quit", log_row
@@ -1928,6 +2015,24 @@ def sessione_giorno(ws_riepilogo, ws_log, giorno_num, data_str, log_row,
                 log_row = aggiungi_nota(ws_log, log_row, data_str)
                 continue
 
+            # ── Salvataggio mid-session ──
+            if cmd == "s":
+                _attendi_autosave()
+                if stato.get("percorso_salvato"):
+                    wb.save(stato["percorso_salvato"])
+                    print(f"  [OK] File salvato: {stato['percorso_salvato']}")
+                else:
+                    s_data = re.sub(r"^(Conta_Pollinica_|~autosave_|incompleto_)+", "", prima_data)
+                    s_nome = nome_ripreso or f"Conta_Pollinica_{s_data or prima_data}.xlsx"
+                    s_percorso = chiedi_percorso_salvataggio(s_nome)
+                    if s_percorso:
+                        wb.save(s_percorso)
+                        stato["percorso_salvato"] = s_percorso
+                        print(f"  [OK] File salvato: {s_percorso}")
+                    else:
+                        print("  Salvataggio annullato.")
+                continue
+
             # ── Undo ──
             if cmd == "u":
                 if not undo_stack:
@@ -1946,6 +2051,7 @@ def sessione_giorno(ws_riepilogo, ws_log, giorno_num, data_str, log_row,
                     ws_riepilogo, ws_log, col, data_str, undo_stack, log_row
                 )
                 conteggio -= qty
+                conteggio_autosave = max(0, conteggio_autosave - qty)
                 continue
 
             # Reset contatore undo consecutivi
@@ -1988,7 +2094,8 @@ def sessione_giorno(ws_riepilogo, ws_log, giorno_num, data_str, log_row,
                 print(f"  [auto-salvato]: {OUTPUT_DIR / f'~autosave_{lunedi_str}.xlsx'}")
 
         except KeyboardInterrupt:
-            autosave(wb, lunedi_str)
+            _attendi_autosave()
+            autosave(wb, lunedi_str, sincrono=True)
             print(f"\n\n  Interrotto. {nome_giorno}: {conteggio} osservazioni.")
             print(f"  Auto-salvato su ~autosave_{lunedi_str}.xlsx")
             return "quit", log_row
@@ -2028,7 +2135,7 @@ def carica_o_crea_config():
     print(f"  Tutti i file di questa stagione (settimanali e riepilogo annuale)")
     print(f"  verranno salvati in questa cartella.")
     print(f"  Invio = cartella corrente ({OUTPUT_DIR})")
-    print("__GUI_ASKDIR__", flush=True)
+    print(f"__GUI_ASKDIR__|{OUTPUT_DIR}", flush=True)
     risposta = input(
         "  Inserisci il percorso (o premi Invio per usare la cartella corrente): "
     ).strip()
@@ -2108,7 +2215,8 @@ def main():
     if hasattr(signal, "SIGTERM"):
         def _sigterm_handler(signum, frame):
             try:
-                autosave(wb, lunedi_str)
+                _attendi_autosave()
+                autosave(wb, lunedi_str, sincrono=True)
             except Exception:
                 pass
             sys.exit(0)
@@ -2125,6 +2233,14 @@ def main():
     # Stato persistente tra sessioni giornaliere
     stato = {"ultimo_codice": None, "storico": [], "beep": False, "file_salvato": False}
 
+    # Contesto invariante della sessione (passato a sessione_giorno)
+    ctx = {
+        "ws_riepilogo": ws_riepilogo, "ws_log": ws_log, "wb": wb,
+        "lunedi": lunedi, "lunedi_str": lunedi_str,
+        "prima_data": prima_data, "nome_ripreso": nome_ripreso,
+        "file_ripreso": file_ripreso,
+    }
+
     risultato = "quit"
     while True:
         giorno_num, data_str = chiedi_giorno(lunedi)
@@ -2139,8 +2255,7 @@ def main():
                 continue
 
         risultato, log_row = sessione_giorno(
-            ws_riepilogo, ws_log, giorno_num, data_str, log_row,
-            wb, lunedi, lunedi_str, stato, prima_data, nome_ripreso, file_ripreso,
+            ctx, giorno_num, data_str, log_row, stato,
         )
 
         if risultato == "quit":
@@ -2148,7 +2263,7 @@ def main():
 
         risposta = input("\nVuoi continuare con un altro giorno? (s/n): ").strip().lower()
         if risposta != "s":
-            salvataggio_eseguito, cartella_salvata = menu_uscita_salvataggio(wb, prima_data, nome_ripreso, file_ripreso)
+            salvataggio_eseguito, cartella_salvata = menu_uscita_salvataggio(wb, prima_data, nome_ripreso, file_ripreso, stato)
             stato["file_salvato"] = salvataggio_eseguito
             stato["cartella_salvata"] = cartella_salvata
             break
@@ -2159,15 +2274,18 @@ def main():
     if salvataggio_ok and not file_ripreso:
         print("\n  Il template originale non e' stato modificato.")
 
-    # Proponi esportazione riepilogo annuale (prima di chiudere il workbook)
+    # Menu operazioni aggiuntive (nello stesso punto del codice originale)
     cartella_salvata = stato.get("cartella_salvata")
     if salvataggio_ok and cartella_salvata:
-        risp = input("\n  Aggiornare il riepilogo annuale? (s/n): ").strip().lower()
-        if risp == "s":
+        print("\n  Operazioni aggiuntive:")
+        print("    1. Aggiorna riepilogo annuale")
+        print("    2. Genera bollettini Word (ITA/ENG)")
+        print("    3. Entrambi (annuale + bollettini)")
+        print("    Invio = nessuna operazione aggiuntiva")
+        risp_extra = input("\n  Scelta: ").strip()
+        if risp_extra in ("1", "3"):
             esporta_riepilogo_annuale(ws_riepilogo, lunedi, cartella_salvata)
-
-        risp_word = input("\n  Generare i bollettini Word (ITA/ENG)? (s/n): ").strip().lower()
-        if risp_word == "s":
+        if risp_extra in ("2", "3"):
             genera_bollettini_word(ws_riepilogo, lunedi, lunedi_str, cartella_salvata)
 
     wb.close()

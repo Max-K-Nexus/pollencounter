@@ -26,7 +26,12 @@ else:
     import struct
     import termios
 
-_MONO_FONT = "Courier New" if sys.platform == "win32" else "Monospace"
+if sys.platform == "win32":
+    _MONO_FONT = "Courier New"
+elif sys.platform == "darwin":
+    _MONO_FONT = "Menlo"
+else:
+    _MONO_FONT = "Monospace"
 
 if getattr(sys, 'frozen', False):
     SCRIPT_DIR = Path(sys.executable).parent
@@ -38,7 +43,7 @@ SCRIPT_PATH = SCRIPT_DIR / "polline_counter.py"
 sys.path.insert(0, str(SCRIPT_DIR))
 from polline_counter import (
     CODICI_SPECIE, GIORNI_NOMI, SOGLIE_MAPPING,
-    codice_to_row, giorno_to_col, leggi_valore, carica_soglie,
+    codice_to_row, giorno_to_col, leggi_valore, leggi_fattore, carica_soglie,
 )
 
 try:
@@ -91,6 +96,7 @@ class PollineCounterGUI:
         self._refresh_running = False  # evita doppi timer concorrenti
         self._soglie = carica_soglie() or {}  # soglie per il bollettino
         self._marker_buf = ""  # buffer di accumulo per rilevamento marker
+        self._dialog_active = False  # protegge da Enter vaganti dopo filedialog
 
         self._build_ui()
         self._start_subprocess()
@@ -145,6 +151,12 @@ class PollineCounterGUI:
         style = ttk.Style()
         style.configure("Summary.Treeview", font=(_MONO_FONT, 10), rowheight=22)
         style.configure("Summary.Treeview.Heading", font=(_MONO_FONT, 10, "bold"))
+
+        # Fix per Tk 9.0 + tema aqua (macOS 26+): il tema nativo sovrascrive
+        # i colori delle righe. Azzerare il mapping background permette a
+        # tag_configure di avere effetto nelle tabelle Treeview.
+        if sys.platform == "darwin":
+            style.map("Treeview", background=[], foreground=[])
 
         # ── Tab 1: Settimanale ──
         self._build_tab_settimanale()
@@ -286,8 +298,14 @@ class PollineCounterGUI:
             master_fd, slave_fd = pty.openpty()
             winsize = struct.pack("HHHH", 40, 100, 0, 0)
             fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+            # In modalita' frozen (PyInstaller .app su macOS) il file .py non
+            # esiste nel bundle: si rilancia lo stesso eseguibile con --cli.
+            if getattr(sys, 'frozen', False):
+                cmd = [sys.executable, "--cli"]
+            else:
+                cmd = [sys.executable, str(SCRIPT_PATH), "--gui"]
             self.process = subprocess.Popen(
-                [sys.executable, str(SCRIPT_PATH), "--gui"],
+                cmd,
                 stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
                 close_fds=True, cwd=str(SCRIPT_DIR),
             )
@@ -405,6 +423,9 @@ class PollineCounterGUI:
                     pass
 
     def _send_input(self, _event=None):
+        if self._dialog_active:
+            self.entry.delete(0, tk.END)
+            return
         text = self.entry.get()
         self.entry.delete(0, tk.END)
         self._send_to_stdin(text)
@@ -433,20 +454,41 @@ class PollineCounterGUI:
             # Testo prima del marker → va mostrato
             display_parts.append(self._marker_buf[:earliest_pos])
             self._marker_buf = self._marker_buf[earliest_pos + len(earliest_marker):]
+            # Estrai parametri opzionali (formato: |param1|param2...\n)
+            params = []
+            if self._marker_buf.startswith("|"):
+                newline_pos = self._marker_buf.find("\n")
+                if newline_pos == -1 and not flush:
+                    # Parametri incompleti, rimettere marker e attendere
+                    self._marker_buf = earliest_marker + self._marker_buf
+                    # Ripristina il testo pre-marker nel buffer
+                    pre = display_parts.pop()
+                    self._marker_buf = pre + self._marker_buf
+                    break
+                end = newline_pos if newline_pos != -1 else len(self._marker_buf)
+                params_str = self._marker_buf[:end]
+                self._marker_buf = self._marker_buf[end + 1:] if newline_pos != -1 else ""
+                params = [p for p in params_str.split("|") if p]
+            init_dir = params[0] if params else str(SCRIPT_DIR)
             # Apri il dialogo appropriato
             self.root.lift()
-            self.root.focus_force()
+            # focus_force() causa problemi su macOS: si usa solo su Win/Linux
+            if sys.platform != "darwin":
+                self.root.focus_force()
+            self._dialog_active = True
             if earliest_marker == "__GUI_ASKDIR__":
                 path = filedialog.askdirectory(
                     parent=self.root,
                     title="Scegli cartella di salvataggio",
-                    initialdir=str(SCRIPT_DIR),
+                    initialdir=init_dir,
                 )
             elif earliest_marker == "__GUI_ASKSAVEFILE__":
+                init_file = params[1] if len(params) > 1 else ""
                 path = filedialog.asksaveasfilename(
                     parent=self.root,
                     title="Salva file conta pollinica",
-                    initialdir=str(SCRIPT_DIR),
+                    initialdir=init_dir,
+                    initialfile=init_file,
                     defaultextension=".xlsx",
                     filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
                 )
@@ -454,10 +496,13 @@ class PollineCounterGUI:
                 path = filedialog.askopenfilename(
                     parent=self.root,
                     title="Importa file conta pollinica",
-                    initialdir=str(SCRIPT_DIR),
+                    initialdir=init_dir,
                     filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
                 )
             self._send_to_stdin(path if path else "")
+            # Disattiva il flag dopo un breve ritardo per assorbire
+            # eventuali Enter vaganti propagati dalla chiusura del dialog
+            self.root.after(200, self._clear_dialog_flag)
 
         if flush:
             # Processo terminato: svuota tutto il buffer
@@ -477,6 +522,9 @@ class PollineCounterGUI:
             self._marker_buf = self._marker_buf[safe_end:]
 
         return "".join(display_parts)
+
+    def _clear_dialog_flag(self):
+        self._dialog_active = False
 
     def _flush_marker_buf(self):
         """Svuota il buffer marker e ritorna il testo residuo."""
@@ -579,8 +627,9 @@ class PollineCounterGUI:
             wb.close()
             # Torna al main thread per aggiornare i widget
             self.root.after(0, lambda: self._applica_dati(dati))
-        except Exception:
-            pass
+        except Exception as e:
+            self.root.after(0, lambda err=e: self.lbl_boll_info.config(
+                text=f"Errore lettura file: {err}"))
         finally:
             # Riprogramma il prossimo ciclo nel main thread
             self.root.after(0, self._schedula_prossimo_refresh)
@@ -627,8 +676,7 @@ class PollineCounterGUI:
                         tot_spore_g[i] += vals[i]
 
         # ── Bollettino: concentrazioni p/m³ per famiglia ──
-        fattore_val = ws["Q3"].value
-        fattore = float(fattore_val) if isinstance(fattore_val, (int, float)) and fattore_val > 0 else 0.4
+        fattore = leggi_fattore(ws)
 
         righe_boll = []
         for codice, famiglia_soglia in SOGLIE_MAPPING.items():
@@ -728,7 +776,8 @@ class PollineCounterGUI:
 
 def main():
     root = tk.Tk()
-    if sv_ttk is not None:
+    # sv_ttk e' il tema Sun Valley (stile Windows 11): abilitarlo solo su Windows
+    if sv_ttk is not None and sys.platform == "win32":
         sv_ttk.set_theme("light")
     app = PollineCounterGUI(root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)

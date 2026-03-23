@@ -8,6 +8,9 @@ REQUISITI
 - Python 3
 - Libreria openpyxl:  pip3 install openpyxl
 - Il file Polline_Template_Settimanale.xlsx nella cartella codice/
+- (Opzionale) python3-docx per la generazione dei bollettini Word:
+    sudo apt install python3-docx
+  oppure:  pip3 install python-docx
 
 
 AVVIO
@@ -178,7 +181,7 @@ CODICI SPECIE
 SALVATAGGIO E FILE
 ------------------
 
-- AUTO-SAVE: ogni 10 inserimenti lo script salva automaticamente
+- AUTO-SAVE: ogni 5 inserimenti lo script salva automaticamente
   su "~autosave_{settimana}.xlsx". Anche in caso di Ctrl+C o
   chiusura improvvisa i dati non vengono persi.
 
@@ -186,16 +189,43 @@ SALVATAGGIO E FILE
   per riprendere in un secondo momento.
 
 - SALVATAGGIO DEFINITIVO (comando "q"): chiede conferma, poi
-  chiede il nome del file. Il default e'
-  "Conta_Pollinica_{data}.xlsx" per file nuovi, oppure il nome
-  originale per file ripresi.
-  Se il file esiste gia' viene chiesta conferma prima di
-  sovrascriverlo.
+  apre la finestra di salvataggio (GUI) o chiede il percorso (CLI).
+  Il default e' "Conta_Pollinica_{data}.xlsx" per file nuovi, oppure
+  il nome originale per file ripresi.
 
 - Dopo il salvataggio definitivo i file temporanei (~autosave_*
   e incompleto_*) vengono rimossi automaticamente.
 
 - Il template originale non viene MAI modificato.
+
+
+BOLLETTINI WORD (ITA/ENG)
+--------------------------
+
+Dopo il salvataggio definitivo lo script chiede:
+
+  Generare i bollettini Word (ITA/ENG)? (s/n):
+
+Risposta "s": vengono creati due file nella stessa cartella del .xlsx:
+  - Bollettino_ITA_{settimana}.docx
+  - Bollettino_ENG_{settimana}.docx
+
+I bollettini riportano le concentrazioni polliniche (p/m3) per ogni
+specie con almeno un valore > 0 nella settimana. Le celle dei 7 giorni
+e della media settimanale sono colorate secondo la scala:
+  - Verde:    Assente
+  - Giallo:   Bassa concentrazione
+  - Arancio:  Media concentrazione
+  - Rosso:    Alta concentrazione
+
+La colonna "Tendenza prevista" e' lasciata vuota per la compilazione
+manuale. Il bollettino usa i template predefiniti nella cartella
+codice/ (ITA_Template_Bollettino_pubblicazione.docx e
+ENG_Template_Bollettino_pubblicazione.docx).
+
+ATTENZIONE: e' richiesta la libreria python3-docx (vedi REQUISITI).
+Se non installata, il salvataggio Excel avviene normalmente e la
+generazione Word viene saltata con un avviso.
 
 
 STRUTTURA DEL FILE EXCEL
