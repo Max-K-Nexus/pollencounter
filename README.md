@@ -1,7 +1,3 @@
-Here is the English translation of your `README.md` file. I’ve kept the structure identical and ensured the technical terms are accurately localized.
-
----
-
 # 🌿 Pollencounter
 
 Pollencounter is a pollen counting tool designed to support aerobiological monitoring and the production of official bulletins.
@@ -171,7 +167,3 @@ If you use Pollencounter in your project or report, please cite the authors:
 | `python-docx` | Optional | Word bulletin generation |
 | `sv-ttk` | Optional | Modern graphic theme (Windows only) |
 | `pyinstaller` | Development only | Windows/macOS executable build |
-
----
-
-Would you like me to translate any of the other documentation files mentioned, such as `ISTRUZIONI.txt` or the specific Windows/Mac guides?
