@@ -1,0 +1,20 @@
+# ── Dipendenze obbligatorie ──────────────────────────────────────────────────
+openpyxl>=3.1.0          # lettura/scrittura file Excel (.xlsx)
+
+# ── Dipendenze opzionali ─────────────────────────────────────────────────────
+# Generazione bollettini Word (ITA/ENG):
+#   pip install python-docx
+#   oppure (Debian/Ubuntu): sudo apt install python3-docx
+python-docx>=1.0.0
+
+# Tema grafico moderno (solo Windows):
+#   pip install sv-ttk
+sv-ttk>=2.6.0
+
+# ── Note ─────────────────────────────────────────────────────────────────────
+# tkinter è richiesto dalla GUI ma fa parte della stdlib di Python.
+# Su Debian/Ubuntu potrebbe richiedere installazione separata:
+#   sudo apt install python3-tk
+#
+# PyInstaller serve solo per compilare l'eseguibile Windows (uso sviluppatori):
+#   pip install pyinstaller
