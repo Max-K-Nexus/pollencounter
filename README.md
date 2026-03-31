@@ -45,7 +45,7 @@ pollencounter/
 │   ├── build_exe.bat                # Script to compile the executable (dev)
 │   └── ISTRUZIONI_WINDOWS.txt       # Windows specific guide
 ├── riferimenti/                     # Historical tables and reference data
-├── esempio di bolletino.pdf         # Final output example
+├── esempio di bollettino.pdf         # Final output example
 ├── CHANGELOG.md                     # Change history
 └── ISTRUZIONI.txt                   # General documentation
 ```
