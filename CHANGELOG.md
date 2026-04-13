@@ -4,6 +4,233 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-04-10 (3)
+
+### Migrazione backend vocale: Azure → Groq Whisper API
+
+**Problema:** account universitario UniPR non abilitato alla creazione di risorse
+Azure Cognitive Services.
+
+**Correzione:**
+- `codice/voice_input.py`: riscritto per usare Groq (`whisper-large-v3-turbo`).
+  Registrazione audio locale via `sounddevice` + `wave` (stdlib), invio WAV a Groq.
+  Rimosso import `azure-cognitiveservices-speech`. Mantenuti `ALIAS_VOCALI` e
+  `match_specie()` invariati.
+- `codice/polline_counter_gui_voice.py`: flusso registrazione cambiato da
+  click-unico (Azure auto-stop) a toggle start/stop. Click 1 → avvia microfono
+  ("Stop" rosso); click 2 o timeout 8s → ferma e invia a Groq ("Invio..." giallo).
+  Aggiunto `_voice_registrando`, `_voice_autostop_id`. Rimosso `_voice_attivo`.
+- `codice/pollencounter.cfg`: sezione rinominata da `azure_speech` a `groq_speech`,
+  rimosso campo `region`.
+
+**Dipendenze finali:**
+```
+pip3 install --break-system-packages groq sounddevice
+```
+
+## 2026-04-10 (2)
+
+### Aggiunta versione GUI con riconoscimento vocale (branch di test)
+
+**Problema:** nessuno — nuova funzionalità.
+
+**Correzione:**
+- Nuovo file `codice/voice_input.py`: modulo standalone per Azure Speech Services.
+  Contiene `ALIAS_VOCALI` (pronuncia italiana → codice), `match_specie()` con fuzzy
+  matching (difflib), `RiconoscitoreVocale` (wrapper SDK con phrase hints botanici),
+  `carica_da_config()` (legge credenziali da `pollencounter.cfg`).
+- Nuovo file `codice/polline_counter_gui_voice.py`: copia della GUI originale con
+  pulsante MIC aggiunto nella barra di input. Shortcut F9. Riconoscimento in thread
+  separato; al match mostra "05 — Betula" per 1.2s poi invia automaticamente;
+  al non-match mostra il testo grezzo in rosso per correzione manuale.
+- `codice/pollencounter.cfg`: aggiunto segnaposto sezione `azure_speech` (key + region).
+- `codice/polline_counter_gui.py` e `codice/polline_counter.py`: **invariati**.
+
+**Dipendenze da installare prima del primo avvio:**
+```
+sudo apt install libasound2
+pip3 install azure-cognitiveservices-speech
+```
+
+## 2026-04-10
+
+### Riduzione carico CPU: polling adattivo e refresh meno frequente
+
+**Problema:** La GUI consumava circa il 45% della CPU (quasi un core intero) anche
+quando l'applicazione era ferma in attesa di input dall'operatore.
+
+**Causa:** Due loop di polling ad alta frequenza:
+- `_poll_output` si rischedulava ogni 50 ms fissi (20 wakeup/secondo nel loop eventi
+  Tcl/X11), anche quando il subprocess era bloccato su `input()` e non produceva output.
+- `_refresh_summary` rileggeva l'intero file Excel ogni 3 s, anche durante l'inserimento
+  attivo dove i `__GUI_DELTA__` già tengono le tabelle aggiornate senza I/O.
+
+**Correzione** (`codice/polline_counter_gui.py`):
+- Aggiunto `_poll_idle_count` e metodo `_next_poll_delay()`: i primi 3 cicli senza dati
+  usano 50 ms (reattività immediata), poi si passa a 500 ms a riposo (da 20 a 2
+  wakeup/secondo). Il contatore viene azzerato in `_send_input` affinché la risposta
+  al prossimo tasto Invio sia sempre rapida.
+- Costanti di classe `_POLL_ACTIVE_MS = 50`, `_POLL_IDLE_MS = 500`,
+  `_POLL_BACKOFF_AFTER = 3` per facile manutenzione futura.
+- `_schedula_prossimo_refresh`: intervallo portato da 3000 ms a 10000 ms.
+
+---
+
+## 2026-04-08 (8)
+
+### Fix flickering conteggio: race condition delta vs. refresh da file
+
+**Problema:** Inserendo pollini rapidamente, il conteggio nella tabella GUI veniva
+aggiornato correttamente dal delta, poi retrocedeva al valore precedente, e tornava
+corretto solo dopo il successivo autosave.
+
+**Causa:** `_applica_dati()` riceveva dati dal thread di refresh periodico (che
+leggeva il file non ancora autosalvato) e renderizzava i Treeview con valori stantii,
+sovrascrivendo visivamente i delta già applicati in memoria. Non bastava proteggere
+`_counts`: anche i campi `sett_righe`/`giorn_righe`/`boll_righe` del dict provenivano
+dal file stantio e venivano usati direttamente per il rendering.
+
+**Correzione:** In `_applica_dati()` (`polline_counter_gui.py`):
+- Quando arrivano dati da file (`"raw_vals" in dati`) e `_has_live_deltas` è `True`,
+  i dati dal file vengono scartati e `dati` viene ricostruito da `_costruisci_dati_da_counts()`
+  (dati in memoria, aggiornati dai delta). In questo modo il rendering usa sempre lo
+  stato più recente.
+- Se `_has_live_deltas` è `False` (prima lettura, nessun delta ancora), `_counts`
+  viene inizializzato dal file come prima.
+- `_fattore` viene aggiornato dal file in ogni caso (non è influenzato dai delta).
+- Aggiunto flag `_has_live_deltas` e helper `_imposta_file()` in `_detect_tracked_file()`
+  che resetta il flag a `False` quando cambia il file tracciato (nuova sessione / ripresa).
+
+---
+
+## 2026-04-08 (7)
+
+### Aggiornamento live tabelle GUI via marker delta stdout
+
+**Problema:** le tabelle Settimanale/Giornaliero/Bollettino si aggiornano con
+ritardo (fino a 5 inserimenti + 3s di polling), perché dipendono dalla lettura
+periodica del file autosave.
+
+**Soluzione:** `polline_counter.py` stampa su stdout un marker compatto dopo
+ogni inserimento valido e dopo ogni undo:
+`__GUI_DELTA__|codice|giorno_num|valore_aggiornato`
+La GUI intercetta il marker in `_handle_gui_markers`, lo rimuove dal testo
+visibile e chiama `_applica_delta`, che aggiorna `_counts` in memoria e
+ridisegna i Treeview senza leggere il file.
+
+**File modificati:**
+- `polline_counter.py`: print delta dopo `esegui_inserimento` e dopo
+  `esegui_undo` in `sessione_giorno()`.
+- `polline_counter_gui.py`:
+  - `__init__`: aggiunti `_counts` e `_fattore`
+  - `_GUI_MARKERS`: aggiunto `__GUI_DELTA__`
+  - `_handle_gui_markers`: branch per delta (nessun dialog, nessun stdin)
+  - `_raccogli_dati`: raccoglie `raw_vals` per sincronizzare `_counts`
+  - `_applica_dati`: sincronizza `_counts` e `_fattore` dai dati del file
+  - Nuovi metodi `_applica_delta` e `_costruisci_dati_da_counts`
+
+Il polling a 3s resta attivo come sincronizzazione di backup (es. ripresa file).
+
+---
+
+## 2026-04-08 (6)
+
+### Revert GUI: rimossi pulsante Aggiorna, toolbar e binding tastiera
+
+Annullate le modifiche alle sessioni (2)–(5) relative al refresh manuale.
+Ripristinato il polling periodico ogni 3s (`_schedula_prossimo_refresh`).
+Mantenuti:
+- Fix autosave atomico in `polline_counter.py` (sessione 1)
+- Fix avvio file nuovo: `_ricontrolla` a 800ms in `_detect_tracked_file`
+
+---
+
+## 2026-04-08 (5)
+
+### Cambio tasto aggiornamento: 'u' → 'f' nell'Entry
+
+**Motivo:** 'u' era già usato come comando undo nello script.
+**Correzione:** `polline_counter_gui.py` — binding cambiato da `<KeyPress-u/U>`
+a `<KeyPress-f/F>`.
+
+---
+
+## 2026-04-08 (4)
+
+### Fix: cambio tab non aggiornava i dati (refresh pending)
+
+**Problema:** cambiare tab non aggiornava i dati.
+
+**Causa:** se un refresh era già in corso (avviato da autosave), `_forza_refresh`
+trovava `_refresh_running = True` e usciva subito senza fare nulla.
+
+**Correzione:** `polline_counter_gui.py`.
+- Aggiunto flag `_refresh_pending` in `__init__`.
+- `_forza_refresh`: se `_refresh_running` è True, imposta `_refresh_pending = True`
+  invece di ignorare la richiesta.
+- `_schedula_prossimo_refresh`: dopo aver resettato `_refresh_running`, controlla
+  `_refresh_pending` ed esegue subito un nuovo refresh se necessario.
+
+## 2026-04-08 (3)
+
+### Raffinamento refresh GUI: tasto 'u' nell'Entry, rimozione F4/R, fix conte vuote
+
+**Modifiche:** `polline_counter_gui.py`.
+- Pulsante rinominato da "[R / F4] Aggiorna" a "Aggiorna".
+- Rimossi binding globali F4 e R/r sulla root window.
+- Aggiunto binding `u`/`U` sull'Entry: digita 'u' per aggiornare i tab senza
+  inviare il carattere allo script (return "break").
+- Fix "conte vuote all'avvio": se il messaggio `[auto-salvato]` arriva prima
+  che il rename atomico `.tmp`→`.xlsx` sia completato, un retry dopo 800ms
+  ricollega `_tracked_file` e avvia il primo refresh.
+
+## 2026-04-08 (2)
+
+### Refresh tab GUI: da polling periodico a event-driven + on-demand
+
+**Problema:** i tab Settimanale/Giornaliero/Bollettino venivano aggiornati
+tramite un timer fisso ogni 3 secondi, consumando CPU e disco anche a riposo.
+
+**Causa:** `_schedula_prossimo_refresh` riprogrammava `after(3000, ...)` al
+termine di ogni ciclo, indipendentemente dall'attività dell'utente.
+
+**Correzione:** `polline_counter_gui.py`.
+- `_schedula_prossimo_refresh`: rimuove il timer periodico; resetta solo
+  `_refresh_running = False`. Il refresh è ora puramente event-driven.
+- `_refresh_summary`: non riprogramma il retry se il file non esiste ancora;
+  aspetta il prossimo evento.
+- Nuovo `_forza_refresh()`: refresh manuale immediato usato da pulsante,
+  cambio tab e tasti.
+- Nuovo `_forza_refresh_da_tastiera()`: wrapper per tasto R/r che si ignora
+  se l'Entry ha focus (evita di intercettare la digitazione).
+- Toolbar aggiunta sopra il notebook con pulsante "Aggiorna [R / F4]".
+- Binding `<<NotebookTabChanged>>` sul notebook: refresh automatico al
+  cambio tab.
+- Binding `<F4>` (sempre) e `r`/`R` (solo se Entry non ha focus) sulla
+  root window.
+
+## 2026-04-08
+
+### Fix: autosave atomico — elimina errori "truncated header" / "file is not a zip file"
+
+**Problema:** la GUI mostrava errori "truncated header" o "file is not a zip file"
+quando cercava di leggere il file autosave per aggiornare i tab live.
+
+**Causa:** `wb.save(path)` in `autosave()` scriveva direttamente sul file
+autosave in modo non atomico. Se il thread di refresh della GUI (o il prossimo
+avvio) leggeva il file mentre il thread background stava ancora scrivendo,
+trovava un archivio ZIP incompleto. Il messaggio `[auto-salvato]` veniva inoltre
+stampato subito dopo l'avvio del thread, prima che il salvataggio fosse
+completato, portando la GUI a tentare la lettura in anticipo.
+
+**Correzione:** `polline_counter.py`, funzione `_do_save()` (~riga 1781).
+Il salvataggio ora usa il pattern write-then-rename: `wb.save(tmp)` su un file
+`.tmp` temporaneo, poi `tmp.replace(path)` rinomina atomicamente. Il file
+definitivo esiste solo quando è completo; la GUI legge sempre una versione
+integra.
+
+---
+
 ## 2026-03-23
 
 ### Miglioramento flusso salvataggio e selezione cartella

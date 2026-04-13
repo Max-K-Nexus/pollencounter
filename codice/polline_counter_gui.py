@@ -95,8 +95,12 @@ class PollineCounterGUI:
         self._sessione_attiva = False  # True solo dopo che file+giorno sono stati scelti
         self._refresh_running = False  # evita doppi timer concorrenti
         self._soglie = carica_soglie() or {}  # soglie per il bollettino
+        self._counts = {}   # conteggi live: codice → [v_lun, v_mar, ..., v_dom]
+        self._fattore = 1   # fattore di conversione (aggiornato alla prima lettura file)
+        self._has_live_deltas = False  # True dopo il primo delta: blocca sovrascrittura da file
         self._marker_buf = ""  # buffer di accumulo per rilevamento marker
         self._dialog_active = False  # protegge da Enter vaganti dopo filedialog
+        self._poll_idle_count = 0   # contatore cicli senza dati: governa il backoff
 
         self._build_ui()
         self._start_subprocess()
@@ -335,7 +339,8 @@ class PollineCounterGUI:
         else:
             self._poll_output_unix()
 
-    _GUI_MARKERS = ("__GUI_ASKDIR__", "__GUI_ASKOPENFILE__", "__GUI_ASKSAVEFILE__")
+    _GUI_MARKERS = ("__GUI_ASKDIR__", "__GUI_ASKOPENFILE__", "__GUI_ASKSAVEFILE__",
+                    "__GUI_DELTA__")
     _MAX_MARKER_LEN = max(len(m) for m in _GUI_MARKERS)
 
     def _elabora_output(self, text, process_ended=False):
@@ -353,6 +358,21 @@ class PollineCounterGUI:
             self.text_output.config(state=tk.DISABLED)
             self._detect_tracked_file(display)
 
+    # Intervalli polling: 50ms quando arrivano dati, backoff fino a 500ms a riposo
+    _POLL_ACTIVE_MS = 50
+    _POLL_IDLE_MS   = 500
+    _POLL_BACKOFF_AFTER = 3   # cicli vuoti prima di passare all'intervallo lento
+
+    def _next_poll_delay(self, got_data):
+        """Ritorna il delay per il prossimo after() in ms (con backoff adattivo)."""
+        if got_data:
+            self._poll_idle_count = 0
+            return self._POLL_ACTIVE_MS
+        self._poll_idle_count += 1
+        if self._poll_idle_count >= self._POLL_BACKOFF_AFTER:
+            return self._POLL_IDLE_MS
+        return self._POLL_ACTIVE_MS
+
     def _poll_output_win32(self):
         chunks = []
         process_ended = False
@@ -365,7 +385,8 @@ class PollineCounterGUI:
                 chunks.append(item)
         except queue.Empty:
             pass
-        if chunks:
+        got_data = bool(chunks)
+        if got_data:
             self._elabora_output(
                 b"".join(chunks).decode("utf-8", errors="replace"),
                 process_ended,
@@ -378,17 +399,19 @@ class PollineCounterGUI:
                 self.text_output.config(state=tk.DISABLED)
             self._on_process_exit()
         else:
-            self.root.after(50, self._poll_output)
+            self.root.after(self._next_poll_delay(got_data), self._poll_output)
 
     def _poll_output_unix(self):
         if self.master_fd is None:
             return
         process_alive = self.process and self.process.poll() is None
+        got_data = False
         try:
             ready, _, _ = select.select([self.master_fd], [], [], 0)
             if ready:
                 data = os.read(self.master_fd, 8192)
                 if data:
+                    got_data = True
                     self._elabora_output(
                         data.decode("utf-8", errors="replace"),
                         not process_alive,
@@ -397,7 +420,7 @@ class PollineCounterGUI:
             pass
 
         if process_alive:
-            self.root.after(50, self._poll_output)
+            self.root.after(self._next_poll_delay(got_data), self._poll_output)
         else:
             remaining = self._flush_marker_buf()
             if remaining:
@@ -428,6 +451,7 @@ class PollineCounterGUI:
             return
         text = self.entry.get()
         self.entry.delete(0, tk.END)
+        self._poll_idle_count = 0   # l'utente ha appena digitato: torna veloce
         self._send_to_stdin(text)
 
     def _handle_gui_markers(self, new_text, flush=False):
@@ -469,6 +493,15 @@ class PollineCounterGUI:
                 params_str = self._marker_buf[:end]
                 self._marker_buf = self._marker_buf[end + 1:] if newline_pos != -1 else ""
                 params = [p for p in params_str.split("|") if p]
+            # Delta live: aggiorna le tabelle senza aprire dialoghi né rispondere stdin
+            if earliest_marker == "__GUI_DELTA__":
+                if len(params) >= 3:
+                    try:
+                        self._applica_delta(params[0], int(params[1]), int(params[2]))
+                    except (ValueError, IndexError):
+                        pass
+                continue
+
             init_dir = params[0] if params else str(SCRIPT_DIR)
             # Apri il dialogo appropriato
             self.root.lift()
@@ -543,12 +576,18 @@ class PollineCounterGUI:
         """Analizza l'output dello script per capire quale file sta usando."""
         aggiorna = False
 
+        def _imposta_file(p):
+            """Aggiorna _tracked_file; se cambia, resetta il flag delta."""
+            if p != self._tracked_file:
+                self._tracked_file = p
+                self._has_live_deltas = False  # nuova sessione: prossima lettura file inizializza _counts
+
         # Rileva "Ripreso: /percorso/completo/nomefile.xlsx"
         match = re.search(r"Ripreso:\s*(.+\.xlsx)", text)
         if match:
             path = Path(match.group(1).strip())
             if path.exists():
-                self._tracked_file = path
+                _imposta_file(path)
                 aggiorna = True
 
         # Rileva "[auto-salvato]: /percorso/completo/~autosave_*.xlsx"
@@ -556,7 +595,17 @@ class PollineCounterGUI:
         if match:
             path = Path(match.group(1).strip())
             if path.exists():
-                self._tracked_file = path
+                _imposta_file(path)
+            else:
+                # Il messaggio arriva prima che il rename atomico (.tmp→.xlsx) sia completato.
+                # Ricontrolla tra 800ms (una volta sola) per agganciare il file.
+                def _ricontrolla(p=path):
+                    if p.exists():
+                        _imposta_file(p)
+                        if self._sessione_attiva and not self._refresh_running:
+                            self._refresh_running = True
+                            self._refresh_summary()
+                self.root.after(800, _ricontrolla)
             aggiorna = True
 
         # Rileva "File salvato: /percorso/completo/nomefile.xlsx" (salvataggio definitivo)
@@ -564,7 +613,7 @@ class PollineCounterGUI:
         if match:
             path = Path(match.group(1).strip())
             if path.exists():
-                self._tracked_file = path
+                _imposta_file(path)
                 aggiorna = True
 
         # Rileva "Sessione sospesa. File salvato: /percorso/completo/nomefile.xlsx"
@@ -572,7 +621,7 @@ class PollineCounterGUI:
         if match:
             path = Path(match.group(1).strip())
             if path.exists():
-                self._tracked_file = path
+                _imposta_file(path)
                 aggiorna = True
 
         # Rileva inizio sessione giorno (giorno e file sono stati scelti)
@@ -606,7 +655,7 @@ class PollineCounterGUI:
 
         if self._tracked_file is None or not self._tracked_file.exists():
             # File non ancora noto o non ancora scritto dal thread autosave: riprova
-            self.root.after(3000, self._refresh_summary)
+            self.root.after(10000, self._refresh_summary)
             return
 
         # Lettura Excel in thread separato per non bloccare il main thread
@@ -637,7 +686,7 @@ class PollineCounterGUI:
     def _schedula_prossimo_refresh(self):
         if self._sessione_attiva:
             # _refresh_running rimane True: il prossimo timer e' gia' in coda
-            self.root.after(3000, self._refresh_summary)
+            self.root.after(10000, self._refresh_summary)
         else:
             self._refresh_running = False
 
@@ -651,11 +700,14 @@ class PollineCounterGUI:
         tot_pollini_g = [0] * 7
         tot_spore_g = [0] * 7
 
+        raw_vals = {}  # codice → [v_lun..v_dom] per sincronizzare _counts
+
         for codice_str, specie in CODICI_SPECIE.items():
             row = codice_to_row(codice_str)
             if row is None:
                 continue
             vals = [leggi_valore(ws, row, giorno_to_col(g)) for g in range(1, 8)]
+            raw_vals[codice_str] = vals
             total = sum(vals)
             n = int(codice_str)
 
@@ -703,10 +755,87 @@ class PollineCounterGUI:
             "giorn_spore": tot_spore_g,
             "boll_righe": righe_boll,
             "boll_fattore": fattore,
+            "raw_vals": raw_vals,
+        }
+
+    def _applica_delta(self, codice, giorno_num, val):
+        """Aggiorna il conteggio di una specie per un giorno e ridisegna le tabelle.
+        Chiamato dal main thread a ogni inserimento/undo, senza leggere il file."""
+        self._has_live_deltas = True  # inibisce sovrascrittura da refresh file
+        if codice not in self._counts:
+            self._counts[codice] = [0] * 7
+        self._counts[codice][giorno_num - 1] = val
+        self._applica_dati(self._costruisci_dati_da_counts())
+
+    def _costruisci_dati_da_counts(self):
+        """Costruisce il dict dati da _counts in memoria (nessun I/O su file)."""
+        righe_sett = []
+        tot_pollini_s = 0
+        tot_spore_s = 0
+        righe_giorn = []
+        tot_pollini_g = [0] * 7
+        tot_spore_g = [0] * 7
+        righe_boll = []
+
+        for codice_str, specie in CODICI_SPECIE.items():
+            vals = self._counts.get(codice_str, [0] * 7)
+            total = sum(vals)
+            n = int(codice_str)
+
+            if total > 0:
+                righe_sett.append((codice_str, specie, total))
+                if n <= 47:
+                    tot_pollini_s += total
+                else:
+                    tot_spore_s += total
+
+            if any(v > 0 for v in vals):
+                display = [str(v) if v > 0 else "-" for v in vals]
+                righe_giorn.append((codice_str, specie, *display))
+                for i in range(7):
+                    if n <= 47:
+                        tot_pollini_g[i] += vals[i]
+                    else:
+                        tot_spore_g[i] += vals[i]
+
+        for codice, famiglia_soglia in SOGLIE_MAPPING.items():
+            vals = self._counts.get(codice, [0] * 7)
+            if all(v == 0 for v in vals):
+                continue
+            conc = [round(v * self._fattore, 1) for v in vals]
+            media = round(sum(conc) / 7.0, 1)
+            nome = CODICI_SPECIE.get(codice, famiglia_soglia)
+            soglia_tuple = self._soglie.get(famiglia_soglia, (0.9, 19.9, 39.9))
+            livello = _livello_conc(media, soglia_tuple)
+            display_conc = [str(v) if v > 0 else "-" for v in conc]
+            righe_boll.append((nome, *display_conc, str(media), livello))
+
+        return {
+            "sett_righe": righe_sett,
+            "sett_pollini": tot_pollini_s,
+            "sett_spore": tot_spore_s,
+            "giorn_righe": righe_giorn,
+            "giorn_pollini": tot_pollini_g,
+            "giorn_spore": tot_spore_g,
+            "boll_righe": righe_boll,
+            "boll_fattore": self._fattore,
         }
 
     def _applica_dati(self, dati):
         """Aggiorna i widget Treeview con i dati raccolti (main thread)."""
+        # Aggiorna sempre il fattore di conversione (viene dal file, non dai delta)
+        self._fattore = dati["boll_fattore"]
+
+        if "raw_vals" in dati:
+            # Dati arrivano da lettura file (refresh periodico)
+            if self._has_live_deltas:
+                # Il file potrebbe essere stantio rispetto ai delta in memoria.
+                # Scarta i dati dal file e ridisegna da _counts in memoria.
+                dati = self._costruisci_dati_da_counts()
+            else:
+                # Prima lettura (nessun delta ancora): inizializza _counts dal file
+                self._counts = dati["raw_vals"]
+
         # Tab settimanale
         ch = self.tree_sett.get_children()
         if ch:

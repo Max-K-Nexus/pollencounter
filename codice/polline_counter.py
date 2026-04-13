@@ -1780,9 +1780,17 @@ def autosave(wb, lunedi_str, sincrono=False):
 
     def _do_save():
         try:
-            wb.save(path)
+            # Salva su file temporaneo, poi rinomina atomicamente.
+            # Evita che una lettura concorrente (GUI o prossimo avvio) trovi
+            # un archivio ZIP troncato ("truncated header" / "not a zip file").
+            tmp = path.with_suffix(".tmp")
+            wb.save(tmp)
+            tmp.replace(path)
         except Exception:
-            pass
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
         finally:
             _autosave_lock.release()
 
@@ -2047,11 +2055,15 @@ def sessione_giorno(ctx, giorno_num, data_str, log_row, stato):
                     if risp != "s":
                         undo_consecutivi = 0
                         continue
+                codice_undo = undo_stack[-1][0]  # peek prima che esegui_undo lo rimuova
                 log_row, qty = esegui_undo(
                     ws_riepilogo, ws_log, col, data_str, undo_stack, log_row
                 )
                 conteggio -= qty
                 conteggio_autosave = max(0, conteggio_autosave - qty)
+                # Marker per aggiornamento live dopo undo
+                _val = leggi_valore(ws_riepilogo, codice_to_row(codice_undo), col)
+                print(f"__GUI_DELTA__|{codice_undo}|{giorno_num}|{_val}", flush=True)
                 continue
 
             # Reset contatore undo consecutivi
@@ -2088,6 +2100,9 @@ def sessione_giorno(ctx, giorno_num, data_str, log_row, stato):
             undo_stack.append((codice, quantita))
             conteggio += quantita
             conteggio_autosave += quantita
+            # Marker per aggiornamento live delle tabelle GUI (senza leggere il file)
+            _val = leggi_valore(ws_riepilogo, codice_to_row(codice), col)
+            print(f"__GUI_DELTA__|{codice}|{giorno_num}|{_val}", flush=True)
 
             if conteggio_autosave % AUTOSAVE_INTERVAL == 0:
                 autosave(wb, lunedi_str)
