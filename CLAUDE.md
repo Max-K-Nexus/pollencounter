@@ -14,127 +14,115 @@ messaggi di errore devono essere chiare e non presupporre conoscenze informatich
 
 ---
 
-## Struttura dei file
-
-```
-pollencounter/
-  codice/                             ← script principali e file di riferimento del codice
-    polline_counter.py                ← script CLI, cross-platform (Linux + Windows)
-    polline_counter_gui.py            ← GUI tkinter, cross-platform
-    Polline_Template_Settimanale.xlsx          ← template Excel master (NON modificare)
-    concentrazioni_polliniche.xlsx             ← soglie per il bollettino (fallback esterno)
-    ITA_Template_Bollettino_pubblicazione.docx ← template Word bollettino italiano
-    ENG_Template_Bollettino_pubblicazione.docx ← template Word bollettino inglese
-    pollencounter.cfg                          ← configurazione cartella di lavoro per anno
-  script_aiuto/                       ← avviatori e utility di manutenzione
-    AVVIA_CONTA_POLLINICA_GUI.sh      ← avvio GUI da terminale (Linux)
-    AVVIA_CONTA_POLLINICA.sh          ← avvio CLI da terminale (Linux)
-    applica_formattazione.py          ← utility manutenzione template (eseguire manualmente)
-  letture_settimanali/                ← file .xlsx di output delle sessioni reali
-  riferimenti/                        ← dati storici e file di riferimento
-    Tabelle monitoraggi settimanali_2022_2023.xlsx
-    Tabelle monitoraggi ultima settimana gennaio.xlsx
-  windows/                            ← file specifici per Windows
-    AVVIA_CONTA_POLLINICA.bat         ← avvio GUI su Windows (con Python)
-    build_exe.bat                     ← crea Conta_Pollinica.exe con PyInstaller
-    Conta_Pollinica.exe               ← eseguibile precompilato
-    ISTRUZIONI_WINDOWS.txt            ← istruzioni per utenti Windows
-  CLAUDE.md                           ← questo file (guida per Claude Code)
-  CHANGELOG.md                        ← log delle modifiche (vedi sezione dedicata)
-  ISTRUZIONI.txt                      ← istruzioni d'uso
-  DISTRIBUZIONE_OPZIONI.md            ← opzioni di distribuzione centralizzata
-  PROMPT_WEBAPP_CLAUDE.md
-  esempio di bolletino.pdf
-```
-
----
-
 ## Architettura
 
-### `polline_counter.py` (CLI)
+Riscrittura del guscio completata il 2026-09-22 (vedi CHANGELOG). Un solo
+modello di dominio, condiviso da CLI e GUI, che girano nello stesso processo
+dell'interfaccia: **non esiste più un sottoprocesso CLI pilotato dalla GUI**,
+né un protocollo di marker nello stdout, né un autosave periodico dell'intero
+workbook con rilettura da file. Cinque moduli in `codice/`:
 
-Il flusso principale è in `main()`:
+| Modulo | Ruolo | I/O |
+|---|---|---|
+| `dominio.py` | Codici specie, date, soglie, calcolo concentrazione/livello, struttura del bollettino (`BOLLETTINO_RIGHE`), interpretazione dei comandi da tastiera (`interpreta_comando`) | **Nessuno** — puro, interamente coperto da `tests/test_dominio.py` |
+| `sessione.py` | Modello in memoria `Settimana` (conteggi, log, storico, undo) e `Journal` (persistenza incrementale JSONL) | Legge/scrive il journal e i file `.xlsx` in import |
+| `esportatori.py` | `esporta_xlsx`, `esporta_riepilogo_annuale`, `genera_bollettini_word`, `carica_soglie` | Scrive `.xlsx`/`.docx`, legge il template e `concentrazioni_polliniche.xlsx` |
+| `percorsi.py` | Risoluzione `BUNDLE_DIR`/`SCRIPT_DIR`/`EXE_DIR`/`CONFIG_FILE` (frozen vs sorgente) | — |
+| `polline_counter.py` (CLI) / `polline_counter_gui.py` (GUI) | Interfacce, entrambe sopra lo stesso `sessione.Settimana` | Input utente (terminale o tkinter) |
 
-1. Cerca file `.xlsx` esistenti in `OUTPUT_DIR` (`cerca_file_esistenti`)
-2. Mostra menu: riprendi file / nuovo / importa da altra cartella (`chiedi_ripresa_o_nuovo`)
-3. Chiede la settimana di riferimento e il giorno di lavoro
-4. Loop di inserimento (`sessione_giorno`): l'operatore digita codici 01–59
-5. Al termine: menu uscita con scelta della cartella di salvataggio
+### Modello e persistenza (`sessione.py`)
 
-**Costanti chiave:**
-- `AUTOSAVE_INTERVAL = 5` — autosave ogni N inserimenti in `~autosave_*.xlsx`
-- `CODICI_SPECIE` — dict `"01"–"59"` → nome specie (01–47 pollini, 48–59 spore)
-- `SOGLIE_MAPPING` — dict codice → nome famiglia nel file soglie
-- `OUTPUT_DIR = Path(__file__).parent` quando non frozen; `Path(sys.executable).parent` quando frozen (PyInstaller)
+- **`Settimana`**: `conteggi` (`{codice: [7 interi]}`), `log` (righe per il
+  foglio `dati_grezzi`), `storico`, un solo undo-stack per il giorno
+  correntemente attivo (`attiva_giorno()` lo azzera — stesso comportamento
+  dell'originale: l'annullo funziona solo nella sessione del giorno in corso).
+  Notifica i cambiamenti con `on_change(callback)`: la GUI vi si aggancia per
+  ridisegnare le tab **in modo sincrono, nello stesso processo** — niente
+  polling, niente race condition fra "ultimo dato letto da file" e "ultimo
+  delta ricevuto" (era il difetto principale della vecchia architettura).
+- **`Journal`**: ogni operazione (`inserisci`, `annulla`, `correggi`,
+  `aggiungi_nota`, `attiva_giorno`) scrive subito una riga JSONL su
+  `~sessione_<lunedi>.jsonl`, con `flush()` + `os.fsync()`. La prima riga
+  (`"t": "inizio"`) è uno snapshot completo dello stato di partenza; il resto
+  sono eventi incrementali. `sessione.ripristina_da_journal()` ricostruisce lo
+  stato rigiocando le stesse chiamate di modello (non serializza/deserializza
+  a mano): è così che CLI e GUI recuperano una sessione dopo un crash, offerta
+  all'avvio insieme ai file `.xlsx` già salvati. Il salvataggio su `.xlsx`
+  resta un'azione esplicita dell'utente (comando/pulsante `s` o `q`); dopo un
+  salvataggio riuscito il journal viene eliminato.
 
-**Funzioni principali:**
+### Bollettino: un'unica fonte di colore (`dominio.righe_bollettino`)
 
-| Funzione | Ruolo |
-|----------|-------|
-| `sessione_giorno()` | Loop di inserimento per un giorno; ritorna `"continue"` o `"quit"` |
-| `menu_uscita_salvataggio()` | Menu fine sessione: chiede conferma, poi chiama `chiedi_percorso_salvataggio` |
-| `chiedi_percorso_salvataggio(nome_default)` | Stampa `__GUI_ASKSAVEFILE__` (GUI: asksaveasfilename; CLI: prompt con default) |
-| `chiedi_ripresa_o_nuovo()` | Menu iniziale; opzione `i` stampa `__GUI_ASKOPENFILE__` |
-| `autosave()` | Salva in `~autosave_{lunedi_str}.xlsx` in thread daemon |
-| `pulisci_file_temporanei()` | Post-sessione: cancella o rinomina l'autosave in `incompleto_` |
-| `genera_bollettini_word(ws, lunedi, lunedi_str, cartella)` | Genera `Bollettino_ITA_*.docx` e `Bollettino_ENG_*.docx`; richiede `python-docx` |
-| `carica_soglie()` | Legge soglie dal foglio interno "soglie" o dal file esterno |
-
-**SIGTERM handler** (solo Linux): registrato in `main()` dopo che `wb` e
-`lunedi_str` sono noti. Chiama `autosave()` e `sys.exit(0)`. Permette alla GUI
-di chiudere il processo con `process.terminate()` salvando i dati.
+`dominio.righe_bollettino(conteggi, fattore, soglie)` calcola, per ogni specie
+di `BOLLETTINO_RIGHE`, sia le concentrazioni dei 7 giorni sia il **livello per
+ciascun giorno** (`livelli_giorno`, non solo un livello aggregato sulla
+media). Sia l'anteprima nella tab Bollettino della GUI sia
+`esportatori.genera_bollettini_word()` chiamano questa stessa funzione: non
+possono più divergere (era il difetto #3 della revisione — l'anteprima
+colorava per media settimanale, il Word per singolo giorno).
 
 ### `polline_counter_gui.py` (GUI)
 
-Finestra tkinter divisa in due pannelli:
-- **Sinistra:** terminale emulato (widget `Text` + `Entry`)
-- **Destra:** notebook con tre tab live (Settimanale, Giornaliero, Bollettino)
+Finestra tkinter divisa in due pannelli, **stesso processo, nessun
+sottoprocesso**:
+- **Sinistra:** barra pulsanti giorno (LUN…DOM), riquadro di log (sostituisce
+  il vecchio terminale emulato) e casella di inserimento che accetta gli
+  stessi comandi della CLI via `dominio.interpreta_comando()`
+- **Destra:** notebook con tre tab live (Settimanale, Giornaliero,
+  Bollettino), aggiornate dal callback `on_change` del modello
 
-Il tab Bollettino usa `carica_soglie()` e colori `_BOLL_COLORS` per visualizzare
-i livelli di concentrazione in tempo reale.
-
-**Subprocess:**
-- **Linux:** pty (`openpty`) — il processo vede un terminale reale, ANSI e input interattivo funzionano nativamente
-- **Windows:** `subprocess.Popen` con `stdin=PIPE, stdout=PIPE` + thread lettore + `queue.Queue`
-
-**Protocollo marker GUI** (pattern critico):
-
-Lo script stampa tag speciali che la GUI intercetta in `_handle_gui_markers()`,
-li rimuove dal testo visualizzato e apre un dialogo nativo:
-
-| Marker nello stdout dello script | Dialogo aperto dalla GUI |
-|----------------------------------|--------------------------|
-| `__GUI_ASKDIR__` | `filedialog.askdirectory()` — scegli cartella (config anno) |
-| `__GUI_ASKOPENFILE__` | `filedialog.askopenfilename()` — scegli file da importare |
-| `__GUI_ASKSAVEFILE__` | `filedialog.asksaveasfilename()` — salva file definitivo |
-
-La GUI invia il percorso scelto (o stringa vuota se annullato) via stdin.
-Lo script riceve il percorso come risposta alla `input()` successiva.
-In modalità CLI i marker sono visibili ma innocui.
-
-**Tracking del file corrente** (`_detect_tracked_file`):
-La GUI legge i path completi stampati dallo script tramite regex:
-- `Ripreso: (.+\.xlsx)` — file ripreso
-- `File salvato: (.+\.xlsx)` — salvataggio definitivo
-- `[auto-salvato]: (.+\.xlsx)` — path completo dell'autosave incluso nel messaggio
-
-Queste stampe usano path completi (non `.name`) appositamente per questo tracking.
+La schermata iniziale (scelta cartella, sessioni journal recuperabili, file
+`.xlsx`, nuovo file, importa) usa dialoghi nativi tkinter
+(`filedialog`/`simpledialog`/`messagebox`) direttamente — non c'è più bisogno
+di un protocollo di marker perché non c'è più un processo figlio a cui
+chiedere di aprirli.
 
 **Font:** `_MONO_FONT = "Courier New"` su Windows, `"Monospace"` su Linux.
 
 **`sv_ttk`:** tema opzionale (`try/except`). Attivato solo su Windows in `main()`.
+
+### Test (`codice/tests/`)
+
+`unittest` della stdlib (nessuna dipendenza aggiuntiva). Eseguire da `codice/`:
+```
+python3 -m unittest discover -s tests
+```
+`test_dominio.py` copre l'intero modulo puro; `test_sessione.py` copre modello
+e journal (incluso il replay dopo crash); `test_esportatori.py` copre
+l'esportazione `.xlsx`/annuale/`.docx` (i test sul bollettino Word si
+saltano automaticamente se `python-docx` non è installato).
 
 ---
 
 ## Convenzioni da rispettare
 
 - **Lingua:** tutto il testo mostrato all'utente è in italiano.
-- **Stampe path completi:** `print(f"... {path}")` non `{path.name}` — serve al tracking della GUI.
-- **Marker GUI:** se si aggiunge una nuova `input()` che nella GUI dovrebbe aprire un dialogo, seguire il pattern `print("__GUI_MARKER__", flush=True)` + gestione in `_handle_gui_markers()`. Il `flush=True` è obbligatorio per Windows (pipe bufferizzate).
-- **Caratteri ASCII only nelle stampe:** non usare caratteri Unicode fuori cp1252 (es. `✓`, `─`, emoji) nelle stringhe stampate a stdout. Windows con cp1252 va in crash. Usare alternative ASCII (es. `[OK]` al posto di `✓`).
-- **Template Excel:** non modificare la struttura dei fogli `riepilogo_settimana` e `dati_grezzi`. Le righe sono fisse: pollini in righe 6–52, spore in 58–69 (funzioni `codice_to_row`, `giorno_to_col`).
-- **`OUTPUT_DIR` vs `SCRIPT_DIR`:** i file di output (xlsx) vanno in `OUTPUT_DIR`; il template e le soglie si cercano anche in `BUNDLE_DIR` (frozen) e `SCRIPT_DIR`. Entrambi gli script risiedono in `codice/` e usano `Path(__file__).parent` — nessun percorso hardcoded.
-- **Autosave:** il file `~autosave_*.xlsx` viene trovato da `cerca_file_esistenti()` al prossimo avvio ed è presentato all'utente come file recuperabile.
+- **Caratteri ASCII only nelle stampe della CLI:** non usare caratteri Unicode
+  fuori cp1252 (es. `✓`, `─`, emoji) nelle stringhe stampate a stdout in
+  `polline_counter.py`. Windows con cp1252 va in crash. Usare alternative
+  ASCII (es. `[OK]` al posto di `✓`). Non si applica ai widget tkinter della
+  GUI (Tk gestisce Unicode correttamente su tutte le piattaforme): lì i testi
+  possono usare accenti veri.
+- **Template Excel:** non modificare la struttura dei fogli `riepilogo_settimana`
+  e `dati_grezzi`. Le righe sono fisse: pollini in righe 6–52, spore in 58–69
+  (funzioni `dominio.codice_to_row`, `dominio.giorno_to_col`).
+- **Percorsi (`percorsi.py`):** `BUNDLE_DIR`/`SCRIPT_DIR` per i file inclusi
+  nel bundle (template, soglie, `.docx`); `EXE_DIR` per la cartella accanto
+  all'eseguibile/script (dove risiede `pollencounter.cfg` e, di default, dove
+  si salva); la cartella di lavoro effettiva è quella scelta dall'utente e
+  salvata in `pollencounter.cfg` per anno (`sessione.leggi_cartella_anno` /
+  `salva_cartella_anno`).
+- **Journal di sessione:** il file `~sessione_<lunedi>.jsonl` viene trovato da
+  `sessione.recupera_sessioni()` al prossimo avvio e presentato come sessione
+  recuperabile (sostituisce il vecchio `~autosave_*.xlsx`). `cerca_file_ripresa()`
+  esclude template e `Riepilogo_Annuale_*.xlsx` e verifica la presenza del
+  foglio `riepilogo_settimana` prima di proporre un file (vedi CHANGELOG,
+  difetto #2 della revisione).
+- **Soglie di concentrazione:** un'unica fonte, `concentrazioni_polliniche.xlsx`
+  (`esportatori.carica_soglie`). Non leggere più un foglio `soglie` dal
+  workbook di sessione né usare tabelle di soglie imbustate nel codice, se non
+  come fallback estremo (`dominio.SOGLIE_FALLBACK`, usato solo se il file
+  esterno non si trova).
 - **Cartella `windows/` non autocontenuta:** contiene solo i `.bat`, l'exe e le istruzioni. I sorgenti `.py` e i file `.xlsx` risiedono in `codice/`; `build_exe.bat` e `AVVIA_CONTA_POLLINICA.bat` li referenziano con path `..\codice\`. Non copiare i sorgenti in `windows/`.
 
 ---
@@ -154,64 +142,8 @@ winsound      ← solo Windows, incluso nella stdlib
 
 ## Build dell'eseguibile Windows (.exe)
 
-L'exe si compila su **Linux via Wine**, con Python 3.11 Windows già installato
-nel prefix Wine di root. NON usare PyInstaller Linux nativo (produrrebbe un
-eseguibile ELF, non un .exe).
-
-### Prerequisiti (già presenti sul sistema)
-
-- **Wine:** `/usr/bin/wine` (wine-10.0)
-- **Python Windows 3.11:** `/root/.wine/drive_c/users/root/AppData/Local/Programs/Python/Python311/python.exe`
-- **PyInstaller Windows:** `/root/.wine/drive_c/.../Python311/Scripts/pyinstaller.exe`
-
-Verificare con:
-```bash
-wine python --version        # deve stampare Python 3.11.x
-wine python -m PyInstaller --version
-```
-
-### Comando di build
-
-Eseguire dalla directory `windows/`:
-
-```bash
-cd /home/Simone/Documenti/Spec_Igiene/pollencounter/windows
-
-# Aggiorna dipendenze Python Windows (solo se necessario)
-WINEDEBUG=-all wine python -m pip install --quiet openpyxl sv-ttk python-docx
-
-# Compila l'exe (i file sorgente e xlsx sono in codice/)
-WINEDEBUG=-all wine python -m PyInstaller --onefile --windowed \
-  --add-data "../codice/Polline_Template_Settimanale.xlsx;." \
-  --add-data "../codice/concentrazioni_polliniche.xlsx;." \
-  --hidden-import polline_counter \
-  --hidden-import sv_ttk \
-  --name "Conta_Pollinica" \
-  ../codice/polline_counter_gui.py
-
-# Sposta e pulisci
-mv dist/Conta_Pollinica.exe ./Conta_Pollinica.exe
-rm -rf dist build Conta_Pollinica.spec
-ls -lh Conta_Pollinica.exe   # verifica ~12MB
-```
-
-**Note critiche:**
-- Il separatore in `--add-data` è `;` (stile Windows), non `:` (Linux).
-- `WINEDEBUG=-all` sopprime i messaggi di debug di Wine (molto verbosi altrimenti).
-- Il build richiede ~2-3 minuti.
-- Se PyInstaller non è trovato: `WINEDEBUG=-all wine python -m pip install pyinstaller`
-- **Non** usare `pip3 install pyinstaller` né `pipx install pyinstaller`:
-  producono eseguibili Linux, non Windows.
-
-### Flusso completo post-modifica
-
-```bash
-# 1. Compila (i sorgenti sono in root, windows/ contiene solo i bat e l'exe)
-cd windows && WINEDEBUG=-all wine python -m PyInstaller ...
-
-# 2. Verifica con Wine
-WINEDEBUG=-all wine Conta_Pollinica.exe
-```
+Per ricompilare `Conta_Pollinica.exe` (Wine + PyInstaller Windows), vedi la skill
+`build-windows-exe` (`.claude/skills/build-windows-exe/SKILL.md`).
 
 ---
 
@@ -242,39 +174,31 @@ deve avere la sua entry nel changelog prima di passare al task successivo.
 
 ## Utility di manutenzione template
 
-### `applica_formattazione.py`
-
-Script standalone da eseguire **manualmente** quando si vuole aggiornare la
-formattazione visiva del template Excel. Non e' importato ne' chiamato dagli
-script principali.
-
-**Eseguire con:**
-```bash
-python3 script_aiuto/applica_formattazione.py
-```
-
-**Cosa fa:**
-- Imposta altezze righe (15pt per righe 5–53 e 57–70)
-- Applica sfondo verde tenue (`C5E0B4`) alle righe delle specie principali
-- Applica bordi thin completi sulle sezioni dati
-- Applica grassetto selettivo su nomi specie importanti e intestazioni
-- Centra il contenuto delle celle dati
-- Aggiorna le due copie del template (`codice/` e `windows/`)
-- Crea automaticamente un backup prima di modificare il template principale
-
-**Nota:** non inserisce formule Excel. Opera esclusivamente sulla formattazione.
+Per aggiornare la formattazione visiva del template Excel (`applica_formattazione.py`),
+vedi la skill `aggiorna-formattazione-template`
+(`.claude/skills/aggiorna-formattazione-template/SKILL.md`).
 
 ---
 
 ## Note operative per sessioni future
 
-- Prima di modificare qualsiasi funzione, leggere il file per intero: i due script sono grandi (~1400 e ~670 righe) ma strettamente accoppiati.
+- Prima di modificare qualsiasi funzione, leggere il file per intero: `dominio.py`,
+  `sessione.py` ed `esportatori.py` sono strettamente accoppiati fra loro e con
+  entrambe le interfacce (CLI e GUI).
 - Il codice è usato in produzione da utenti non tecnici: privilegiare stabilità e messaggi chiari rispetto a refactoring.
-- Le modifiche al protocollo marker o alle stampe dei path rompono il tracking della GUI: verificare sempre entrambi i file insieme.
+- Le modifiche alla struttura di `Settimana` o del `Journal` vanno verificate
+  su **entrambe** le interfacce (CLI e GUI) e sui test in `codice/tests/`:
+  condividono lo stesso modello, quindi una modifica incompatibile rompe
+  entrambe silenziosamente. Eseguire `python3 -m unittest discover -s tests`
+  prima di considerare finita una modifica al dominio.
 - I sorgenti `.py` sono unici (in `codice/`). Non creare copie in `windows/`.
 - **Dopo ogni modifica:** aggiornare `CHANGELOG.md` (vedi sezione sopra). Questo e' obbligatorio.
 - **Dopo ogni spostamento di script o cambio di percorsi:** aggiornare il launcher Desktop
-  (`/home/Simone/Scrivania/ContaPollinica.desktop`), campo `Exec=`. Percorso attuale:
-  `bash .../pollencounter/script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh`.
+  (`/home/Simone/Scrivania/ContaPollinica.desktop` sulla macchina di produzione — non
+  presente su questo ambiente di sviluppo, verificarlo manualmente), campo `Exec=`.
+  Percorso atteso: `bash .../pollencounter/script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh`.
 - Per testare: `python3 codice/polline_counter.py` (CLI) e `python3 codice/polline_counter_gui.py` (GUI) dalla directory `pollencounter/`, oppure direttamente dalla cartella `codice/`.
 - **Per ricompilare l'exe:** usare Wine + Python Windows (vedi sezione "Build dell'eseguibile Windows"). Non usare PyInstaller Linux nativo.
+- `script_aiuto/setup_bollettino_template.py` è rotto indipendentemente da
+  questa riscrittura (importa `BOLL_START_ROW`, mai definito in nessuna
+  versione dello script): non è stato toccato, va rifatto da zero se serve.

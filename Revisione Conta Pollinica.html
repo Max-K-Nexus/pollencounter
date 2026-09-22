@@ -1,0 +1,607 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Revisione Conta Pollinica</title>
+<style>
+  :root {
+    --ink: #1E2A22;
+    --ink-soft: #4B5B4E;
+    --paper: #F2F4EC;
+    --paper-raised: #E7EBDC;
+    --line: #C7CEBB;
+    --accent: #B8721E;
+    --accent-strong: #8F5714;
+    --good: #3E7A4C;
+    --good-bg: #DCEEDF;
+    --warn: #A66A17;
+    --warn-bg: #F3E4C7;
+    --danger: #A93A2E;
+    --danger-bg: #F5DCD7;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #E7ECDE;
+      --ink-soft: #AEB9A2;
+      --paper: #12160F;
+      --paper-raised: #1B2117;
+      --line: #333D2C;
+      --accent: #E1A455;
+      --accent-strong: #F0BE7C;
+      --good: #7FBE8B;
+      --good-bg: #1E2E22;
+      --warn: #D9A857;
+      --warn-bg: #33290F;
+      --danger: #E08A7C;
+      --danger-bg: #34211D;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #E7ECDE;
+    --ink-soft: #AEB9A2;
+    --paper: #12160F;
+    --paper-raised: #1B2117;
+    --line: #333D2C;
+    --accent: #E1A455;
+    --accent-strong: #F0BE7C;
+    --good: #7FBE8B;
+    --good-bg: #1E2E22;
+    --warn: #D9A857;
+    --warn-bg: #33290F;
+    --danger: #E08A7C;
+    --danger-bg: #34211D;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    padding-inline: 20px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent-strong); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  }
+
+  .page {
+    max-width: 760px;
+    margin-inline: auto;
+    padding-block: 40px 80px;
+  }
+
+  h1, h2, h3 {
+    font-family: "Fraunces", Georgia, "Times New Roman", serif;
+    font-weight: 600;
+    text-wrap: balance;
+    color: var(--ink);
+  }
+
+  /* ---------- Header ---------- */
+
+  header.masthead {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 10px;
+  }
+  h1.title {
+    font-size: clamp(1.9rem, 5vw, 2.5rem);
+    line-height: 1.12;
+    margin: 0 0 14px;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+  }
+  .meta-row span b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- Verdict stamp ---------- */
+
+  .verdict {
+    background: var(--paper-raised);
+    border-left: 4px solid var(--accent);
+    padding: 22px 24px;
+    margin: 30px 0 40px;
+  }
+  .verdict .label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-strong);
+    margin: 0 0 8px;
+  }
+  .verdict p {
+    margin: 0;
+    font-size: 1.08rem;
+    color: var(--ink);
+  }
+  .verdict p + p { margin-top: 10px; font-size: 0.98rem; color: var(--ink-soft); }
+
+  /* ---------- Stat tiles ---------- */
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin: 32px 0;
+  }
+  @media (max-width: 620px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+  .stat {
+    background: var(--paper);
+    padding: 16px 14px;
+  }
+  .stat .n {
+    font-family: "Fraunces", serif;
+    font-weight: 600;
+    font-size: 1.7rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    display: block;
+  }
+  .stat .label {
+    font-size: 0.74rem;
+    color: var(--ink-soft);
+    margin-top: 4px;
+    display: block;
+  }
+
+  /* ---------- Sections ---------- */
+
+  section { margin-block: 52px; }
+  section:first-of-type { margin-top: 0; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .section-head .num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+  }
+  .section-head h2 { margin: 0; font-size: 1.45rem; }
+
+  h3 { font-size: 1.1rem; margin: 28px 0 10px; }
+
+  p { max-width: 66ch; }
+  p.wide { max-width: none; }
+
+  ul.plain, ol.plain { padding-left: 0; list-style: none; max-width: 66ch; }
+  ul.plain li, ol.plain li {
+    position: relative;
+    padding-left: 22px;
+    margin-bottom: 12px;
+  }
+  ul.plain li::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0.55em;
+    width: 7px; height: 7px;
+    background: var(--ink-soft);
+  }
+
+  /* good-list uses accent square */
+  ul.good-list li::before { background: var(--good); }
+
+  ol.steps { counter-reset: step; }
+  ol.steps li { padding-left: 34px; }
+  ol.steps li::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute; left: 0; top: -1px;
+    width: 22px; height: 22px;
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-soft);
+  }
+
+  blockquote {
+    margin: 0;
+    padding: 4px 0 4px 18px;
+    border-left: 2px solid var(--line);
+    color: var(--ink-soft);
+    font-size: 0.95rem;
+    max-width: 60ch;
+  }
+
+  /* ---------- Diagram ---------- */
+
+  .diagram-wrap {
+    overflow-x: auto;
+    margin: 28px 0;
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    padding: 18px 14px;
+  }
+  .diagram-wrap svg { display: block; margin: 0 auto; min-width: 560px; }
+  .dbox { fill: var(--paper); stroke: var(--line); stroke-width: 1.2; }
+  .dbox-bad { fill: var(--danger-bg); stroke: var(--danger); stroke-width: 1.2; }
+  .dbox-good { fill: var(--good-bg); stroke: var(--good); stroke-width: 1.2; }
+  .dtext { fill: var(--ink); font-family: "IBM Plex Sans", sans-serif; font-size: 11.5px; }
+  .dtext-mono { fill: var(--ink-soft); font-family: "IBM Plex Mono", monospace; font-size: 9.5px; }
+  .dline { stroke: var(--ink-soft); stroke-width: 1.1; fill: none; }
+  .dline-bad { stroke: var(--danger); stroke-width: 1.2; fill: none; stroke-dasharray: 3 3; }
+  .dtitle { fill: var(--ink-soft); font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+  /* ---------- Findings table ---------- */
+
+  .table-wrap { overflow-x: auto; margin: 22px 0; }
+  table.findings {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 640px;
+    font-size: 0.92rem;
+  }
+  table.findings th {
+    text-align: left;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    border-bottom: 1px solid var(--line);
+    padding: 8px 12px 8px 0;
+  }
+  table.findings td {
+    vertical-align: top;
+    padding: 14px 12px 14px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  table.findings td.n { font-family: "IBM Plex Mono", monospace; color: var(--ink-soft); width: 2ch; }
+  table.findings td.ev { font-family: "IBM Plex Mono", monospace; font-size: 0.82rem; color: var(--ink-soft); }
+
+  .pill {
+    display: inline-block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    white-space: nowrap;
+  }
+  .pill-critico { background: var(--danger-bg); color: var(--danger); }
+  .pill-alto    { background: var(--warn-bg); color: var(--warn); }
+  .pill-medio   { background: var(--paper-raised); color: var(--ink-soft); border: 1px solid var(--line); }
+  .pill-basso   { background: var(--paper-raised); color: var(--ink-soft); }
+
+  /* ---------- Callout boxes ---------- */
+
+  .box {
+    background: var(--paper-raised);
+    padding: 18px 20px;
+    margin: 24px 0;
+    border: 1px solid var(--line);
+  }
+  .box h4 {
+    margin: 0 0 8px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.76rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    font-weight: 500;
+  }
+  .box.rejected { border-left: 4px solid var(--ink-soft); }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+  }
+</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">Revisione tecnica indipendente</p>
+    <h1 class="title">Conta Pollinica — dominio solido, guscio da rifare</h1>
+    <div class="meta-row">
+      <span>Ambito: <b>codice/polline_counter.py</b> (2316 righe) e <b>codice/polline_counter_gui.py</b> (921 righe)</span>
+      <span>Metodo: <b>lettura integrale del codice, dei template e dei file di produzione</b></span>
+      <span>Data: <b>22 settembre 2026</b></span>
+    </div>
+  </header>
+
+  <div class="verdict">
+    <p class="label">Verdetto</p>
+    <p>Sì a una riscrittura — ma del guscio (GUI, CLI, protocollo di comunicazione fra i due), non del dominio né degli output.</p>
+    <p>Il calcolo pollinico, le soglie, i template Excel/Word e l'ergonomia di inserimento funzionano e sono in produzione da mesi. I difetti verificati nascono quasi tutti dal fatto che la GUI pilota la CLI come un terminale remoto invece di condividerne il modello dati.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><span class="n">3237</span><span class="label">righe di codice oggi, nei due script</span></div>
+    <div class="stat"><span class="n">~40%</span><span class="label">della GUI serve solo a emulare un terminale</span></div>
+    <div class="stat"><span class="n">10</span><span class="label">difetti verificati, uno critico</span></div>
+    <div class="stat"><span class="n">4</span><span class="label">fonti diverse per le stesse soglie di concentrazione</span></div>
+  </div>
+
+  <section id="scopo">
+    <div class="section-head"><span class="num">1</span><h2>Scopo e contesto d'uso</h2></div>
+    <p class="wide">
+      Conta Pollinica automatizza la conta pollinica settimanale per l'aerobiologia: un operatore
+      osserva granuli di polline e spore fungine su un vetrino al microscopio e, per ognuno, digita
+      un codice a due cifre (01–59). Il software accumula i conteggi per specie e per giorno, li
+      converte in concentrazione (granuli/m³) e produce due consegne istituzionali: un file Excel
+      strutturato e un bollettino Word, in italiano e inglese, colorato secondo soglie di allerta.
+      Gli utenti — specializzandi, dottorandi, docenti di biologia — non sono programmatori.
+    </p>
+    <p class="wide">
+      Il vincolo che spiega quasi ogni scelta del progetto è fisico, non software: l'operatore
+      lavora <b>senza staccare gli occhi dall'oculare</b>. Da qui il comando <code>.</code> per
+      ripetere l'ultimo codice, <code>NNxQ</code> per inserimenti multipli (<code>48x4</code> = 4
+      Alternaria), il beep di conferma opzionale, e il prompt che mostra sempre il totale corrente.
+      Sul suo scopo primario il progetto non è in discussione: è in produzione, e i file reali in
+      <code>letture_settimanali/</code> mostrano cinque settimane complete di febbraio–marzo 2026
+      con bollettini generati correttamente.
+    </p>
+  </section>
+
+  <section id="meriti">
+    <div class="section-head"><span class="num">2</span><h2>Cosa è stato fatto bene</h2></div>
+    <p class="wide">Va detto esplicitamente, perché la sezione 3 sarà dura: queste scelte sono corrette e vanno conservate nella riscrittura, non ripensate.</p>
+    <ul class="plain good-list wide">
+      <li><b>Ergonomia di inserimento.</b> <code>.</code>, <code>NNxQ</code>, <code>u</code> per annullare, beep sonoro: è la parte più importante del prodotto ed è disegnata attorno al gesto reale dell'operatore, non attorno alla comodità di chi scrive il codice.</li>
+      <li><b>Resilienza del dato.</b> Autosave ogni 5 inserimenti, scrittura su file temporaneo con <code>rename</code> atomico per evitare archivi troncati, gestore di <code>SIGTERM</code>, recupero automatico di sessioni interrotte al riavvio, retry sui blocchi file di Windows. Per un dato che costa ore di microscopio, è esattamente il livello di attenzione che serve.</li>
+      <li><b>Fedeltà dell'output istituzionale.</b> I bollettini Word non sono ricostruiti da zero: il codice manipola l'XML dei <code>.docx</code> reali forniti dall'istituzione (bordi cella, ombreggiature, altezze riga) preservandone l'identità visiva esatta.</li>
+      <li><b>Documentazione sopra la media.</b> <code>CLAUDE.md</code>, <code>ISTRUZIONI.txt</code> e un changelog con Problema/Causa/Correzione per ogni intervento — raro in un progetto di ricerca a singolo autore.</li>
+    </ul>
+  </section>
+
+  <section id="critica">
+    <div class="section-head"><span class="num">3</span><h2>La critica architetturale centrale</h2></div>
+    <p class="wide">
+      Tre decisioni, prese in momenti diversi della vita del progetto, si rinforzano a vicenda e
+      generano quasi tutto il costo di manutenzione documentato nel changelog.
+    </p>
+
+    <h3>a. La CLI è il motore, la GUI è un terminale emulato</h3>
+    <p class="wide">
+      La finestra tkinter non contiene la logica applicativa: lancia <code>polline_counter.py --gui</code>
+      come processo figlio su una pty (Linux/macOS) o su pipe (Windows), ne cattura lo stdout carattere
+      per carattere, rimuove le sequenze ANSI e lo mostra in un widget di testo, scrivendo i tasti
+      dell'utente sullo stdin del figlio. Circa 365 delle 921 righe della GUI — quasi il 40% — esistono
+      solo per questo: avvio del sottoprocesso, lettura in thread separato, polling con backoff adattivo,
+      parsing dei marker, tracciamento del file corrente via espressioni regolari sull'output testuale.
+    </p>
+
+    <h3>b. Un protocollo di comandi dentro il canale destinato all'utente</h3>
+    <p class="wide">
+      Quattro tag (<code>__GUI_ASKDIR__</code>, <code>__GUI_ASKOPENFILE__</code>, <code>__GUI_ASKSAVEFILE__</code>,
+      <code>__GUI_DELTA__</code>) viaggiano nello stesso flusso di testo che l'operatore legge a schermo,
+      e vengono intercettati e rimossi prima della visualizzazione. Il changelog registra il prezzo di
+      questa scelta: <i>"Fix buffer marker spezzati (popup salvataggio non appariva)"</i>,
+      <i>"Riscrittura architettura rilevamento marker GUI"</i>, un flag <code>_dialog_active</code> con
+      un <code>after(200, …)</code> per assorbire tasti Invio vaganti dopo la chiusura di una finestra
+      di dialogo di sistema.
+    </p>
+
+    <h3>c. Il foglio Excel è il modello dati, non solo il formato di consegna</h3>
+    <p class="wide">
+      Non esiste, in memoria, una struttura "conteggio per specie e giorno". Lo stato vive in celle,
+      raggiunte con aritmetica di coordinate — <code>codice_to_row</code> (<code>n+5</code> per i
+      pollini), <code>giorno_to_col</code> (<code>n+6</code>) — replicata con varianti proprie in
+      <code>_ann_col_grezzo</code>, <code>_ann_col_conc</code>, <code>_cal_row_for_codice</code>:
+      cinque layout diversi dello stesso identico dato.
+    </p>
+
+    <p class="wide">
+      Il costo composto emerge quando le tre si incontrano: la GUI ha bisogno dei dati che vivono nel
+      processo figlio, e li ottiene per <b>due strade parallele e concorrenti</b> — rilegge
+      periodicamente il file di autosave <i>e</i> riceve i marker <code>__GUI_DELTA__</code>. Il
+      changelog documenta la correzione: <i>"Fix flickering conteggio: race condition delta vs.
+      refresh da file"</i>, risolta con un flag che scarta i dati letti dal file quando esistono già
+      delta più recenti in memoria. Nessuna di queste due strade, né la corsa fra loro, esisterebbe
+      se GUI e logica applicativa condividessero lo stesso processo e lo stesso modello.
+    </p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 640 300" role="img" aria-label="Confronto fra l'architettura attuale a due processi e la proposta a processo unico">
+        <text x="14" y="20" class="dtitle">Oggi — due processi, due strade per lo stesso dato</text>
+        <rect x="10" y="34" width="130" height="46" class="dbox" />
+        <text x="75" y="53" text-anchor="middle" class="dtext">GUI tkinter</text>
+        <text x="75" y="68" text-anchor="middle" class="dtext-mono">terminale emulato</text>
+
+        <rect x="250" y="34" width="130" height="46" class="dbox-bad" />
+        <text x="315" y="53" text-anchor="middle" class="dtext">CLI</text>
+        <text x="315" y="68" text-anchor="middle" class="dtext-mono">motore reale</text>
+
+        <path d="M140,48 H250" class="dline" marker-end="url(#arrow)"/>
+        <text x="195" y="42" text-anchor="middle" class="dtext-mono">stdin</text>
+        <path d="M250,70 H140" class="dline-bad" marker-end="url(#arrowbad)"/>
+        <text x="195" y="88" text-anchor="middle" class="dtext-mono">stdout + marker</text>
+
+        <rect x="490" y="34" width="130" height="46" class="dbox-bad" />
+        <text x="555" y="53" text-anchor="middle" class="dtext">~autosave.xlsx</text>
+        <text x="555" y="68" text-anchor="middle" class="dtext-mono">modello su disco</text>
+
+        <path d="M380,48 H490" class="dline" marker-end="url(#arrow)"/>
+        <text x="435" y="42" text-anchor="middle" class="dtext-mono">wb.save()</text>
+        <path d="M490,68 C 420,110 210,110 75,80" class="dline-bad" marker-end="url(#arrowbad)"/>
+        <text x="280" y="122" text-anchor="middle" class="dtext-mono">polling periodico — legge dati stantii</text>
+
+        <line x1="10" y1="150" x2="630" y2="150" stroke="var(--line)" stroke-width="1"/>
+
+        <text x="14" y="172" class="dtitle">Proposta — un processo, un modello</text>
+        <rect x="10" y="186" width="150" height="46" class="dbox-good" />
+        <text x="85" y="205" text-anchor="middle" class="dtext">UI tkinter</text>
+        <text x="85" y="220" text-anchor="middle" class="dtext-mono">stesso processo</text>
+
+        <rect x="245" y="186" width="150" height="46" class="dbox-good" />
+        <text x="320" y="205" text-anchor="middle" class="dtext">Modello dominio</text>
+        <text x="320" y="220" text-anchor="middle" class="dtext-mono">memoria + journal</text>
+
+        <rect x="480" y="186" width="150" height="46" class="dbox" />
+        <text x="555" y="205" text-anchor="middle" class="dtext">Esportatori</text>
+        <text x="555" y="220" text-anchor="middle" class="dtext-mono">.xlsx / .docx</text>
+
+        <path d="M160,209 H245" class="dline" marker-end="url(#arrow)"/>
+        <path d="M245,220 H160" class="dline" marker-end="url(#arrow)"/>
+        <text x="202" y="203" text-anchor="middle" class="dtext-mono">chiamata diretta</text>
+        <path d="M395,209 H480" class="dline" marker-end="url(#arrow)"/>
+        <text x="437" y="203" text-anchor="middle" class="dtext-mono">solo al salvataggio</text>
+
+        <text x="14" y="260" class="dtext-mono">nessun subprocess · nessun marker · nessun polling · nessuna corsa dati</text>
+
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-soft)"/>
+          </marker>
+          <marker id="arrowbad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--danger)"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+  </section>
+
+  <section id="difetti">
+    <div class="section-head"><span class="num">4</span><h2>Difetti verificati</h2></div>
+    <p class="wide">Riprodotti o confrontati direttamente sul codice e sui file di produzione durante questa revisione, non dedotti.</p>
+
+    <div class="table-wrap">
+      <table class="findings">
+        <thead>
+          <tr><th></th><th>Difetto</th><th>Gravità</th><th>Evidenza</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="n">1</td>
+            <td>Chiave API Groq in chiaro in <code>codice/pollencounter.cfg</code>, file tracciato da git. Mescola inoltre configurazione utente e segreto nello stesso file.</td>
+            <td><span class="pill pill-critico">Critico</span></td>
+            <td class="ev">git diff pendente</td>
+          </tr>
+          <tr>
+            <td class="n">2</td>
+            <td>Selezionando <code>Riepilogo_Annuale_2026.xlsx</code> dal menu di ripresa (non viene escluso, solo il template lo è) il programma va in crash: manca il foglio <code>riepilogo_settimana</code>.</td>
+            <td><span class="pill pill-alto">Alto</span></td>
+            <td class="ev">riprodotto: <code>KeyError</code></td>
+          </tr>
+          <tr>
+            <td class="n">3</td>
+            <td>L'anteprima Bollettino nella GUI non corrisponde al bollettino Word generato: righe diverse (specie separate contro famiglie sommate) e colore calcolato su base diversa (media settimanale contro singolo giorno). L'operatore convalida a schermo numeri e colori che non pubblicherà.</td>
+            <td><span class="pill pill-alto">Alto</span></td>
+            <td class="ev"><code>polline_counter_gui.py:734</code></td>
+          </tr>
+          <tr>
+            <td class="n">4</td>
+            <td>Quattro fonti indipendenti per le stesse soglie di concentrazione (foglio interno, file esterno, fallback nel codice, default nella GUI), già divergenti: Cladosporium vale <code>99,9</code> in un punto e <code>100,0</code> in un altro.</td>
+            <td><span class="pill pill-medio">Medio</span></td>
+            <td class="ev">confronto diretto sul template</td>
+          </tr>
+          <tr>
+            <td class="n">5</td>
+            <td>La regola <code>concentrazione = conta × fattore</code> è scritta sei volte in punti diversi. Le formule Excel non vengono mai lette dal codice: verificato che i file consegnati non hanno valori in cache.</td>
+            <td><span class="pill pill-medio">Medio</span></td>
+            <td class="ev"><code>data_only=True → None</code></td>
+          </tr>
+          <tr>
+            <td class="n">6</td>
+            <td>Zero test automatici, incluse funzioni pure e facilmente testabili come il parsing delle date o il calcolo dei livelli di soglia.</td>
+            <td><span class="pill pill-medio">Medio</span></td>
+            <td class="ev">struttura del repository</td>
+          </tr>
+          <tr>
+            <td class="n">7</td>
+            <td>Il comando <code>u</code> (annulla) non rimuove la voce dallo storico in memoria: <code>l</code> continua a mostrare inserimenti già annullati.</td>
+            <td><span class="pill pill-basso">Basso</span></td>
+            <td class="ev"><code>polline_counter.py:1905</code></td>
+          </tr>
+          <tr>
+            <td class="n">8</td>
+            <td>Il fattore di conversione nella GUI parte da <code>1</code> finché non arriva la prima lettura del file: se i delta live la precedono, il Bollettino mostra concentrazioni pari alla conta grezza.</td>
+            <td><span class="pill pill-basso">Basso</span></td>
+            <td class="ev"><code>polline_counter_gui.py:99</code></td>
+          </tr>
+          <tr>
+            <td class="n">9</td>
+            <td>Configurazione e documentazione puntano a percorsi che non esistono più sulla macchina attuale; il changelog documenta due file (voce vocale) assenti dal ramo di lavoro.</td>
+            <td><span class="pill pill-basso">Basso</span></td>
+            <td class="ev"><code>.cfg</code>, <code>CLAUDE.md</code></td>
+          </tr>
+          <tr>
+            <td class="n">10</td>
+            <td>Eseguibile Windows da 17&nbsp;MB versionato nel repository: ogni ricompilazione lo aggiunge in modo permanente alla storia.</td>
+            <td><span class="pill pill-basso">Basso</span></td>
+            <td class="ev"><code>windows/Conta_Pollinica.exe</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="proposta">
+    <div class="section-head"><span class="num">5</span><h2>Cosa cambierebbe riscrivendo il guscio</h2></div>
+    <p class="wide">Non una riscrittura del progetto: una riscrittura dell'infrastruttura che oggi collega GUI, CLI e file — mantenendo intatto tutto ciò che l'operatore vede e tutto ciò che l'istituzione riceve.</p>
+    <ul class="plain wide">
+      <li><b>Modello.</b> Un dizionario <code>codice → [7 giorni]</code> in memoria, più un journal append-only su file di testo come verità storica e recupero da crash — più veloce da scrivere di un intero workbook e sostituisce sia il log <code>dati_grezzi</code> sia l'autosave <code>.xlsx</code>.</li>
+      <li><b>Dominio.</b> Un modulo puro, senza I/O: codici, un'unica fonte di soglie, calcolo di concentrazione e livello. Circa 200 righe, interamente testabili.</li>
+      <li><b>Esportatori.</b> <code>esporta_xlsx()</code>, <code>esporta_bollettini_docx()</code>, <code>esporta_annuale()</code>, chiamati solo al salvataggio — riusano quasi integralmente il codice attuale di generazione dei bollettini, che è la parte di valore da conservare.</li>
+      <li><b>Interfaccia.</b> tkinter diretto sullo stesso processo: l'inserimento scrive nel modello, il modello notifica le tab. Nessuna pty, nessun sottoprocesso, nessun marker, nessun polling.</li>
+      <li><b>CLI.</b> Resta disponibile come punto d'accesso alternativo sullo stesso dominio, non più come motore di cui la GUI dipende.</li>
+    </ul>
+    <p class="wide">Cosa <b>non</b> cambia, deliberatamente: tasti e comandi, template <code>.xlsx</code> e <code>.docx</code>, formato dei file prodotti, build dell'eseguibile via Wine, funzionamento offline. Per l'operatore la transizione è invisibile. Le stime di riduzione (dalle attuali 3237 righe a circa 900–1000) riguardano quasi solo codice che oggi non produce alcun valore per l'utente: emulazione di terminale, protocollo di marker, sincronizzazione fra due copie dello stesso stato.</p>
+  </section>
+
+  <section id="alternativa">
+    <div class="section-head"><span class="num">6</span><h2>Perché non la web app</h2></div>
+    <div class="box rejected">
+      <h4>Alternativa considerata e scartata per ora</h4>
+      <p class="wide">Il progetto stesso propone, in <code>PROMPT_WEBAPP_CLAUDE.md</code> e nell'opzione D di <code>DISTRIBUZIONE_OPZIONI.md</code>, una riscrittura come applicazione web. Risolverebbe davvero il problema della distribuzione multipiattaforma, ma richiede un server sempre acceso, sposta i dati nel <code>localStorage</code> del browser e — soprattutto — degrada l'unico output che l'istituzione vede: i bollettini Word dovrebbero essere ricostruiti in JavaScript, perdendo la fedeltà ai template reali che oggi il codice preserva manipolandone l'XML. È un'opzione da tenere se il progetto si estenderà a più sedi, non una risposta ai problemi attuali, che sono di architettura interna e non di distribuzione.</p>
+    </div>
+  </section>
+
+  <section id="sequenza">
+    <div class="section-head"><span class="num">7</span><h2>Sequenza raccomandata</h2></div>
+    <ol class="plain steps wide">
+      <li><b>Subito, indipendentemente da tutto il resto.</b> Revocare la chiave Groq esposta e spostare i segreti fuori dal file di configurazione versionato.</li>
+      <li><b>Prima di qualunque riscrittura.</b> Escludere i file diversi dal template attivo dal menu di ripresa e proteggere l'apertura del foglio mancante; allineare configurazione e documentazione ai percorsi reali.</li>
+      <li><b>Riscrittura del guscio</b>, in ordine: dominio puro con test → journal e recupero da crash → interfaccia tkinter → esportatori portati (non riscritti) → CLI sopra lo stesso dominio → ricompilazione dell'eseguibile.</li>
+      <li><b>Durante la riscrittura.</b> I difetti #3 e #4 si risolvono per costruzione: con un solo modello e un'unica fonte di soglie, anteprima e bollettino pubblicato non possono più divergere.</li>
+    </ol>
+  </section>
+
+  <footer>
+    Revisione prodotta leggendo per intero i due script principali, il template Excel a quattro fogli, i template Word ITA/ENG, il changelog del progetto e i file di output reali in <code>letture_settimanali/</code>.
+  </footer>
+
+</div>
+
+</body></html>

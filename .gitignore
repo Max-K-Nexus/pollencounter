@@ -1,9 +1,22 @@
 # Impostazioni locali Claude Code
 .claude/settings.local.json
 
+# Configurazione locale (percorsi macchina-specifici, eventuali segreti).
+# CONFIG_FILE e' risolto accanto a script/eseguibile (EXE_DIR in percorsi.py),
+# quindi puo' comparire in codice/, windows/ o mac/ a seconda di dove si lancia.
+pollencounter.cfg
+
 # Backup template (file temporanei)
 codice/*_BACKUP.xlsx
 codice/*_bak.xlsx
+codice/*.docx.*.bak
+
+# Journal di sessione (file temporanei di lavoro)
+~sessione_*.jsonl
+
+# Eseguibile Windows: si ricompila con la skill build-windows-exe,
+# non va tenuto nella storia git (17+ MB per build)
+windows/Conta_Pollinica.exe
 
 # Output sessioni (dati reali, non vanno nel repo)
 letture_settimanali/

@@ -27,16 +27,24 @@ FLUSSO DI LAVORO
 ----------------
 
 1. RIPRESA O NUOVO FILE
-   All'avvio, se nella cartella ci sono file .xlsx gia' salvati,
-   lo script propone di riprenderne uno oppure partire da zero:
+   All'avvio, lo script propone le sessioni interrotte (se il
+   programma si e' chiuso all'improvviso senza salvare) e i file
+   .xlsx gia' salvati in precedenza nella cartella di lavoro:
 
-     File esistenti trovati:
-       1) incompleto_09-02-2026.xlsx  (164 righe log)
+     Sessioni recuperabili:
+       1) [interrotta] settimana del 2026-02-09  (23 operazioni non salvate)
        2) Conta_Pollinica_02-02-2026.xlsx  (80 righe log)
        n) Nuovo file (dal template)
+       i) Importa da altra cartella
      Scelta:
 
-   Scegliere il numero per riprendere, oppure "n" per un file nuovo.
+   Scegliere il numero per riprendere, "n" per un file nuovo, "i"
+   per importare un file .xlsx da un'altra cartella. Una sessione
+   interrotta (voce "[interrotta]") riprende esattamente da dove
+   si era rimasti, undo compreso: ogni inserimento viene scritto
+   subito su disco (vedi SALVATAGGIO E FILE), quindi anche una
+   chiusura improvvisa del terminale o una perdita di corrente non
+   fa perdere dati.
 
 2. SCELTA DELLA SETTIMANA
    Lo script chiede la settimana da analizzare. La settimana
@@ -130,14 +138,17 @@ COMANDI DURANTE L'INSERIMENTO
   d         Chiudi la giornata corrente. Lo script chiede se
             si vuole continuare con un altro giorno.
 
-  s         Sospendi la sessione: salva immediatamente su
-            "incompleto_{settimana}.xlsx" e esce.
-            Alla prossima esecuzione il file apparira' nel menu
-            di ripresa.
+  s         Salva subito il file .xlsx definitivo, senza uscire
+            dalla sessione (la prima volta chiede il percorso,
+            poi riusa lo stesso). Utile per avere un file
+            consultabile mentre si continua a lavorare.
 
   q         Salva il file con nome definitivo e esci.
             Chiede conferma prima di procedere (per evitare
-            uscite accidentali).
+            uscite accidentali). Se si sceglie di uscire senza
+            salvare, viene chiesto se conservare il lavoro per
+            riprenderlo alla prossima esecuzione (vedi
+            SALVATAGGIO E FILE).
 
 
 CODICI SPECIE
@@ -181,20 +192,24 @@ CODICI SPECIE
 SALVATAGGIO E FILE
 ------------------
 
-- AUTO-SAVE: ogni 5 inserimenti lo script salva automaticamente
-  su "~autosave_{settimana}.xlsx". Anche in caso di Ctrl+C o
-  chiusura improvvisa i dati non vengono persi.
+- FILE DI SESSIONE (journal): ogni inserimento, annullo, correzione
+  o nota viene scritto subito su un file "~sessione_{settimana}.jsonl"
+  nella cartella di lavoro, senza aspettare il salvataggio. E' cosi'
+  che una chiusura improvvisa (Ctrl+C, crash, chiusura della finestra,
+  mancanza di corrente) non fa perdere nulla: alla prossima esecuzione
+  la sessione compare tra quelle recuperabili (vedi RIPRESA O NUOVO
+  FILE) e viene ricostruita esattamente com'era.
 
-- SOSPENSIONE (comando "s"): salva su "incompleto_{settimana}.xlsx"
-  per riprendere in un secondo momento.
+- SALVATAGGIO DEFINITIVO (comando "q", oppure "s" per salvare senza
+  uscire): scrive il file .xlsx vero e proprio, a partire dal
+  template. Il default e' "Conta_Pollinica_{data}.xlsx" per file
+  nuovi, oppure il nome originale per file ripresi da un .xlsx.
 
-- SALVATAGGIO DEFINITIVO (comando "q"): chiede conferma, poi
-  apre la finestra di salvataggio (GUI) o chiede il percorso (CLI).
-  Il default e' "Conta_Pollinica_{data}.xlsx" per file nuovi, oppure
-  il nome originale per file ripresi.
-
-- Dopo il salvataggio definitivo i file temporanei (~autosave_*
-  e incompleto_*) vengono rimossi automaticamente.
+- Dopo un salvataggio definitivo andato a buon fine, il file di
+  sessione "~sessione_*.jsonl" viene eliminato automaticamente (il
+  .xlsx e' ormai la copia definitiva). Se invece si esce senza
+  salvare e si sceglie di conservare il lavoro, il file di sessione
+  resta sul disco pronto per essere ripreso.
 
 - Il template originale non viene MAI modificato.
 
@@ -202,11 +217,19 @@ SALVATAGGIO E FILE
 BOLLETTINI WORD (ITA/ENG)
 --------------------------
 
-Dopo il salvataggio definitivo lo script chiede:
+Dopo il salvataggio definitivo (uscendo con "q") lo script propone
+un menu di operazioni aggiuntive:
 
-  Generare i bollettini Word (ITA/ENG)? (s/n):
+  Operazioni aggiuntive:
+    1. Aggiorna riepilogo annuale
+    2. Genera bollettini Word (ITA/ENG)
+    3. Entrambi (annuale + bollettini)
+    Invio = nessuna operazione aggiuntiva
 
-Risposta "s": vengono creati due file nella stessa cartella del .xlsx:
+  Scelta:
+
+Scegliendo "2" o "3" vengono creati due file nella stessa cartella
+del .xlsx:
   - Bollettino_ITA_{settimana}.docx
   - Bollettino_ENG_{settimana}.docx
 
@@ -277,17 +300,13 @@ ESEMPIO DI SESSIONE TIPICA
 
   $ python3 polline_counter.py
 
-  File esistenti trovati:
-    1) incompleto_09-02-2026.xlsx  (45 righe log)
+  Sessioni recuperabili:
+    1) [interrotta] settimana del 2026-02-09  (45 operazioni non salvate)
     n) Nuovo file (dal template)
+    i) Importa da altra cartella
   Scelta: 1
 
-    Ripreso: incompleto_09-02-2026.xlsx
-
-  Che settimana stiamo analizzando?
-    Invio = settimana corrente (dal 09-02-2026 al 15-02-2026)
-    Settimana: [Invio]
-    -> Settimana: 09-02-2026 (lun) - 15-02-2026 (dom)
+    Sessione ripristinata: settimana del 09-02-2026
 
   Seleziona il giorno di lavoro:
     1) LUNEDI       09-02-2026
@@ -298,7 +317,6 @@ ESEMPIO DI SESSIONE TIPICA
 
     Giorno:   MERCOLEDI
     Data:     11-02-2026
-    Colonna:  I (riepilogo settimanale)
 
   MER [0] >> 48
     -> [48] Alternaria  (totale giorno: 1)
@@ -341,10 +359,20 @@ ESEMPIO DI SESSIONE TIPICA
 
   Vuoi continuare con un altro giorno? (s/n): n
 
-  MER [3] >> q
-    Salvare e uscire? (s/n): s
+  ============================================================
 
-  Nome file di output [incompleto_09-02-2026.xlsx]: Conta_Pollinica_09-02-2026
-    File salvato: .../Conta_Pollinica_09-02-2026.xlsx
+  Salvare e uscire? (s/n): s
+    File: Conta_Pollinica_09-02-2026.xlsx
+    Percorso (invio = nome predefinito nella cartella corrente): [Invio]
+
+    [OK] File salvato: .../Conta_Pollinica_09-02-2026.xlsx
+
+    Operazioni aggiuntive:
+      1. Aggiorna riepilogo annuale
+      2. Genera bollettini Word (ITA/ENG)
+      3. Entrambi (annuale + bollettini)
+      Invio = nessuna operazione aggiuntiva
+
+    Scelta: [Invio]
 
     Sessione terminata.

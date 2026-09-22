@@ -31,7 +31,11 @@ pyinstaller --onefile --windowed ^
   --add-data "..\codice\concentrazioni_polliniche.xlsx;." ^
   --add-data "..\codice\ITA_Template_Bollettino_pubblicazione.docx;." ^
   --add-data "..\codice\ENG_Template_Bollettino_pubblicazione.docx;." ^
-  --hidden-import polline_counter ^
+  --hidden-import dominio ^
+  --hidden-import sessione ^
+  --hidden-import esportatori ^
+  --hidden-import percorsi ^
+  --hidden-import docx ^
   --hidden-import sv_ttk ^
   --name "Conta_Pollinica" ^
   ..\codice\polline_counter_gui.py

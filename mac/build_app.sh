@@ -19,7 +19,7 @@ if ! command -v python3 &>/dev/null; then
 fi
 
 echo "[1/3] Installazione dipendenze..."
-pip3 install openpyxl pyinstaller sv-ttk
+pip3 install openpyxl pyinstaller sv-ttk python-docx
 if [ $? -ne 0 ]; then
     echo "ERRORE durante l'installazione delle dipendenze."
     exit 1
@@ -31,7 +31,13 @@ cd "$SCRIPT_DIR"
 pyinstaller --windowed \
   --add-data "$CODICE/Polline_Template_Settimanale.xlsx:." \
   --add-data "$CODICE/concentrazioni_polliniche.xlsx:." \
-  --hidden-import polline_counter \
+  --add-data "$CODICE/ITA_Template_Bollettino_pubblicazione.docx:." \
+  --add-data "$CODICE/ENG_Template_Bollettino_pubblicazione.docx:." \
+  --hidden-import dominio \
+  --hidden-import sessione \
+  --hidden-import esportatori \
+  --hidden-import percorsi \
+  --hidden-import docx \
   --hidden-import sv_ttk \
   --name "Conta_Pollinica" \
   "$CODICE/polline_counter_gui.py"

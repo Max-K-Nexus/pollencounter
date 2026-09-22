@@ -87,15 +87,25 @@ per default. Due possibilita':
 
 INTERFACCIA GRAFICA
 --------------------
-La finestra e' divisa in due pannelli:
+All'avvio compare una schermata iniziale con la cartella di lavoro,
+l'elenco delle sessioni interrotte e dei file .xlsx gia' salvati, e
+un campo per iniziare un file nuovo scegliendo la settimana.
 
-  PANNELLO SINISTRO - Terminale interattivo
-    Mostra l'output dello script e il prompt di inserimento.
-    Digita i comandi nel campo in basso e premi INVIO.
+Scelto un file o una sessione, si passa alla schermata di lavoro,
+divisa in due pannelli:
+
+  PANNELLO SINISTRO
+    In alto, i pulsanti LUN...DOM per scegliere il giorno su cui
+    lavorare. Sotto, il riquadro con lo storico delle operazioni e,
+    in basso, la casella di inserimento (stesso prompt della CLI:
+    "LUN [3] >>") dove digitare codici e comandi. I pulsanti
+    Correggi / Nota / Annulla / Salva / Chiudi giornata / Esci
+    fanno le stesse cose dei comandi da tastiera.
 
   PANNELLO DESTRO - Riepilogo live
-    Si aggiorna automaticamente ogni 3 secondi durante la
-    sessione, mostrando i conteggi del file Excel corrente.
+    Si aggiorna immediatamente a ogni inserimento (non e' piu' un
+    aggiornamento periodico: la GUI legge lo stesso stato in memoria
+    usato per salvare, senza rileggere il file).
 
     Scheda "Settimanale": totale per specie sull'intera
       settimana, con subtotali pollini / spore / TOTALE.
@@ -103,65 +113,74 @@ La finestra e' divisa in due pannelli:
     Scheda "Giornaliero": griglia specie x giorno (lun-dom)
       con subtotali per ciascun giorno.
 
+    Scheda "Bollettino": anteprima del bollettino pollinico, con
+      ogni giorno colorato secondo la propria concentrazione
+      (stessa logica usata per generare il bollettino Word: quello
+      che si vede qui e' quello che verra' pubblicato).
+
 
 UTILIZZO DEL PROGRAMMA
 -----------------------
-All'avvio viene mostrata la lista dei codici disponibili.
-
-  PASSO 1 - Scegliere il file di lavoro
-    Se nella cartella esistono file .xlsx precedenti, viene
-    proposto di riprenderli oppure di iniziare un file nuovo.
-
-  PASSO 2 - Scegliere la settimana
-    Inserisci una data qualsiasi della settimana di lavoro.
-    Formati accettati (giorno e mese anche senza zero):
+  PASSO 1 - Scegliere sessione, file o nuovo
+    Nella schermata iniziale: doppio clic (o "Riprendi selezionata")
+    su una sessione/file dall'elenco, "Importa..." per un file in
+    un'altra cartella, oppure inserisci la settimana e premi
+    "Nuovo file dal template".
+    Formati data accettati (giorno e mese anche senza zero):
       9-2-2026    09/02/2026    9 feb 2026
-    Premi INVIO per usare la settimana corrente.
 
-  PASSO 3 - Scegliere il giorno
-    Viene mostrato il calendario della settimana con le date.
-    Digita il numero del giorno (1=Lun ... 7=Dom).
+  PASSO 2 - Scegliere il giorno
+    Clic su uno dei pulsanti LUN...DOM in alto a sinistra.
 
-  PASSO 4 - Inserire i dati
-    Digita il codice specie (01-59) e premi INVIO.
-    Il contatore nel prompt si aggiorna ad ogni inserimento.
+  PASSO 3 - Inserire i dati
+    Digita il codice specie (01-59) nella casella in basso e premi
+    INVIO. Il totale nell'etichetta del giorno si aggiorna a ogni
+    inserimento, e le tre schede a destra si aggiornano insieme.
 
 
 COMANDI DISPONIBILI
 --------------------
+Si digitano nella casella di inserimento, esattamente come nella CLI.
+
   01-59       Inserisce la specie corrispondente
   NNxQ        Inserisce Q occorrenze (es. 48x4 = 4 Alternaria)
   .           Ripete l'ultimo codice inserito
   u           Annulla l'ultimo inserimento
-  r           Riepilogo della giornata corrente
-  w           Riepilogo settimanale (tutti i giorni)
+  r           Porta in primo piano la scheda Giornaliero
+  w           Porta in primo piano la scheda Settimanale
   l           Ultimi 10 inserimenti (storico)
-  c           Correggi un valore di un giorno precedente
-  n           Aggiungi una nota testuale alla giornata
-  b           Attiva/disattiva beep sonoro ad ogni inserimento
-  h           Mostra la tabella dei codici
-  d           Chiudi la giornata e passa a un altro giorno
-  s           Sospendi sessione (salva e riprendi dopo)
-  q           Esci (apre menu salvataggio)
+  c           Apre la finestra "Correggi un giorno"
+  n           Chiede una nota testuale per la giornata corrente
+  b           Attiva/disattiva il beep sonoro
+  h           Mostra l'elenco dei comandi
+  d           Chiude la giornata (bisogna sceglierne un'altra)
+  s           Salva subito il file .xlsx, senza uscire
+  q           Salva ed esci dalla sessione
+
+I comandi c, n, u, s, d, q sono disponibili anche come pulsanti.
 
 
 SALVATAGGIO
 -----------
-  Autosave automatico
-    Ogni 5 inserimenti il file viene salvato silenziosamente
-    come "~autosave_<data-lunedi>.xlsx". In caso di chiusura
-    improvvisa il lavoro e' protetto.
+  File di sessione (journal)
+    Ogni inserimento, annullo, correzione o nota viene scritto
+    subito su un file "~sessione_<data-lunedi>.jsonl" nella cartella
+    di lavoro. In caso di chiusura improvvisa (crash, chiusura della
+    finestra) nulla va perso: alla prossima apertura la sessione
+    compare nell'elenco iniziale, pronta per essere ripresa
+    esattamente da dove si era rimasti.
 
-  Comando "s" - Sospensione
-    Salva immediatamente come "incompleto_<data>.xlsx" e
-    chiude lo script. Alla prossima apertura verra' proposto
-    di riprendere da dove si era rimasti.
+  Comando/pulsante "s" - Salvataggio rapido
+    Scrive subito il file .xlsx definitivo, senza uscire dalla
+    sessione. La prima volta chiede dove salvare; le volte
+    successive riusa lo stesso percorso.
 
-  Comando "q" - Uscita con menu
-    Vengono proposte tre opzioni:
-      1) Salvare su un file nuovo (con nome personalizzabile)
-      2) Sovrascrivere un file esistente
-      3) Uscire senza salvare
+  Comando/pulsante "q" - Uscita
+    Chiede se salvare il file .xlsx definitivo. Se si sceglie di
+    uscire senza salvare, chiede se conservare il file di sessione
+    per riprenderlo in seguito. Dopo un salvataggio riuscito viene
+    proposto di aggiornare anche il riepilogo annuale e/o generare
+    i bollettini Word.
 
   Il template "Polline_Template_Settimanale.xlsx" non viene
   mai modificato.

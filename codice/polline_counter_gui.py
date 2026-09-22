@@ -1,53 +1,32 @@
 #!/usr/bin/env python3
 """
-GUI wrapper per polline_counter.py — versione cross-platform.
+Conta Pollinica — interfaccia grafica.
 
-Finestra tkinter con:
-  - Terminale integrato (Text widget + Entry) che pilota lo script via pty (Linux)
-    o subprocess stdin/stdout (Windows)
-  - Tabella riepilogo live con tre schede: Settimanale, Giornaliero, Bollettino
+Processo unico: la GUI chiama direttamente sessione.py/dominio.py/esportatori.py,
+lo stesso dominio usato dalla CLI. Non lancia piu' polline_counter.py come
+sottoprocesso: niente pty/pipe, niente marker __GUI_*__, niente rilettura
+periodica di un autosave. Ogni inserimento aggiorna il modello in memoria e
+notifica le tab con una chiamata diretta (nessun polling, nessuna corsa dati).
 """
 
-import os
-import re
-import subprocess
 import sys
-import threading
 import tkinter as tk
-from tkinter import filedialog, ttk
+from datetime import timedelta
 from pathlib import Path
-
-if sys.platform == "win32":
-    import queue
-else:
-    import fcntl
-    import pty
-    import select
-    import struct
-    import termios
-
-if sys.platform == "win32":
-    _MONO_FONT = "Courier New"
-elif sys.platform == "darwin":
-    _MONO_FONT = "Menlo"
-else:
-    _MONO_FONT = "Monospace"
-
-if getattr(sys, 'frozen', False):
-    SCRIPT_DIR = Path(sys.executable).parent
-else:
-    SCRIPT_DIR = Path(__file__).parent
-SCRIPT_PATH = SCRIPT_DIR / "polline_counter.py"
-
-# Importa costanti e helper da polline_counter (senza eseguire main)
-sys.path.insert(0, str(SCRIPT_DIR))
-from polline_counter import (
-    CODICI_SPECIE, GIORNI_NOMI, SOGLIE_MAPPING,
-    codice_to_row, giorno_to_col, leggi_valore, leggi_fattore, carica_soglie,
-)
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 try:
-    import openpyxl
+    import winsound
+except ImportError:
+    winsound = None
+
+import dominio
+import esportatori
+import percorsi
+import sessione
+
+try:
+    import openpyxl  # noqa: F401  (verificato qui per il messaggio d'errore in main())
 except ImportError:
     openpyxl = None
 
@@ -56,28 +35,71 @@ try:
 except ImportError:
     sv_ttk = None
 
-MAX_LINES = 5000
-GIORNI_ABBREV = ["LUN", "MAR", "MER", "GIO", "VEN", "SAB", "DOM"]
+if sys.platform == "win32":
+    _MONO_FONT = "Courier New"
+elif sys.platform == "darwin":
+    _MONO_FONT = "Menlo"
+else:
+    _MONO_FONT = "Monospace"
 
-# Colori (bg, fg) per i livelli di concentrazione nel tab Bollettino
-_BOLL_COLORS = {
-    "assente": ("#00B050", "#FFFFFF"),
-    "bassa":   ("#FFD966", "#000000"),
-    "media":   ("#F4B084", "#000000"),
-    "alta":    ("#FF0000", "#FFFFFF"),
-}
+MAX_LINES_LOG = 3000
+
+HELP_TEXT = """Codici: 01-59 inserisce la specie corrispondente.
+NNxQ inserisce Q occorrenze (es. 48x4 = 4 Alternaria).
+.    ripete l'ultimo codice inserito.
+
+Comandi (lettera + Invio nella casella di inserimento):
+  r   riepilogo giornata corrente (apre la scheda Giornaliero)
+  w   riepilogo settimanale (apre la scheda Settimanale)
+  l   ultimi inserimenti
+  c   correggi un giorno precedente
+  n   aggiungi una nota per la giornata
+  u   annulla ultimo inserimento
+  b   attiva/disattiva il beep sonoro
+  s   salva il file (senza uscire)
+  d   chiudi la giornata corrente
+  q   salva ed esci
+
+Gli stessi comandi sono disponibili anche dai pulsanti sulla sinistra."""
 
 
-def _livello_conc(valore, soglia_tuple):
-    """Ritorna il livello ('assente','bassa','media','alta') per un valore p/m³."""
-    max_ass, max_bas, max_med = soglia_tuple
-    if valore <= max_ass:
-        return "assente"
-    if valore <= max_bas:
-        return "bassa"
-    if valore <= max_med:
-        return "media"
-    return "alta"
+class _ScrollableFrame(tk.Frame):
+    """Frame con scrollbar verticale (per la scheda Bollettino, che disegna
+    una griglia di celle colorate e non un semplice elenco)."""
+
+    def __init__(self, parent, **kw):
+        super().__init__(parent, **kw)
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg="#ffffff")
+        vscroll = tk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.inner = tk.Frame(self.canvas, bg="#ffffff")
+        self.inner.bind("<Configure>",
+                        lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self._window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self.canvas.bind("<Configure>",
+                         lambda e: self.canvas.itemconfig(self._window, width=e.width))
+        self.canvas.configure(yscrollcommand=vscroll.set)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas.bind("<Enter>", self._bind_wheel)
+        self.canvas.bind("<Leave>", self._unbind_wheel)
+
+    def _bind_wheel(self, _e):
+        self.canvas.bind_all("<MouseWheel>", self._on_wheel)
+        self.canvas.bind_all("<Button-4>", self._on_wheel)
+        self.canvas.bind_all("<Button-5>", self._on_wheel)
+
+    def _unbind_wheel(self, _e):
+        self.canvas.unbind_all("<MouseWheel>")
+        self.canvas.unbind_all("<Button-4>")
+        self.canvas.unbind_all("<Button-5>")
+
+    def _on_wheel(self, event):
+        if event.num == 4:
+            self.canvas.yview_scroll(-1, "units")
+        elif event.num == 5:
+            self.canvas.yview_scroll(1, "units")
+        else:
+            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
 
 class PollineCounterGUI:
@@ -88,99 +110,311 @@ class PollineCounterGUI:
         self.root.geometry("1200x700")
         self.root.minsize(800, 400)
 
-        self.master_fd = None
-        self._output_queue = queue.Queue() if sys.platform == "win32" else None
-        self.process = None
-        self._tracked_file = None   # file Excel della sessione corrente
-        self._sessione_attiva = False  # True solo dopo che file+giorno sono stati scelti
-        self._refresh_running = False  # evita doppi timer concorrenti
-        self._soglie = carica_soglie() or {}  # soglie per il bollettino
-        self._marker_buf = ""  # buffer di accumulo per rilevamento marker
-        self._dialog_active = False  # protegge da Enter vaganti dopo filedialog
+        self.output_dir = percorsi.EXE_DIR
+        self.settimana = None
+        self.journal = None
+        self.nome_ripreso = None
+        self.percorso_salvato = None
+        self.soglie = {}
+        self._modificato = False
+        self._undo_consecutivi = 0
+        self._giorno_bottoni = {}
 
-        self._build_ui()
-        self._start_subprocess()
-        self._poll_output()
-        # Il refresh viene avviato solo quando file e giorno sono stati scelti
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self._carica_config_iniziale()
+        self._build_avvio()
 
-    # ── UI ────────────────────────────────────────────────────────
+    # ================================================================
+    # Configurazione cartella di lavoro
+    # ================================================================
+    def _carica_config_iniziale(self):
+        import datetime as _dt
+        anno = _dt.datetime.now().year
+        cartella = sessione.leggi_cartella_anno(percorsi.CONFIG_FILE, anno)
+        if cartella:
+            self.output_dir = cartella
+            return
 
-    def _build_ui(self):
-        # PanedWindow orizzontale
-        self.pane = tk.PanedWindow(self.root, orient=tk.HORIZONTAL,
-                                   sashwidth=6, bg="#cccccc")
+        messagebox.showinfo(
+            "Cartella di lavoro",
+            f"Scegli la cartella dove salvare i file di questa stagione "
+            f"({anno}).\nPotrai cambiarla in seguito dalla schermata iniziale.",
+        )
+        scelta = filedialog.askdirectory(
+            title="Cartella di lavoro", initialdir=str(self.output_dir))
+        cartella = Path(scelta) if scelta else self.output_dir
+        sessione.salva_cartella_anno(percorsi.CONFIG_FILE, anno, cartella)
+        self.output_dir = cartella
+
+    def _cambia_cartella(self):
+        scelta = filedialog.askdirectory(
+            title="Cartella di lavoro", initialdir=str(self.output_dir))
+        if not scelta:
+            return
+        self.output_dir = Path(scelta)
+        import datetime as _dt
+        sessione.salva_cartella_anno(percorsi.CONFIG_FILE, _dt.datetime.now().year, self.output_dir)
+        self._aggiorna_lista_sessioni()
+
+    # ================================================================
+    # Schermata iniziale: scelta sessione/file/nuovo
+    # ================================================================
+    def _build_avvio(self):
+        self.frame_avvio = tk.Frame(self.root, padx=16, pady=16)
+        self.frame_avvio.pack(fill=tk.BOTH, expand=True)
+
+        riga_cartella = tk.Frame(self.frame_avvio)
+        riga_cartella.pack(fill=tk.X, pady=(0, 12))
+        tk.Label(riga_cartella, text="Cartella di lavoro:", font=(_MONO_FONT, 10, "bold")).pack(side=tk.LEFT)
+        self.lbl_cartella = tk.Label(riga_cartella, text=str(self.output_dir), font=(_MONO_FONT, 10))
+        self.lbl_cartella.pack(side=tk.LEFT, padx=8)
+        tk.Button(riga_cartella, text="Cambia cartella...", command=self._cambia_cartella).pack(side=tk.RIGHT)
+
+        tk.Label(self.frame_avvio, text="Sessioni e file disponibili:",
+                font=(_MONO_FONT, 10, "bold")).pack(anchor="w")
+
+        cols = ("tipo", "nome", "info")
+        self.tree_avvio = ttk.Treeview(self.frame_avvio, columns=cols, show="headings", height=12)
+        self.tree_avvio.heading("tipo", text="Tipo")
+        self.tree_avvio.heading("nome", text="Nome")
+        self.tree_avvio.heading("info", text="Dettagli")
+        self.tree_avvio.column("tipo", width=110, anchor=tk.W)
+        self.tree_avvio.column("nome", width=320, anchor=tk.W)
+        self.tree_avvio.column("info", width=260, anchor=tk.W)
+        self.tree_avvio.pack(fill=tk.BOTH, expand=True, pady=8)
+        self.tree_avvio.bind("<Double-1>", lambda e: self._avvio_riprendi_selezionata())
+
+        riga_bottoni = tk.Frame(self.frame_avvio)
+        riga_bottoni.pack(fill=tk.X, pady=(0, 12))
+        tk.Button(riga_bottoni, text="Riprendi selezionata", command=self._avvio_riprendi_selezionata).pack(side=tk.LEFT)
+        tk.Button(riga_bottoni, text="Importa file da un'altra cartella...", command=self._avvio_importa).pack(side=tk.LEFT, padx=8)
+
+        riga_nuovo = tk.Frame(self.frame_avvio, pady=8)
+        riga_nuovo.pack(fill=tk.X)
+        tk.Label(riga_nuovo, text="Nuovo file — settimana:", font=(_MONO_FONT, 10, "bold")).pack(side=tk.LEFT)
+        import datetime as _dt
+        lun_corrente = dominio.lunedi_di(_dt.datetime.now())
+        self.entry_settimana = tk.Entry(riga_nuovo, width=16, font=(_MONO_FONT, 10))
+        self.entry_settimana.insert(0, lun_corrente.strftime("%d-%m-%Y"))
+        self.entry_settimana.pack(side=tk.LEFT, padx=8)
+        tk.Label(riga_nuovo, text="(es. 9-2-2026, 9/2/26, 9 feb 2026)",
+                fg="#666666", font=(_MONO_FONT, 9)).pack(side=tk.LEFT)
+        tk.Button(riga_nuovo, text="Nuovo file dal template", command=self._avvio_nuovo_file).pack(side=tk.RIGHT)
+
+        self._aggiorna_lista_sessioni()
+
+    def _aggiorna_lista_sessioni(self):
+        self.lbl_cartella.config(text=str(self.output_dir))
+        for item in self.tree_avvio.get_children():
+            self.tree_avvio.delete(item)
+        self._righe_avvio = []
+
+        for path, info in sessione.recupera_sessioni(self.output_dir):
+            self.tree_avvio.insert("", tk.END, values=(
+                "Interrotta", f"settimana del {info['lunedi']}",
+                f"{info['n_operazioni']} operazioni non salvate",
+            ))
+            self._righe_avvio.append(("journal", path))
+
+        for f in sessione.cerca_file_ripresa(self.output_dir, esportatori.TEMPLATE_FILE.name):
+            self.tree_avvio.insert("", tk.END, values=(
+                "File salvato", f.name, sessione.conta_righe_log(f),
+            ))
+            self._righe_avvio.append(("xlsx", f))
+
+    def _avvio_riprendi_selezionata(self):
+        sel = self.tree_avvio.selection()
+        if not sel:
+            messagebox.showwarning("Nessuna selezione", "Seleziona una sessione o un file dall'elenco.")
+            return
+        idx = self.tree_avvio.index(sel[0])
+        tipo, path = self._righe_avvio[idx]
+        if tipo == "journal":
+            self._avvia_da_journal(path)
+        else:
+            self._avvia_da_xlsx(path)
+
+    def _avvio_importa(self):
+        raw = filedialog.askopenfilename(
+            title="Importa file conta pollinica", initialdir=str(self.output_dir),
+            filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
+        )
+        if not raw:
+            return
+        self._avvia_da_xlsx(Path(raw))
+
+    def _avvio_nuovo_file(self):
+        testo = self.entry_settimana.get().strip()
+        dt = dominio.parse_data_flessibile(testo) if testo else None
+        if testo and not dt:
+            messagebox.showerror("Data non valida",
+                                 "Non riconosco questa data. Prova con: 9-2-2026, 9/2/2026, 9 feb 2026.")
+            return
+        import datetime as _dt
+        lunedi = dominio.lunedi_di(dt) if dt else dominio.lunedi_di(_dt.datetime.now())
+
+        self.settimana = sessione.Settimana(lunedi)
+        self.journal = sessione.Journal(self.output_dir / sessione.nome_journal(lunedi))
+        self.journal.avvia(self.settimana)
+        self.nome_ripreso = None
+        self.percorso_salvato = None
+        self._entra_in_lavoro()
+
+    def _avvia_da_journal(self, path):
+        try:
+            self.settimana = sessione.ripristina_da_journal(path)
+        except ValueError as e:
+            messagebox.showerror("Sessione danneggiata", str(e))
+            return
+        self.journal = sessione.Journal.riprendi(path)
+        self.nome_ripreso = self.settimana.nome_origine
+        self.percorso_salvato = None
+        self._entra_in_lavoro()
+
+    def _avvia_da_xlsx(self, path):
+        try:
+            self.settimana = sessione.carica_da_xlsx(path)
+        except ValueError as e:
+            messagebox.showerror("File non valido", str(e))
+            return
+
+        lunedi_attuale = self.settimana.lunedi
+        domenica = lunedi_attuale + timedelta(days=6)
+        mantieni = messagebox.askyesno(
+            "Settimana",
+            f"Il file si riferisce alla settimana dal "
+            f"{lunedi_attuale.strftime('%d-%m-%Y')} al {domenica.strftime('%d-%m-%Y')}.\n\n"
+            f"Mantenere questa settimana?",
+        )
+        if not mantieni:
+            nuova = self._chiedi_settimana_dialogo(lunedi_attuale)
+            if nuova is None:
+                return
+            self.settimana.lunedi = nuova
+
+        self.nome_ripreso = self.settimana.nome_origine
+        self.percorso_salvato = None
+        self.journal = sessione.Journal(self.output_dir / sessione.nome_journal(self.settimana.lunedi))
+        self.journal.avvia(self.settimana)
+        self._entra_in_lavoro()
+
+    def _chiedi_settimana_dialogo(self, default_dt):
+        testo = simpledialog.askstring(
+            "Settimana",
+            "Data della settimana (es. 9-2-2026, 9/2/2026, 9 feb 2026):",
+            initialvalue=default_dt.strftime("%d-%m-%Y"), parent=self.root,
+        )
+        if not testo:
+            return None
+        dt = dominio.parse_data_flessibile(testo)
+        if not dt:
+            messagebox.showerror("Data non valida", "Data non riconosciuta.")
+            return None
+        return dominio.lunedi_di(dt)
+
+    # ================================================================
+    # Schermata di lavoro
+    # ================================================================
+    def _entra_in_lavoro(self):
+        self.frame_avvio.destroy()
+        self.soglie = esportatori.carica_soglie(self.output_dir) or {}
+        self._modificato = False
+        self._build_lavoro()
+        self.settimana.on_change(self._on_settimana_change)
+
+        if self.settimana.giorno_attivo:
+            self._imposta_giorno_ui(self.settimana.giorno_attivo)
+        else:
+            self._log("Seleziona un giorno per iniziare l'inserimento.")
+            self._imposta_entry_abilitata(False)
+
+        self._refresh_tabs()
+
+    def _build_lavoro(self):
+        self.pane = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, sashwidth=6, bg="#cccccc")
         self.pane.pack(fill=tk.BOTH, expand=True)
 
-        # ── Pannello sinistro: terminale ──
-        term_frame = tk.Frame(self.pane)
-        self.pane.add(term_frame, stretch="always", width=650)
+        # ── Pannello sinistro ──
+        sinistra = tk.Frame(self.pane)
+        self.pane.add(sinistra, stretch="always", width=650)
 
-        self.text_output = tk.Text(
-            term_frame, wrap=tk.WORD, font=(_MONO_FONT, 11),
+        barra_giorni = tk.Frame(sinistra, pady=4)
+        barra_giorni.pack(side=tk.TOP, fill=tk.X)
+        for g in range(1, 8):
+            nome = dominio.GIORNI_ABBREV[g - 1]
+            btn = tk.Button(barra_giorni, text=nome, width=5,
+                            command=lambda g=g: self._pick_giorno(g))
+            btn.pack(side=tk.LEFT, padx=2)
+            self._giorno_bottoni[g] = btn
+
+        self.lbl_giorno = tk.Label(sinistra, text="Nessun giorno selezionato",
+                                   font=(_MONO_FONT, 11, "bold"), anchor="w")
+        self.lbl_giorno.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(2, 4))
+
+        self.text_log = tk.Text(
+            sinistra, wrap=tk.WORD, font=(_MONO_FONT, 11),
             bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
             state=tk.DISABLED, relief=tk.FLAT, padx=6, pady=6,
         )
-        scrollbar = tk.Scrollbar(term_frame, command=self.text_output.yview)
-        self.text_output.configure(yscrollcommand=scrollbar.set)
+        scroll_log = tk.Scrollbar(sinistra, command=self.text_log.yview)
+        self.text_log.configure(yscrollcommand=scroll_log.set)
+        scroll_log.pack(side=tk.RIGHT, fill=tk.Y)
+        self.text_log.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.text_output.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        input_frame = tk.Frame(term_frame, bg="#2d2d2d")
+        input_frame = tk.Frame(sinistra, bg="#2d2d2d")
         input_frame.pack(side=tk.BOTTOM, fill=tk.X)
-
         prompt_lbl = tk.Label(input_frame, text=" >> ", font=(_MONO_FONT, 11),
                               bg="#2d2d2d", fg="#00cc00")
         prompt_lbl.pack(side=tk.LEFT)
-
         self.entry = tk.Entry(input_frame, font=(_MONO_FONT, 11),
                               bg="#1e1e1e", fg="#d4d4d4",
                               insertbackground="#d4d4d4", relief=tk.FLAT)
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4), pady=4)
-        self.entry.bind("<Return>", self._send_input)
+        self.entry.bind("<Return>", self._invia)
         self.entry.focus_set()
 
-        # ── Pannello destro: riepilogo con tab ──
-        right_frame = tk.Frame(self.pane)
-        self.pane.add(right_frame, stretch="never", width=520)
+        barra_azioni = tk.Frame(sinistra, pady=4)
+        barra_azioni.pack(side=tk.BOTTOM, fill=tk.X)
+        tk.Button(barra_azioni, text="Aiuto (h)", command=lambda: self._esegui_azione("h")).pack(side=tk.LEFT, padx=2)
+        tk.Button(barra_azioni, text="Correggi (c)", command=lambda: self._esegui_azione("c")).pack(side=tk.LEFT, padx=2)
+        tk.Button(barra_azioni, text="Nota (n)", command=lambda: self._esegui_azione("n")).pack(side=tk.LEFT, padx=2)
+        tk.Button(barra_azioni, text="Annulla (u)", command=lambda: self._esegui_azione("u")).pack(side=tk.LEFT, padx=2)
+        self.btn_beep = tk.Button(barra_azioni, text="Beep: off", command=lambda: self._esegui_azione("b"))
+        self.btn_beep.pack(side=tk.LEFT, padx=2)
+        tk.Button(barra_azioni, text="Chiudi giornata (d)", command=lambda: self._esegui_azione("d")).pack(side=tk.RIGHT, padx=2)
+        tk.Button(barra_azioni, text="Salva (s)", command=lambda: self._esegui_azione("s")).pack(side=tk.RIGHT, padx=2)
+        tk.Button(barra_azioni, text="Esci (q)", command=lambda: self._esegui_azione("q")).pack(side=tk.RIGHT, padx=2)
 
-        self.notebook = ttk.Notebook(right_frame)
+        # ── Pannello destro ──
+        destra = tk.Frame(self.pane)
+        self.pane.add(destra, stretch="never", width=520)
+
+        self.notebook = ttk.Notebook(destra)
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
-        # Stile condiviso Treeview
         style = ttk.Style()
         style.configure("Summary.Treeview", font=(_MONO_FONT, 10), rowheight=22)
         style.configure("Summary.Treeview.Heading", font=(_MONO_FONT, 10, "bold"))
-
-        # Fix per Tk 9.0 + tema aqua (macOS 26+): il tema nativo sovrascrive
-        # i colori delle righe. Azzerare il mapping background permette a
-        # tag_configure di avere effetto nelle tabelle Treeview.
         if sys.platform == "darwin":
             style.map("Treeview", background=[], foreground=[])
 
-        # ── Tab 1: Settimanale ──
         self._build_tab_settimanale()
-
-        # ── Tab 2: Giornaliero ──
         self._build_tab_giornaliero()
-
-        # ── Tab 3: Bollettino ──
         self._build_tab_bollettino()
+        self._build_tab_codici()
 
     def _build_tab_settimanale(self):
         tab = tk.Frame(self.notebook)
         self.notebook.add(tab, text=" Settimanale ")
 
         columns = ("codice", "specie", "conteggio")
-        self.tree_sett = ttk.Treeview(tab, columns=columns,
-                                      show="headings", style="Summary.Treeview")
+        self.tree_sett = ttk.Treeview(tab, columns=columns, show="headings", style="Summary.Treeview")
         self.tree_sett.heading("codice", text="Cod.")
         self.tree_sett.heading("specie", text="Specie")
         self.tree_sett.heading("conteggio", text="Tot.")
         self.tree_sett.column("codice", width=50, anchor=tk.CENTER)
         self.tree_sett.column("specie", width=220)
         self.tree_sett.column("conteggio", width=60, anchor=tk.CENTER)
-
         scroll = tk.Scrollbar(tab, command=self.tree_sett.yview)
         self.tree_sett.configure(yscrollcommand=scroll.set)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -188,35 +422,28 @@ class PollineCounterGUI:
 
         totals = tk.Frame(tab, pady=8)
         totals.pack(side=tk.BOTTOM, fill=tk.X)
-
-        self.lbl_s_pollini = tk.Label(totals, text="Pollini: 0",
-                                      font=(_MONO_FONT, 11), anchor=tk.W)
+        self.lbl_s_pollini = tk.Label(totals, text="Pollini: 0", font=(_MONO_FONT, 11), anchor=tk.W)
         self.lbl_s_pollini.pack(fill=tk.X, padx=10)
-        self.lbl_s_spore = tk.Label(totals, text="Spore: 0",
-                                    font=(_MONO_FONT, 11), anchor=tk.W)
+        self.lbl_s_spore = tk.Label(totals, text="Spore: 0", font=(_MONO_FONT, 11), anchor=tk.W)
         self.lbl_s_spore.pack(fill=tk.X, padx=10)
         ttk.Separator(totals, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=4)
-        self.lbl_s_totale = tk.Label(totals, text="TOTALE: 0",
-                                     font=(_MONO_FONT, 12, "bold"), anchor=tk.W)
+        self.lbl_s_totale = tk.Label(totals, text="TOTALE: 0", font=(_MONO_FONT, 12, "bold"), anchor=tk.W)
         self.lbl_s_totale.pack(fill=tk.X, padx=10)
 
     def _build_tab_giornaliero(self):
         tab = tk.Frame(self.notebook)
         self.notebook.add(tab, text=" Giornaliero ")
 
-        columns = ("codice", "specie",
-                    "lun", "mar", "mer", "gio", "ven", "sab", "dom")
-        self.tree_giorn = ttk.Treeview(tab, columns=columns,
-                                       show="headings", style="Summary.Treeview")
+        columns = ("codice", "specie", *[g.lower() for g in dominio.GIORNI_ABBREV])
+        self.tree_giorn = ttk.Treeview(tab, columns=columns, show="headings", style="Summary.Treeview")
         self.tree_giorn.heading("codice", text="Cod.")
         self.tree_giorn.heading("specie", text="Specie")
         self.tree_giorn.column("codice", width=40, anchor=tk.CENTER)
         self.tree_giorn.column("specie", width=160)
-        for g in GIORNI_ABBREV:
+        for g in dominio.GIORNI_ABBREV:
             col_id = g.lower()
             self.tree_giorn.heading(col_id, text=g)
             self.tree_giorn.column(col_id, width=40, anchor=tk.CENTER)
-
         scroll = tk.Scrollbar(tab, command=self.tree_giorn.yview)
         self.tree_giorn.configure(yscrollcommand=scroll.set)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -224,41 +451,20 @@ class PollineCounterGUI:
 
         totals = tk.Frame(tab, pady=8)
         totals.pack(side=tk.BOTTOM, fill=tk.X)
-
-        self.lbl_g_pollini = tk.Label(totals, text="Pollini: -",
-                                      font=(_MONO_FONT, 10), anchor=tk.W)
+        self.lbl_g_pollini = tk.Label(totals, text="Pollini: -", font=(_MONO_FONT, 10), anchor=tk.W)
         self.lbl_g_pollini.pack(fill=tk.X, padx=10)
-        self.lbl_g_spore = tk.Label(totals, text="Spore: -",
-                                    font=(_MONO_FONT, 10), anchor=tk.W)
+        self.lbl_g_spore = tk.Label(totals, text="Spore: -", font=(_MONO_FONT, 10), anchor=tk.W)
         self.lbl_g_spore.pack(fill=tk.X, padx=10)
         ttk.Separator(totals, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=4)
-        self.lbl_g_totale = tk.Label(totals, text="TOTALE: -",
-                                     font=(_MONO_FONT, 11, "bold"), anchor=tk.W)
+        self.lbl_g_totale = tk.Label(totals, text="TOTALE: -", font=(_MONO_FONT, 11, "bold"), anchor=tk.W)
         self.lbl_g_totale.pack(fill=tk.X, padx=10)
 
     def _build_tab_bollettino(self):
         tab = tk.Frame(self.notebook)
         self.notebook.add(tab, text=" Bollettino ")
 
-        cols = ("specie", "lun", "mar", "mer", "gio", "ven", "sab", "dom", "media")
-        self.tree_boll = ttk.Treeview(tab, columns=cols,
-                                      show="headings", style="Summary.Treeview")
-        self.tree_boll.heading("specie", text="Specie")
-        self.tree_boll.column("specie", width=160)
-        for col_id, label in zip(cols[1:8], GIORNI_ABBREV):
-            self.tree_boll.heading(col_id, text=label)
-            self.tree_boll.column(col_id, width=42, anchor=tk.CENTER)
-        self.tree_boll.heading("media", text="Media")
-        self.tree_boll.column("media", width=52, anchor=tk.CENTER)
-
-        # Tag colori per livello di concentrazione
-        for nome, (bg, fg) in _BOLL_COLORS.items():
-            self.tree_boll.tag_configure(nome, background=bg, foreground=fg)
-
-        scroll = tk.Scrollbar(tab, command=self.tree_boll.yview)
-        self.tree_boll.configure(yscrollcommand=scroll.set)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.tree_boll.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self._boll_scroll = _ScrollableFrame(tab)
+        self._boll_scroll.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         info_frame = tk.Frame(tab, pady=6)
         info_frame.pack(side=tk.BOTTOM, fill=tk.X)
@@ -267,526 +473,557 @@ class PollineCounterGUI:
             font=(_MONO_FONT, 10), anchor=tk.W,
         )
         self.lbl_boll_info.pack(fill=tk.X, padx=10)
+        if not self.soglie:
+            tk.Label(info_frame,
+                    text=f"ATTENZIONE: '{esportatori.SOGLIE_FILE_NOME}' non trovato, uso soglie di riserva.",
+                    fg="#B00000", font=(_MONO_FONT, 9)).pack(fill=tk.X, padx=10)
 
-    # ── Subprocess ────────────────────────────────────────────────
+    def _build_tab_codici(self):
+        tab = tk.Frame(self.notebook)
+        self.notebook.add(tab, text=" Codici ")
 
-    def _start_subprocess(self):
-        if sys.platform == "win32":
-            env = os.environ.copy()
-            env["PYTHONUNBUFFERED"] = "1"
-            env["PYTHONIOENCODING"] = "utf-8"
-            flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
-            if getattr(sys, 'frozen', False):
-                cmd = [sys.executable, "--cli"]
-            else:
-                cmd = [sys.executable, "-u", str(SCRIPT_PATH), "--gui"]
-            self.process = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                cwd=str(SCRIPT_DIR),
-                bufsize=0,
-                env=env,
-                creationflags=flags,
-            )
-            self._reader_thread = threading.Thread(
-                target=self._read_output_thread, daemon=True
-            )
-            self._reader_thread.start()
-        else:
-            master_fd, slave_fd = pty.openpty()
-            winsize = struct.pack("HHHH", 40, 100, 0, 0)
-            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
-            # In modalita' frozen (PyInstaller .app su macOS) il file .py non
-            # esiste nel bundle: si rilancia lo stesso eseguibile con --cli.
-            if getattr(sys, 'frozen', False):
-                cmd = [sys.executable, "--cli"]
-            else:
-                cmd = [sys.executable, str(SCRIPT_PATH), "--gui"]
-            self.process = subprocess.Popen(
-                cmd,
-                stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-                close_fds=True, cwd=str(SCRIPT_DIR),
-            )
-            os.close(slave_fd)
-            self.master_fd = master_fd
-            flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-            fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        ricerca_frame = tk.Frame(tab, pady=6)
+        ricerca_frame.pack(side=tk.TOP, fill=tk.X)
+        tk.Label(ricerca_frame, text="Cerca:").pack(side=tk.LEFT, padx=(10, 4))
+        self.entry_cerca_codici = tk.Entry(ricerca_frame, font=(_MONO_FONT, 10))
+        self.entry_cerca_codici.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        self.entry_cerca_codici.bind("<KeyRelease>", self._filtra_tab_codici)
 
-    def _read_output_thread(self):
-        """Solo Windows: legge l'output del processo in un thread separato."""
-        try:
-            while True:
-                data = self.process.stdout.read(1)
-                if not data:
-                    break
-                self._output_queue.put(data)
-        except Exception:
-            pass
-        finally:
-            self._output_queue.put(None)  # sentinel: processo terminato
+        columns = ("codice", "specie")
+        self.tree_codici = ttk.Treeview(tab, columns=columns, show="headings", style="Summary.Treeview")
+        self.tree_codici.heading("codice", text="Cod.")
+        self.tree_codici.heading("specie", text="Specie")
+        self.tree_codici.column("codice", width=50, anchor=tk.CENTER)
+        self.tree_codici.column("specie", width=220)
+        scroll = tk.Scrollbar(tab, command=self.tree_codici.yview)
+        self.tree_codici.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_codici.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-    # ── I/O ───────────────────────────────────────────────────────
+        self._popola_tab_codici()
 
-    def _poll_output(self):
-        if sys.platform == "win32":
-            self._poll_output_win32()
-        else:
-            self._poll_output_unix()
+        azioni_frame = tk.Frame(tab, pady=6)
+        azioni_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        tk.Button(azioni_frame, text="Stampa elenco (Word)",
+                 command=self._stampa_cheatsheet_codici).pack(side=tk.LEFT, padx=10)
 
-    _GUI_MARKERS = ("__GUI_ASKDIR__", "__GUI_ASKOPENFILE__", "__GUI_ASKSAVEFILE__")
-    _MAX_MARKER_LEN = max(len(m) for m in _GUI_MARKERS)
+    def _popola_tab_codici(self, filtro=""):
+        self.tree_codici.delete(*self.tree_codici.get_children())
+        filtro = filtro.strip().lower()
+        for codice in dominio.TUTTI_CODICI:
+            specie = dominio.CODICI_SPECIE[codice]
+            if filtro and filtro not in codice.lower() and filtro not in specie.lower():
+                continue
+            self.tree_codici.insert("", tk.END, values=(codice, specie))
 
-    def _elabora_output(self, text, process_ended=False):
-        """Processa testo raw: bell, ANSI, marker GUI, inserimento nel widget."""
-        if "\a" in text:
-            self.root.bell()
-            text = text.replace("\a", "")
-        text = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", text)
-        display = self._handle_gui_markers(text, flush=process_ended)
-        if display:
-            self.text_output.config(state=tk.NORMAL)
-            self.text_output.insert(tk.END, display)
-            self._trim_output()
-            self.text_output.see(tk.END)
-            self.text_output.config(state=tk.DISABLED)
-            self._detect_tracked_file(display)
+    def _filtra_tab_codici(self, _event=None):
+        self._popola_tab_codici(self.entry_cerca_codici.get())
 
-    def _poll_output_win32(self):
-        chunks = []
-        process_ended = False
-        try:
-            while True:
-                item = self._output_queue.get_nowait()
-                if item is None:
-                    process_ended = True
-                    break
-                chunks.append(item)
-        except queue.Empty:
-            pass
-        if chunks:
-            self._elabora_output(
-                b"".join(chunks).decode("utf-8", errors="replace"),
-                process_ended,
-            )
-        if process_ended:
-            remaining = self._flush_marker_buf()
-            if remaining:
-                self.text_output.config(state=tk.NORMAL)
-                self.text_output.insert(tk.END, remaining)
-                self.text_output.config(state=tk.DISABLED)
-            self._on_process_exit()
-        else:
-            self.root.after(50, self._poll_output)
-
-    def _poll_output_unix(self):
-        if self.master_fd is None:
+    def _stampa_cheatsheet_codici(self):
+        percorso = esportatori.genera_cheatsheet_codici(self.output_dir)
+        if percorso is None:
+            messagebox.showwarning(
+                "python-docx non disponibile",
+                "Per generare il foglio stampabile serve il modulo python-docx\n"
+                "(su questa macchina: sudo apt install python3-docx, oppure\n"
+                "sudo zypper install python3-python-docx su openSUSE).")
             return
-        process_alive = self.process and self.process.poll() is None
-        try:
-            ready, _, _ = select.select([self.master_fd], [], [], 0)
-            if ready:
-                data = os.read(self.master_fd, 8192)
-                if data:
-                    self._elabora_output(
-                        data.decode("utf-8", errors="replace"),
-                        not process_alive,
-                    )
-        except OSError:
-            pass
+        self._log(f"[OK] Elenco codici stampabile generato: {percorso}")
+        messagebox.showinfo("Elenco generato", f"Foglio stampabile creato:\n{percorso}")
 
-        if process_alive:
-            self.root.after(50, self._poll_output)
-        else:
-            remaining = self._flush_marker_buf()
-            if remaining:
-                self.text_output.config(state=tk.NORMAL)
-                self.text_output.insert(tk.END, remaining)
-                self.text_output.config(state=tk.DISABLED)
-            self._on_process_exit()
+    # ================================================================
+    # Selezione giorno
+    # ================================================================
+    def _pick_giorno(self, giorno_num):
+        totale = self.settimana.totale_giorno(giorno_num)
+        if totale > 0 and giorno_num != self.settimana.giorno_attivo:
+            nome_g = dominio.GIORNI_NOMI[giorno_num].upper()
+            if not messagebox.askyesno(
+                    "Giorno gia' compilato",
+                    f"{nome_g} contiene gia' {totale} osservazioni.\nContinuare aggiungendo dati?"):
+                return
+        self.settimana.attiva_giorno(giorno_num, journal=self.journal)
+        self._imposta_giorno_ui(giorno_num)
 
-    def _send_to_stdin(self, text):
-        """Invia una riga al processo (cross-platform)."""
-        if sys.platform == "win32":
-            if self.process and self.process.stdin:
-                try:
-                    self.process.stdin.write((text + "\n").encode("utf-8"))
-                    self.process.stdin.flush()
-                except OSError:
-                    pass
-        else:
-            if self.master_fd is not None:
-                try:
-                    os.write(self.master_fd, (text + "\n").encode("utf-8"))
-                except OSError:
-                    pass
+    def _imposta_giorno_ui(self, giorno_num):
+        for g, btn in self._giorno_bottoni.items():
+            btn.config(relief=(tk.SUNKEN if g == giorno_num else tk.RAISED))
+        nome_giorno = dominio.GIORNI_NOMI[giorno_num].upper()
+        data_str = self.settimana.data_str_giorno(giorno_num)
+        totale = self.settimana.totale_giorno(giorno_num)
+        self.lbl_giorno.config(text=f"{nome_giorno}  {data_str}  —  totale: {totale}")
+        self._undo_consecutivi = 0
+        self._imposta_entry_abilitata(True)
+        self.entry.focus_set()
 
-    def _send_input(self, _event=None):
-        if self._dialog_active:
-            self.entry.delete(0, tk.END)
-            return
-        text = self.entry.get()
+    def _imposta_entry_abilitata(self, abilitata):
+        self.entry.config(state=(tk.NORMAL if abilitata else tk.DISABLED))
+
+    # ================================================================
+    # Input: codici e comandi
+    # ================================================================
+    def _invia(self, _event=None):
+        testo = self.entry.get()
         self.entry.delete(0, tk.END)
-        self._send_to_stdin(text)
+        if not testo.strip():
+            return
+        if self.settimana.giorno_attivo is None:
+            self._log("Seleziona prima un giorno.")
+            return
 
-    def _handle_gui_markers(self, new_text, flush=False):
-        """Accumula testo, intercetta marker completi, ritorna testo sicuro da mostrare.
+        cmd = dominio.interpreta_comando(testo)
+        if isinstance(cmd, dominio.Azione):
+            self._esegui_azione(cmd.lettera)
+            return
 
-        Il buffer interno trattiene i frammenti finali che potrebbero essere
-        l'inizio di un marker spezzato tra due poll. Quando un marker completo
-        viene trovato, lo rimuove dal buffer e apre il dialogo corrispondente.
-        """
-        self._marker_buf += new_text
-        display_parts = []
+        self._undo_consecutivi = 0
+        giorno_num = self.settimana.giorno_attivo
 
-        # Cerca e processa tutti i marker completi nel buffer
-        while True:
-            earliest_pos = -1
-            earliest_marker = None
-            for marker in self._GUI_MARKERS:
-                pos = self._marker_buf.find(marker)
-                if pos != -1 and (earliest_pos == -1 or pos < earliest_pos):
-                    earliest_pos = pos
-                    earliest_marker = marker
-            if earliest_marker is None:
-                break
-            # Testo prima del marker → va mostrato
-            display_parts.append(self._marker_buf[:earliest_pos])
-            self._marker_buf = self._marker_buf[earliest_pos + len(earliest_marker):]
-            # Estrai parametri opzionali (formato: |param1|param2...\n)
-            params = []
-            if self._marker_buf.startswith("|"):
-                newline_pos = self._marker_buf.find("\n")
-                if newline_pos == -1 and not flush:
-                    # Parametri incompleti, rimettere marker e attendere
-                    self._marker_buf = earliest_marker + self._marker_buf
-                    # Ripristina il testo pre-marker nel buffer
-                    pre = display_parts.pop()
-                    self._marker_buf = pre + self._marker_buf
-                    break
-                end = newline_pos if newline_pos != -1 else len(self._marker_buf)
-                params_str = self._marker_buf[:end]
-                self._marker_buf = self._marker_buf[end + 1:] if newline_pos != -1 else ""
-                params = [p for p in params_str.split("|") if p]
-            init_dir = params[0] if params else str(SCRIPT_DIR)
-            # Apri il dialogo appropriato
-            self.root.lift()
-            # focus_force() causa problemi su macOS: si usa solo su Win/Linux
-            if sys.platform != "darwin":
-                self.root.focus_force()
-            self._dialog_active = True
-            if earliest_marker == "__GUI_ASKDIR__":
-                path = filedialog.askdirectory(
-                    parent=self.root,
-                    title="Scegli cartella di salvataggio",
-                    initialdir=init_dir,
-                )
-            elif earliest_marker == "__GUI_ASKSAVEFILE__":
-                init_file = params[1] if len(params) > 1 else ""
-                path = filedialog.asksaveasfilename(
-                    parent=self.root,
-                    title="Salva file conta pollinica",
-                    initialdir=init_dir,
-                    initialfile=init_file,
-                    defaultextension=".xlsx",
-                    filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
-                )
+        if isinstance(cmd, dominio.Ripeti):
+            if not self.settimana.ultimo_codice:
+                self._log("Nessun codice precedente da ripetere.")
+                return
+            codice, quantita = self.settimana.ultimo_codice, 1
+        elif isinstance(cmd, dominio.Inserisci):
+            codice, quantita = cmd.codice, cmd.quantita
+        else:
+            self._log(cmd.messaggio or "Comando non riconosciuto.")
+            return
+
+        specie = dominio.CODICI_SPECIE[codice]
+        nuovo_val = self.settimana.inserisci(giorno_num, codice, quantita, journal=self.journal)
+        self._modificato = True
+        if quantita > 1:
+            self._log(f"-> [{codice}] {specie} x{quantita}  (totale giorno: {nuovo_val})")
+        else:
+            self._log(f"-> [{codice}] {specie}  (totale giorno: {nuovo_val})")
+        if self.settimana.beep:
+            self.root.bell()
+
+    def _esegui_azione(self, lettera):
+        if self.settimana is None:
+            return
+        giorno_num = self.settimana.giorno_attivo
+
+        if lettera == "h":
+            messagebox.showinfo("Comandi", HELP_TEXT)
+        elif lettera == "r":
+            self.notebook.select(1)
+        elif lettera == "w":
+            self.notebook.select(0)
+        elif lettera == "l":
+            self._mostra_storico()
+        elif lettera == "b":
+            self.settimana.beep = not self.settimana.beep
+            self.btn_beep.config(text=f"Beep: {'on' if self.settimana.beep else 'off'}")
+            self._log(f"Beep sonoro: {'ATTIVO' if self.settimana.beep else 'disattivo'}")
+            if self.settimana.beep:
+                self.root.bell()
+        elif lettera == "c":
+            self._dialog_correggi()
+        elif lettera == "n":
+            self._dialog_nota()
+        elif lettera == "s":
+            self._salva_rapido()
+        elif lettera == "u":
+            self._annulla(giorno_num)
+        elif lettera == "d":
+            self._chiudi_giornata()
+        elif lettera == "q":
+            self._esci_sessione()
+
+    def _mostra_storico(self):
+        if not self.settimana.storico:
+            self._log("(nessun inserimento in questa sessione)")
+            return
+        self._log("Ultimi inserimenti:")
+        for data, codice, specie, quantita, ora in self.settimana.storico[-10:]:
+            if quantita > 1:
+                self._log(f"  {ora}  [{codice}] {specie} x{quantita}  ({data})")
             else:
-                path = filedialog.askopenfilename(
-                    parent=self.root,
-                    title="Importa file conta pollinica",
-                    initialdir=init_dir,
-                    filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
-                )
-            self._send_to_stdin(path if path else "")
-            # Disattiva il flag dopo un breve ritardo per assorbire
-            # eventuali Enter vaganti propagati dalla chiusura del dialog
-            self.root.after(200, self._clear_dialog_flag)
+                self._log(f"  {ora}  [{codice}] {specie}  ({data})")
 
-        if flush:
-            # Processo terminato: svuota tutto il buffer
-            display_parts.append(self._marker_buf)
-            self._marker_buf = ""
+    def _annulla(self, giorno_num):
+        self._undo_consecutivi += 1
+        if self._undo_consecutivi > 5 and (self._undo_consecutivi - 1) % 5 == 0:
+            if not messagebox.askyesno(
+                    "Conferma",
+                    f"Hai annullato {self._undo_consecutivi - 1} inserimenti di fila. Continuare?"):
+                self._undo_consecutivi = 0
+                return
+        ris = self.settimana.annulla(giorno_num, journal=self.journal)
+        if ris is None:
+            self._log("Nessun inserimento da annullare.")
+            return
+        codice, qty, _ = ris
+        specie = dominio.CODICI_SPECIE[codice]
+        self._modificato = True
+        if qty > 1:
+            self._log(f"<- Annullato: [{codice}] {specie} x{qty}")
         else:
-            # Trattieni la coda che potrebbe essere un marker parziale.
-            # Tutto il testo prima dell'ultimo possibile inizio di marker
-            # e' sicuro da mostrare.
-            safe_end = len(self._marker_buf)
-            for length in range(min(self._MAX_MARKER_LEN - 1, len(self._marker_buf)), 0, -1):
-                tail = self._marker_buf[-length:]
-                if any(m.startswith(tail) for m in self._GUI_MARKERS):
-                    safe_end = len(self._marker_buf) - length
-                    break
-            display_parts.append(self._marker_buf[:safe_end])
-            self._marker_buf = self._marker_buf[safe_end:]
+            self._log(f"<- Annullato: [{codice}] {specie}")
 
-        return "".join(display_parts)
-
-    def _clear_dialog_flag(self):
-        self._dialog_active = False
-
-    def _flush_marker_buf(self):
-        """Svuota il buffer marker e ritorna il testo residuo."""
-        remaining = self._marker_buf
-        self._marker_buf = ""
-        return remaining
-
-    def _trim_output(self):
-        line_count = int(self.text_output.index("end-1c").split(".")[0])
-        if line_count > MAX_LINES:
-            self.text_output.delete("1.0", f"{line_count - MAX_LINES}.0")
-
-    # ── Tracking del file corrente ───────────────────────────────
-
-    def _detect_tracked_file(self, text):
-        """Analizza l'output dello script per capire quale file sta usando."""
-        aggiorna = False
-
-        # Rileva "Ripreso: /percorso/completo/nomefile.xlsx"
-        match = re.search(r"Ripreso:\s*(.+\.xlsx)", text)
-        if match:
-            path = Path(match.group(1).strip())
-            if path.exists():
-                self._tracked_file = path
-                aggiorna = True
-
-        # Rileva "[auto-salvato]: /percorso/completo/~autosave_*.xlsx"
-        match = re.search(r"\[auto-salvato\]:\s*(.+\.xlsx)", text)
-        if match:
-            path = Path(match.group(1).strip())
-            if path.exists():
-                self._tracked_file = path
-            aggiorna = True
-
-        # Rileva "File salvato: /percorso/completo/nomefile.xlsx" (salvataggio definitivo)
-        match = re.search(r"File salvato:\s*(.+\.xlsx)", text)
-        if match:
-            path = Path(match.group(1).strip())
-            if path.exists():
-                self._tracked_file = path
-                aggiorna = True
-
-        # Rileva "Sessione sospesa. File salvato: /percorso/completo/nomefile.xlsx"
-        match = re.search(r"Sessione sospesa.*?:\s*(.+\.xlsx)", text)
-        if match:
-            path = Path(match.group(1).strip())
-            if path.exists():
-                self._tracked_file = path
-                aggiorna = True
-
-        # Rileva inizio sessione giorno (giorno e file sono stati scelti)
-        if re.search(r"Giorno:\s+\w+", text):
-            self._sessione_attiva = True
-            aggiorna = True
-
-        # Rileva fine sessione
-        if "Sessione terminata" in text or "Sessione sospesa" in text:
-            self._sessione_attiva = False
-
-        # Avvia il refresh solo se sessione attiva e non già in esecuzione
-        if aggiorna and self._sessione_attiva and not self._refresh_running:
-            self._refresh_running = True
-            self.root.after(500, self._refresh_summary)
-
-    # ── Riepilogo live ────────────────────────────────────────────
-
-    def _refresh_summary(self):
-        # NON resettare _refresh_running qui: rimane True finche' il thread
-        # e' in esecuzione, cosi' _detect_tracked_file non schedula duplicati.
-
-        # Refresh solo se la sessione è attiva (file + giorno scelti)
-        if not self._sessione_attiva:
-            self._refresh_running = False
+    def _chiudi_giornata(self):
+        if self.settimana.giorno_attivo is None:
             return
+        nome_giorno = dominio.GIORNI_NOMI[self.settimana.giorno_attivo].upper()
+        totale = self.settimana.totale_giorno(self.settimana.giorno_attivo)
+        self._log(f"Chiusura {nome_giorno}: {totale} osservazioni.")
+        self.settimana.giorno_attivo = None
+        for btn in self._giorno_bottoni.values():
+            btn.config(relief=tk.RAISED)
+        self.lbl_giorno.config(text="Nessun giorno selezionato — sceglilo dalla barra sopra")
+        self._imposta_entry_abilitata(False)
 
-        if openpyxl is None:
-            self._refresh_running = False
+    # ================================================================
+    # Dialoghi: correggi / nota
+    # ================================================================
+    def _dialog_correggi(self):
+        if self.settimana is None:
             return
+        top = tk.Toplevel(self.root)
+        top.title("Correggi un giorno")
+        top.transient(self.root)
+        top.geometry("420x360")
 
-        if self._tracked_file is None or not self._tracked_file.exists():
-            # File non ancora noto o non ancora scritto dal thread autosave: riprova
-            self.root.after(3000, self._refresh_summary)
+        riga_giorno = tk.Frame(top, pady=8)
+        riga_giorno.pack(fill=tk.X, padx=10)
+        tk.Label(riga_giorno, text="Giorno:").pack(side=tk.LEFT)
+        giorno_var = tk.IntVar(value=self.settimana.giorno_attivo or 1)
+        combo = ttk.Combobox(riga_giorno, state="readonly", width=14,
+                             values=[f"{n}) {dominio.GIORNI_NOMI[n].upper()}" for n in range(1, 8)])
+        combo.current((self.settimana.giorno_attivo or 1) - 1)
+        combo.pack(side=tk.LEFT, padx=8)
+
+        lista = tk.Listbox(top, font=(_MONO_FONT, 10))
+        lista.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+
+        def _aggiorna_lista():
+            lista.delete(0, tk.END)
+            g = combo.current() + 1
+            righe = self.settimana.righe_specie(g)
+            if not righe:
+                lista.insert(tk.END, "(nessun dato)")
+            for codice, specie, val in righe:
+                lista.insert(tk.END, f"[{codice}] {specie}: {val}")
+
+        combo.bind("<<ComboboxSelected>>", lambda e: _aggiorna_lista())
+        _aggiorna_lista()
+
+        riga_valore = tk.Frame(top, pady=8)
+        riga_valore.pack(fill=tk.X, padx=10)
+        tk.Label(riga_valore, text="Nuovo valore:").pack(side=tk.LEFT)
+        entry_val = tk.Entry(riga_valore, width=8)
+        entry_val.pack(side=tk.LEFT, padx=8)
+
+        def _applica():
+            sel = lista.curselection()
+            if not sel:
+                messagebox.showwarning("Nessuna selezione", "Seleziona una specie dall'elenco.", parent=top)
+                return
+            g = combo.current() + 1
+            righe = self.settimana.righe_specie(g)
+            if not righe or sel[0] >= len(righe):
+                return
+            codice, specie, vecchio = righe[sel[0]]
+            try:
+                nuovo_val = int(entry_val.get().strip())
+                if nuovo_val < 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Valore non valido", "Inserisci un numero intero >= 0.", parent=top)
+                return
+            self.settimana.correggi(g, codice, nuovo_val, journal=self.journal)
+            self._modificato = True
+            self._log(f"Corretto [{dominio.GIORNI_NOMI[g].upper()}]: [{codice}] {specie}: {vecchio} -> {nuovo_val}")
+            entry_val.delete(0, tk.END)
+            _aggiorna_lista()
+
+        tk.Button(riga_valore, text="Applica", command=_applica).pack(side=tk.LEFT, padx=8)
+        tk.Button(top, text="Chiudi", command=top.destroy).pack(pady=(0, 10))
+
+    def _dialog_nota(self):
+        if self.settimana is None or self.settimana.giorno_attivo is None:
+            messagebox.showwarning("Nessun giorno attivo", "Seleziona prima un giorno.")
             return
+        giorno_num = self.settimana.giorno_attivo
+        testo = simpledialog.askstring(
+            "Nota", f"Nota per {dominio.GIORNI_NOMI[giorno_num].upper()}:", parent=self.root)
+        if not testo:
+            return
+        self.settimana.aggiungi_nota(giorno_num, testo, journal=self.journal)
+        self._modificato = True
+        self._log(f"Nota registrata: {testo}")
 
-        # Lettura Excel in thread separato per non bloccare il main thread
-        filepath = self._tracked_file
-        threading.Thread(target=self._leggi_dati_thread,
-                         args=(filepath,), daemon=True).start()
+    # ================================================================
+    # Salvataggio
+    # ================================================================
+    def _nome_default(self):
+        return self.nome_ripreso or f"Conta_Pollinica_{self.settimana.lunedi.strftime('%d-%m-%Y')}.xlsx"
 
-    def _leggi_dati_thread(self, filepath):
-        """Legge il file Excel in background. Aggiorna la UI nel main thread."""
-        try:
-            wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
-            ws = wb["riepilogo_settimana"]
-            # Ricarica soglie dal workbook (foglio "soglie" integrato)
-            soglie_aggiornate = carica_soglie(wb)
-            if soglie_aggiornate:
-                self._soglie = soglie_aggiornate
-            dati = self._raccogli_dati(ws)
-            wb.close()
-            # Torna al main thread per aggiornare i widget
-            self.root.after(0, lambda: self._applica_dati(dati))
-        except Exception as e:
-            self.root.after(0, lambda err=e: self.lbl_boll_info.config(
-                text=f"Errore lettura file: {err}"))
-        finally:
-            # Riprogramma il prossimo ciclo nel main thread
-            self.root.after(0, self._schedula_prossimo_refresh)
+    def _salva_rapido(self):
+        percorso = self.percorso_salvato
+        if percorso is None:
+            percorso = filedialog.asksaveasfilename(
+                title="Salva file conta pollinica", initialdir=str(self.output_dir),
+                initialfile=self._nome_default(), defaultextension=".xlsx",
+                filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
+            )
+            if not percorso:
+                self._log("Salvataggio annullato.")
+                return
+            percorso = Path(percorso)
+        esportatori.esporta_xlsx(self.settimana, percorso)
+        self.percorso_salvato = percorso
+        self._modificato = False
+        self._log(f"[OK] File salvato: {percorso}")
 
-    def _schedula_prossimo_refresh(self):
-        if self._sessione_attiva:
-            # _refresh_running rimane True: il prossimo timer e' gia' in coda
-            self.root.after(3000, self._refresh_summary)
+    def _salva_come(self):
+        percorso = filedialog.asksaveasfilename(
+            title="Salva file conta pollinica", initialdir=str(self.output_dir),
+            initialfile=self._nome_default(), defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
+        )
+        if not percorso:
+            return None
+        percorso = Path(percorso)
+        esportatori.esporta_xlsx(self.settimana, percorso)
+        self.percorso_salvato = percorso
+        self._modificato = False
+        return percorso
+
+    # ================================================================
+    # Uscita dalla sessione (comando 'q' / pulsante Esci)
+    # ================================================================
+    def _esci_sessione(self):
+        risp = messagebox.askyesnocancel("Salvare ed uscire?", "Salvare il file prima di uscire dalla sessione?")
+        if risp is None:
+            return  # annulla, resta in sessione
+        if risp:
+            percorso = self.percorso_salvato or self._salva_come()
+            if percorso is None:
+                return  # ha annullato la scelta del percorso
+            if self.percorso_salvato is None:
+                esportatori.esporta_xlsx(self.settimana, percorso)
+                self.percorso_salvato = percorso
+            self._log(f"[OK] File salvato: {percorso}")
+            self.journal.elimina()
+            self._modificato = False
+            self._menu_operazioni_aggiuntive(percorso.parent)
+            self._torna_ad_avvio()
         else:
-            self._refresh_running = False
+            conserva = messagebox.askyesno(
+                "Uscita senza salvare",
+                "I dati non ancora salvati in .xlsx restano nel file di sessione.\n"
+                "Conservarlo per riprenderlo alla prossima apertura?",
+            )
+            if conserva:
+                self.journal.chiudi()
+                self._log(f"Il lavoro resta salvato in: {self.journal.path.name}")
+            else:
+                self.journal.elimina()
+            self._torna_ad_avvio()
 
-    def _raccogli_dati(self, ws):
-        """Raccoglie tutti i dati dal foglio (eseguito nel thread background)."""
-        righe_sett = []
-        totale_pollini_s = 0
-        totale_spore_s = 0
+    def _menu_operazioni_aggiuntive(self, cartella):
+        top = tk.Toplevel(self.root)
+        top.title("Operazioni aggiuntive")
+        top.transient(self.root)
+        tk.Label(top, text="Vuoi generare anche:", padx=16, pady=10).pack(anchor="w")
+        var_annuale = tk.BooleanVar(value=True)
+        var_bollettini = tk.BooleanVar(value=True)
+        tk.Checkbutton(top, text="Aggiorna riepilogo annuale", variable=var_annuale).pack(anchor="w", padx=16)
+        tk.Checkbutton(top, text="Genera bollettini Word (ITA/ENG)", variable=var_bollettini).pack(anchor="w", padx=16)
 
-        righe_giorn = []
-        tot_pollini_g = [0] * 7
-        tot_spore_g = [0] * 7
-
-        for codice_str, specie in CODICI_SPECIE.items():
-            row = codice_to_row(codice_str)
-            if row is None:
-                continue
-            vals = [leggi_valore(ws, row, giorno_to_col(g)) for g in range(1, 8)]
-            total = sum(vals)
-            n = int(codice_str)
-
-            if total > 0:
-                righe_sett.append((codice_str, specie, total))
-                if n <= 47:
-                    totale_pollini_s += total
+        def _conferma():
+            top.destroy()
+            if var_annuale.get():
+                percorso, n = esportatori.esporta_riepilogo_annuale(
+                    self.settimana, cartella, scegli_duplicati=self._scegli_duplicati_dialogo)
+                if percorso:
+                    self._log(f"[OK] Riepilogo annuale aggiornato: {percorso} ({n} giorni)")
                 else:
-                    totale_spore_s += total
-
-            if any(v > 0 for v in vals):
-                display = [str(v) if v > 0 else "-" for v in vals]
-                righe_giorn.append((codice_str, specie, *display))
-                for i in range(7):
-                    if n <= 47:
-                        tot_pollini_g[i] += vals[i]
+                    self._log("Nessun dato da esportare nel riepilogo annuale.")
+            if var_bollettini.get():
+                soglie = esportatori.carica_soglie(cartella)
+                if soglie is None:
+                    self._log(f"ERRORE: file soglie '{esportatori.SOGLIE_FILE_NOME}' non trovato.")
+                else:
+                    creati = esportatori.genera_bollettini_word(self.settimana, cartella, soglie=soglie)
+                    if creati:
+                        for p in creati:
+                            self._log(f"Bollettino: {p}")
                     else:
-                        tot_spore_g[i] += vals[i]
+                        self._log("Nessun dato presente: bollettini Word non generati.")
 
-        # ── Bollettino: concentrazioni p/m³ per famiglia ──
-        fattore = leggi_fattore(ws)
+        riga = tk.Frame(top, pady=10)
+        riga.pack(fill=tk.X)
+        tk.Button(riga, text="Conferma", command=_conferma).pack(side=tk.RIGHT, padx=16)
+        tk.Button(riga, text="Salta", command=top.destroy).pack(side=tk.RIGHT)
+        top.wait_window(top)
 
-        righe_boll = []
-        for codice, famiglia_soglia in SOGLIE_MAPPING.items():
-            row_riep = codice_to_row(codice)
-            if row_riep is None:
+    def _scegli_duplicati_dialogo(self, data_str):
+        top = tk.Toplevel(self.root)
+        top.title("Giorno gia' presente")
+        top.transient(self.root)
+        tk.Label(top, text=f"Il giorno '{data_str}' e' gia' presente nel riepilogo annuale.",
+                padx=16, pady=10).pack()
+        # Se la finestra viene chiusa per errore (tasto X) senza scegliere un
+        # pulsante, il giorno non deve essere toccato: e' l'unica scelta sicura.
+        scelta = {"valore": "annulla"}
+
+        def _scegli(v):
+            scelta["valore"] = v
+            top.destroy()
+
+        riga = tk.Frame(top, pady=10)
+        riga.pack()
+        tk.Button(riga, text="Sovrascrivi", command=lambda: _scegli("a")).pack(side=tk.LEFT, padx=6)
+        tk.Button(riga, text="Nuova riga", command=lambda: _scegli("b")).pack(side=tk.LEFT, padx=6)
+        tk.Button(riga, text="Somma", command=lambda: _scegli("c")).pack(side=tk.LEFT, padx=6)
+        tk.Button(riga, text="Annulla", command=lambda: _scegli("annulla")).pack(side=tk.LEFT, padx=(24, 6))
+        top.protocol("WM_DELETE_WINDOW", lambda: _scegli("annulla"))
+        top.wait_window(top)
+        return scelta["valore"]
+
+    def _torna_ad_avvio(self):
+        self.pane.destroy()
+        self.settimana = None
+        self.journal = None
+        self.nome_ripreso = None
+        self.percorso_salvato = None
+        self._modificato = False
+        self._giorno_bottoni = {}
+        self._build_avvio()
+
+    # ================================================================
+    # Log testuale (sostituisce il vecchio terminale)
+    # ================================================================
+    def _log(self, testo):
+        self.text_log.config(state=tk.NORMAL)
+        self.text_log.insert(tk.END, testo + "\n")
+        n_righe = int(self.text_log.index("end-1c").split(".")[0])
+        if n_righe > MAX_LINES_LOG:
+            self.text_log.delete("1.0", f"{n_righe - MAX_LINES_LOG}.0")
+        self.text_log.see(tk.END)
+        self.text_log.config(state=tk.DISABLED)
+
+    # ================================================================
+    # Aggiornamento live delle tab (chiamato dal modello a ogni cambiamento:
+    # nessun polling, nessuna rilettura di file, nessuna corsa fra thread)
+    # ================================================================
+    def _on_settimana_change(self, settimana):
+        self._refresh_tabs()
+        if settimana.giorno_attivo:
+            self._imposta_giorno_ui(settimana.giorno_attivo)
+
+    def _refresh_tabs(self):
+        s = self.settimana
+        if s is None:
+            return
+
+        # Tab Settimanale
+        self.tree_sett.delete(*self.tree_sett.get_children())
+        tot_p, tot_s = 0, 0
+        for codice, specie, val in s.righe_specie(None):
+            self.tree_sett.insert("", tk.END, values=(codice, specie, val))
+            if codice in dominio.POLLINI_CODICI:
+                tot_p += val
+            else:
+                tot_s += val
+        self.lbl_s_pollini.config(text=f"Pollini: {tot_p}")
+        self.lbl_s_spore.config(text=f"Spore: {tot_s}")
+        self.lbl_s_totale.config(text=f"TOTALE: {tot_p + tot_s}")
+
+        # Tab Giornaliero
+        self.tree_giorn.delete(*self.tree_giorn.get_children())
+        gp, gs = [0] * 7, [0] * 7
+        for codice in dominio.TUTTI_CODICI:
+            vals = s.conteggi[codice]
+            if not any(v > 0 for v in vals):
                 continue
-            vals_conta = [leggi_valore(ws, row_riep, giorno_to_col(g)) for g in range(1, 8)]
-            if all(v == 0 for v in vals_conta):
-                continue
-            conc = [round(v * fattore, 1) for v in vals_conta]
-            media = round(sum(conc) / 7.0, 1)
-            nome = CODICI_SPECIE.get(codice, famiglia_soglia)
-            soglia_tuple = self._soglie.get(famiglia_soglia, (0.9, 19.9, 39.9))
-            livello = _livello_conc(media, soglia_tuple)
-            display_conc = [str(v) if v > 0 else "-" for v in conc]
-            righe_boll.append((nome, *display_conc, str(media), livello))
-
-        return {
-            "sett_righe": righe_sett,
-            "sett_pollini": totale_pollini_s,
-            "sett_spore": totale_spore_s,
-            "giorn_righe": righe_giorn,
-            "giorn_pollini": tot_pollini_g,
-            "giorn_spore": tot_spore_g,
-            "boll_righe": righe_boll,
-            "boll_fattore": fattore,
-        }
-
-    def _applica_dati(self, dati):
-        """Aggiorna i widget Treeview con i dati raccolti (main thread)."""
-        # Tab settimanale
-        ch = self.tree_sett.get_children()
-        if ch:
-            self.tree_sett.delete(*ch)
-        for riga in dati["sett_righe"]:
-            self.tree_sett.insert("", tk.END, values=riga)
-        p = dati["sett_pollini"]
-        s = dati["sett_spore"]
-        self.lbl_s_pollini.config(text=f"Pollini: {p}")
-        self.lbl_s_spore.config(text=f"Spore: {s}")
-        self.lbl_s_totale.config(text=f"TOTALE: {p + s}")
-
-        # Tab giornaliero
-        ch = self.tree_giorn.get_children()
-        if ch:
-            self.tree_giorn.delete(*ch)
-        for riga in dati["giorn_righe"]:
-            self.tree_giorn.insert("", tk.END, values=riga)
+            display = [str(v) if v > 0 else "-" for v in vals]
+            self.tree_giorn.insert("", tk.END, values=(codice, dominio.CODICI_SPECIE[codice], *display))
+            for i in range(7):
+                if codice in dominio.POLLINI_CODICI:
+                    gp[i] += vals[i]
+                else:
+                    gs[i] += vals[i]
 
         def _fmt(vals):
-            return "  ".join(f"{g}:{v}" for g, v in zip(GIORNI_ABBREV, vals) if v > 0)
+            return "  ".join(f"{g}:{v}" for g, v in zip(dominio.GIORNI_ABBREV, vals) if v > 0)
 
-        gp = dati["giorn_pollini"]
-        gs = dati["giorn_spore"]
         gt = [gp[i] + gs[i] for i in range(7)]
         self.lbl_g_pollini.config(text=f"Pollini: {_fmt(gp) or '-'}")
         self.lbl_g_spore.config(text=f"Spore:   {_fmt(gs) or '-'}")
         self.lbl_g_totale.config(text=f"TOTALE:  {_fmt(gt) or '-'}")
 
-        # Tab bollettino
-        ch = self.tree_boll.get_children()
-        if ch:
-            self.tree_boll.delete(*ch)
-        for riga in dati["boll_righe"]:
-            *vals, livello = riga
-            self.tree_boll.insert("", tk.END, values=vals, tags=(livello,))
-        n_sp = len(dati["boll_righe"])
-        self.lbl_boll_info.config(
-            text=f"Fattore: {dati['boll_fattore']}   Specie rilevate: {n_sp}"
-        )
+        # Tab Bollettino
+        self._refresh_bollettino()
 
-    # ── Chiusura ──────────────────────────────────────────────────
+    def _refresh_bollettino(self):
+        righe = dominio.righe_bollettino(self.settimana.conteggi, self.settimana.fattore, self.soglie)
+        for child in self._boll_scroll.inner.winfo_children():
+            child.destroy()
 
-    def _on_process_exit(self):
-        self.text_output.config(state=tk.NORMAL)
-        self.text_output.insert(tk.END, "\n--- Processo terminato ---\n")
-        self.text_output.config(state=tk.DISABLED)
-        self.entry.config(state=tk.DISABLED)
-        if sys.platform != "win32" and self.master_fd is not None:
-            try:
-                os.close(self.master_fd)
-            except OSError:
-                pass
-            self.master_fd = None
+        larg_specie = 20
+        header = ["Specie", *dominio.GIORNI_ABBREV, "Media"]
+        for c, testo in enumerate(header):
+            larghezza = larg_specie if c == 0 else 6
+            tk.Label(self._boll_scroll.inner, text=testo, font=(_MONO_FONT, 9, "bold"),
+                    width=larghezza, relief=tk.RIDGE, bg="#e0e0e0").grid(row=0, column=c, sticky="nsew")
 
+        for r, riga in enumerate(righe, start=1):
+            tk.Label(self._boll_scroll.inner, text=riga.nome_ita, font=(_MONO_FONT, 9),
+                    width=larg_specie, anchor="w", relief=tk.RIDGE).grid(row=r, column=0, sticky="nsew")
+            for c, (val, livello) in enumerate(zip(riga.concentrazioni, riga.livelli_giorno), start=1):
+                bg, fg = dominio.LIVELLO_COLORE_GUI[livello]
+                testo = f"{val:g}" if val else "-"
+                tk.Label(self._boll_scroll.inner, text=testo, font=(_MONO_FONT, 9),
+                        width=6, bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=c, sticky="nsew")
+            bg, fg = dominio.LIVELLO_COLORE_GUI[riga.livello_media]
+            tk.Label(self._boll_scroll.inner, text=f"{riga.media:g}", font=(_MONO_FONT, 9, "bold"),
+                    width=6, bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=8, sticky="nsew")
+
+        n_sp = len(righe)
+        self.lbl_boll_info.config(text=f"Fattore: {self.settimana.fattore}   Specie rilevate: {n_sp}")
+
+    # ================================================================
+    # Chiusura applicazione
+    # ================================================================
     def on_closing(self):
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-        if sys.platform != "win32" and self.master_fd is not None:
-            try:
-                os.close(self.master_fd)
-            except OSError:
-                pass
-            self.master_fd = None
+        if self.settimana is not None:
+            if self._modificato or self.percorso_salvato is None:
+                risp = messagebox.askyesnocancel(
+                    "Uscire dal programma?",
+                    "Ci sono dati non salvati in un file .xlsx definitivo "
+                    "(restano comunque nel file di sessione).\nSalvare prima di uscire?")
+                if risp is None:
+                    return
+                if risp:
+                    percorso = self.percorso_salvato or self._salva_come()
+                    if percorso is None:
+                        return
+                    self._log(f"[OK] File salvato: {percorso}")
+                    self.journal.elimina()
+                else:
+                    self.journal.chiudi()
+            else:
+                self.journal.elimina()
         self.root.destroy()
 
 
 def main():
+    if openpyxl is None:
+        print("ERRORE: openpyxl non installato. Installa con:")
+        print("  pip3 install openpyxl")
+        sys.exit(1)
+
     root = tk.Tk()
-    # sv_ttk e' il tema Sun Valley (stile Windows 11): abilitarlo solo su Windows
     if sv_ttk is not None and sys.platform == "win32":
         sv_ttk.set_theme("light")
-    app = PollineCounterGUI(root)
-    root.protocol("WM_DELETE_WINDOW", app.on_closing)
+    PollineCounterGUI(root)
     root.mainloop()
 
 
 if __name__ == "__main__":
-    if "--cli" in sys.argv:
-        from polline_counter import main as cli_main
-        cli_main()
-    else:
-        main()
+    main()
