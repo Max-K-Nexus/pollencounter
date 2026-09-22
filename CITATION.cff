@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "Se utilizzi questo software, per favore cita il progetto come indicato."
+title: "Pollencounter"
+abstract: "Strumento per la conta pollinica settimanale, progettato per supportare il monitoraggio aerobiologico e la produzione di bollettini ufficiali. Automatizza i calcoli su file Excel e genera bollettini pollinici in italiano e inglese."
+version: "1.0.0"
+date-released: "2026-03-04"
+license: "GPL-3.0"
+repository-code: "https://github.com/Max-K-Nexus/pollencounter"
+url: "https://github.com/Max-K-Nexus/pollencounter"
+authors:
+  - family-names: "Bettella"
+    given-names: "Simone"
+  - family-names: "Iotti"
+    given-names: "Massimiliano"
+keywords:
+  - aerobiology
+  - pollen
+  - pollen counting
+  - aerobiological monitoring
+  - pollen bulletin
+  - environmental monitoring
+preferred-citation:
+  type: software
+  title: "Pollencounter"
+  year: 2026
+  url: "https://github.com/Max-K-Nexus/pollencounter"
+  license: "GPL-3.0"
+  authors:
+    - family-names: "Bettella"
+      given-names: "Simone"
+    - family-names: "Iotti"
+      given-names: "Massimiliano"
