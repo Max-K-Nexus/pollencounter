@@ -4,6 +4,50 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-10-03
+
+### Pulizia repository, documentazione e script di avvio
+
+**Problema:** dalla revisione del repository del 03/10/2026 (punto 5,
+modifiche minori): README non aggiornato dopo la riscrittura (parlava di
+"autosave ogni 5 inserimenti", di parametri di calcolo nel `.cfg`, di un
+`Conta_Pollinica.exe` presente in `windows/` ma escluso da git; la struttura
+non elencava `dominio.py`/`sessione.py`/`esportatori.py`/`percorsi.py`/
+`tests/`); documenti tecnici sparsi nella root; uno script rotto e codice
+inutilizzato; script macOS `.sh` non apribili con doppio clic; il `.bat` di
+Windows usava `pip` (spesso non nel PATH) e non installava `python-docx`, per
+cui i bollettini Word non venivano generati; `CITATION.cff` indicava la
+versione 1.0.0 mentre l'unica release e' la v0.2.
+
+**Causa:** documentazione e file accessori non riallineati alla riscrittura
+del 2026-09-22.
+
+**Correzione:**
+- `README.md`: struttura delle cartelle, flusso di lavoro, recupero sessione
+  (journal) al posto dell'autosave, `.cfg` (solo cartella per anno), soglie
+  in `concentrazioni_polliniche.xlsx`, download dell'exe dalla pagina
+  Releases, comando per eseguire i test, launcher macOS `.command`.
+- `docs/` (nuova): spostati `Revisione Conta Pollinica.html`,
+  `PROMPT_WEBAPP_CLAUDE.md`, `DISTRIBUZIONE_OPZIONI.md`.
+- Eliminato `script_aiuto/setup_bollettino_template.py` (importava
+  `BOLL_START_ROW`, mai definito).
+- Codice inutilizzato rimosso: `dominio.SOGLIE_MAPPING` (e relativo test in
+  `tests/test_dominio.py`), `esportatori._leggi_valore`, import `winsound` e
+  variabile `giorno_var` in `polline_counter_gui.py`. Nessun cambiamento di
+  comportamento.
+- `script_aiuto/applica_formattazione.py`: rimossa la copia del template in
+  `windows/` (contraria alla regola "windows/ non autocontenuta").
+- `mac/AVVIA_CONTA_POLLINICA*.sh` rinominati in `.command` (eseguibili, si
+  aprono con doppio clic nel Terminale); aggiornato `mac/ISTRUZIONI_MAC.txt`.
+- `windows/AVVIA_CONTA_POLLINICA.bat`: `python -m pip` al posto di `pip`;
+  installazione di `python-docx` se mancante (non bloccante).
+- `CITATION.cff`: versione allineata alla release v0.2 (2026-03-29).
+- `CLAUDE.md`: note aggiornate (script eliminato, `docs/`, `.command`).
+- Verificato con `python3 -m unittest discover -s tests` (67 test, tutti
+  superati).
+
+---
+
 ## 2026-09-22 (4)
 
 ### Tasto "Annulla" nel dialogo "Giorno gia' presente" (riepilogo annuale)

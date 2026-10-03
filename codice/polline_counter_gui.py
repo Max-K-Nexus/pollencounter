@@ -15,11 +15,6 @@ from datetime import timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-try:
-    import winsound
-except ImportError:
-    winsound = None
-
 import dominio
 import esportatori
 import percorsi
@@ -689,7 +684,6 @@ class PollineCounterGUI:
         riga_giorno = tk.Frame(top, pady=8)
         riga_giorno.pack(fill=tk.X, padx=10)
         tk.Label(riga_giorno, text="Giorno:").pack(side=tk.LEFT)
-        giorno_var = tk.IntVar(value=self.settimana.giorno_attivo or 1)
         combo = ttk.Combobox(riga_giorno, state="readonly", width=14,
                              values=[f"{n}) {dominio.GIORNI_NOMI[n].upper()}" for n in range(1, 8)])
         combo.current((self.settimana.giorno_attivo or 1) - 1)

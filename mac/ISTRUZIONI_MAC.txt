@@ -21,17 +21,18 @@ PASSI:
      (Applicazioni > Utility > Terminale) e digita:
        pip3 install openpyxl
 
-  3. Rendi eseguibili gli script (una sola volta):
-       chmod +x AVVIA_CONTA_POLLINICA_GUI.sh
-       chmod +x AVVIA_CONTA_POLLINICA.sh
+  3. Se gli script non partono, rendili eseguibili (una sola volta,
+     da Terminale nella cartella mac/):
+       chmod +x AVVIA_CONTA_POLLINICA_GUI.command
+       chmod +x AVVIA_CONTA_POLLINICA.command
 
   4. Avvia l'interfaccia grafica con doppio clic su:
-       AVVIA_CONTA_POLLINICA_GUI.sh
+       AVVIA_CONTA_POLLINICA_GUI.command
      oppure da Terminale:
-       ./AVVIA_CONTA_POLLINICA_GUI.sh
+       ./AVVIA_CONTA_POLLINICA_GUI.command
 
      Per la versione da terminale:
-       ./AVVIA_CONTA_POLLINICA.sh
+       ./AVVIA_CONTA_POLLINICA.command
 
   Nota su tkinter: se compare l'errore "tkinter non trovato"
   e hai installato Python con Homebrew, esegui:
@@ -72,17 +73,15 @@ Da fare su un Mac con Python gia' installato.
      in un archivio .zip (clic destro > Comprimi).
 
 
-NOTA SUI FILE .SH (script di avvio)
--------------------------------------
-Su macOS gli script .sh non si aprono con doppio clic
-per default. Due possibilita':
+NOTA SUI FILE .COMMAND (script di avvio)
+------------------------------------------
+Gli script di avvio hanno estensione .command: con un doppio clic
+macOS li apre direttamente nel Terminale.
 
-  a) Da Terminale:
-       cd /percorso/cartella/mac
-       ./AVVIA_CONTA_POLLINICA_GUI.sh
-
-  b) Aprire il file con Terminale:
-       Clic destro sullo script > Apri con > Terminale
+Alla prima apertura macOS puo' bloccarli perche' scaricati da
+Internet ("sviluppatore non identificato"). In quel caso:
+  Clic destro sullo script > Apri > Apri
+(serve solo la prima volta).
 
 
 INTERFACCIA GRAFICA
