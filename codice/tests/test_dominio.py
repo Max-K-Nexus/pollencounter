@@ -17,10 +17,6 @@ class TestCodici(unittest.TestCase):
         self.assertFalse(d.codice_valido("00"))
         self.assertFalse(d.codice_valido("60"))
 
-    def test_tutti_i_codici_soglie_mapping_sono_validi(self):
-        for codice in d.SOGLIE_MAPPING:
-            self.assertIn(codice, d.CODICI_SPECIE)
-
     def test_tutti_i_codici_bollettino_sono_validi(self):
         for _, _, codici, famiglia in d.BOLLETTINO_RIGHE:
             for codice in codici:

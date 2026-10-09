@@ -245,6 +245,10 @@ vedi la skill `aggiorna-formattazione-template`
   Percorso atteso: `bash .../pollencounter/script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh`.
 - Per testare: `python3 codice/polline_counter.py` (CLI) e `python3 codice/polline_counter_gui.py` (GUI) dalla directory `pollencounter/`, oppure direttamente dalla cartella `codice/`.
 - **Per ricompilare l'exe:** usare Wine + Python Windows (vedi sezione "Build dell'eseguibile Windows"). Non usare PyInstaller Linux nativo.
-- `script_aiuto/setup_bollettino_template.py` è rotto indipendentemente da
-  questa riscrittura (importa `BOLL_START_ROW`, mai definito in nessuna
-  versione dello script): non è stato toccato, va rifatto da zero se serve.
+- `script_aiuto/setup_bollettino_template.py` (rotto: importava
+  `BOLL_START_ROW`, mai definito) è stato eliminato il 2026-10-03; se serve
+  va rifatto da zero.
+- I documenti tecnici non destinati agli utenti (revisione del 22/09/2026,
+  prompt web app, opzioni di distribuzione) sono in `docs/`.
+- Gli script di avvio macOS sono `mac/*.command` (doppio clic dal Finder),
+  non più `.sh`.

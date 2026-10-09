@@ -3,7 +3,7 @@ applica_formattazione.py — script one-shot.
 
 Applica la formattazione visiva di "Tabelle monitoraggi ultima settimana gennaio.xlsx"
 al foglio `riepilogo_settimana` di Polline_Template_Settimanale.xlsx
-(file principale + copie in linux/ e windows/).
+(unica copia, in codice/: windows/ non contiene piu' il template).
 
 NON tocca: foglio 00_CODICI_SPECIE, foglio dati_grezzi, struttura dati.
 """
@@ -23,9 +23,6 @@ BASE_DIR = Path(__file__).parent.parent / "codice"
 TEMPLATE_NAME = "Polline_Template_Settimanale.xlsx"
 
 TEMPLATE_PRINCIPALE = BASE_DIR / TEMPLATE_NAME
-COPIE = [
-    BASE_DIR.parent / "windows" / TEMPLATE_NAME,
-]
 
 # ---------------------------------------------------------------------------
 # Stili
@@ -282,7 +279,7 @@ def applica_formattazione(path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    targets = [TEMPLATE_PRINCIPALE] + COPIE
+    targets = [TEMPLATE_PRINCIPALE]
 
     # Backup del template principale
     backup_path = TEMPLATE_PRINCIPALE.with_name(

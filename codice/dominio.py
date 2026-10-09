@@ -45,29 +45,6 @@ CODICI_SPECIE = {
     "57": "Stemphylium", "58": "Tetraploa", "59": "Torula",
 }
 
-# Mapping codice specie -> nome famiglia nel file soglie
-SOGLIE_MAPPING = {
-    "01": "Aceracee",
-    "03": "Betulaceae", "04": "Betulaceae", "05": "Betulaceae",
-    "07": "Cheno-Amarantaceae",
-    "08": "Composite", "09": "Composite", "10": "Composite", "11": "Composite",
-    "12": "Corilacee", "13": "Corilacee", "14": "Corilacee",
-    "15": "Corilacee", "16": "Corilacee",
-    "17": "Cupressaceae + Taxaceae",
-    "20": "Fagaceae", "21": "Fagaceae", "22": "Fagaceae", "23": "Fagaceae",
-    "24": "Graminaceae",
-    "31": "Oleaceae", "32": "Oleaceae", "33": "Oleaceae",
-    "34": "Oleaceae", "35": "Oleaceae",
-    "36": "Pinaceae",
-    "37": "Plantaginaceae",
-    "38": "Platanaceae",
-    "41": "Salicaceae", "42": "Salicaceae", "43": "Salicaceae",
-    "45": "Ulmaceae",
-    "47": "Urticaceae",
-    "48": "Alternaria",
-    "50": "Cladosporium",
-}
-
 POLLINI_CODICI = [f"{i:02d}" for i in range(1, 48)]    # 47 pollini
 SPORE_CODICI = [f"{i:02d}" for i in range(48, 60)]      # 12 spore
 TUTTI_CODICI = POLLINI_CODICI + SPORE_CODICI

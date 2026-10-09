@@ -85,13 +85,6 @@ def carica_soglie(output_dir=None):
 # ============================================================
 # Esportazione del file settimanale (.xlsx)
 # ============================================================
-def _leggi_valore(ws, row, col):
-    val = ws.cell(row=row, column=col).value
-    if isinstance(val, (int, float)):
-        return int(val)
-    return 0
-
-
 def compila_intestazione(ws, lunedi):
     """Compila i metadati della settimana nel foglio riepilogo (riga 3)."""
     domenica = lunedi + timedelta(days=6)
