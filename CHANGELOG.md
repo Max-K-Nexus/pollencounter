@@ -108,9 +108,15 @@ descrizione rimossa.
   Windows corretta la frase sulla cartella di salvataggio.
 - `ISTRUZIONI.txt`: comando `zypper` accanto ad `apt` per la voce su Linux.
 - `script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh`: suggerimento `zypper` per tkinter.
-- `README.md`: riga "Autosave" sostituita da journal di sessione, funzione
-  voce, nuovi moduli (`dominio`, `sessione`, `esportatori`, `percorsi`,
-  `voce`, `tests/`, `modelli/`), dipendenze opzionali, nota sull'exe.
+- `README.md`: nel primo passaggio le modifiche erano state scartate
+  nell'unione con il README riscritto sul remoto (2026-10-03); aggiunte poi
+  su richiesta: funzione "Voice counting" (caratteristica, nuova sezione,
+  FAQ, dipendenze opzionali, nota su macOS non verificato), moduli `voce.py` e
+  `modelli/` nella struttura. Corretto il testo su Windows: l'exe NON e'
+  scaricabile dalla pagina Releases, si compila con `windows/build_exe.bat`
+  (che include la voce solo se il modello e' in `codice/modelli`). Provato
+  `build_exe.bat` per davvero sotto Wine: exe con voce (DLL, modello e moduli
+  presenti nell'archivio).
 - `CITATION.cff` non toccato (versione 1.0.0 invariata: decisione del titolare).
 
 ---

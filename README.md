@@ -13,6 +13,7 @@ The main objective is to reduce manual labor on Excel files, standardize calcula
 - **Versatility** — Can be used via a Graphical User Interface (GUI) or Python scripts via Command Line (CLI).
 - **Cross-platform** — Native support for Windows, macOS, and Linux.
 - **Automatic Bulletins** — Generates pollen bulletins in Italian and English (`.docx`) with a concentration color scale.
+- **Voice counting (optional)** — Record grains by voice without looking away from the microscope: say `conta ventiquattro` (code), `conta graminacee` (name) or `conta acero per tre` (quantity); `conta annulla` undoes the last entry. Works offline, repeats aloud what it understood, and ignores anything not preceded by the activation word *conta*. Italian only; see [Voice counting](#-voice-counting).
 - **Crash recovery** — Every entry, undo, correction and note is written immediately to a session journal (`~sessione_<monday>.jsonl`); after a crash or power loss the interrupted session is offered for recovery at the next start.
 
 ---
@@ -28,6 +29,8 @@ pollencounter/
 │   ├── sessione.py                  # In-memory weekly model + crash-recovery journal
 │   ├── esportatori.py               # Exports: weekly .xlsx, annual summary, Word bulletins
 │   ├── percorsi.py                  # Path resolution (source vs. packaged executable)
+│   ├── voce.py                      # Optional voice input/output (Vosk, sounddevice, pyttsx3)
+│   ├── modelli/                     # Vosk Italian model for voice counting (not in git, see below)
 │   ├── tests/                       # Automated tests (unittest)
 │   ├── Polline_Template_Settimanale.xlsx        # Weekly Excel template
 │   ├── concentrazioni_polliniche.xlsx           # Concentration thresholds (single source)
@@ -69,10 +72,10 @@ pollencounter/
 
 ### 🪟 Windows Users (Non-technical)
 
-The executable does not require Python installation.
+The built executable does not require Python installation.
 
-1. Download `Conta_Pollinica.exe` from the [Releases](https://github.com/Max-K-Nexus/pollencounter/releases) page and double-click it.
-   The executable is not stored in the repository: it is attached to each release (or can be built with `windows/build_exe.bat`, see `ISTRUZIONI_WINDOWS.txt`).
+1. **The executable is not available for download**: it is not stored in the repository and it is not attached to the [Releases](https://github.com/Max-K-Nexus/pollencounter/releases) page. Build it yourself, once, on a Windows PC with Python installed: download the project (`Code → Download ZIP`), extract it and double-click `windows/build_exe.bat` (see `ISTRUZIONI_WINDOWS.txt`). The resulting `Conta_Pollinica.exe` can then be copied to any Windows PC and double-clicked.
+   `build_exe.bat` includes [voice counting](#-voice-counting) **only if** the Vosk Italian model is in `codice/modelli/` when you run it; otherwise it builds the executable without voice.
 2. Alternatively, with Python installed: download the project (`Code → Download ZIP`), extract it and double-click `windows/AVVIA_CONTA_POLLINICA.bat`.
 
 ### 🍎 macOS Users (Non-technical)
@@ -81,6 +84,8 @@ The executable does not require Python installation.
 2. Open the `mac/` folder.
 3. Read the `ISTRUZIONI_MAC.txt` file.
 4. Launch the application by double-clicking `AVVIA_CONTA_POLLINICA_GUI.command` (the first time: right-click → Open).
+
+Voice counting has been developed and tested on Linux; on macOS it is **untested** (the `.app` built by `mac/build_app.sh` includes it only if the model is present, see below).
 
 ### 🐍 Python Users (Developers)
 
@@ -99,6 +104,8 @@ pip install openpyxl
 pip install python-docx
 # Optional — Windows visual theme:
 pip install sv-ttk
+# Optional — voice counting (also needs the Vosk Italian model, see below):
+pip install vosk sounddevice pyttsx3
 ```
 
 On Debian/Ubuntu systems, tkinter may require separate installation:
@@ -122,6 +129,26 @@ cd codice && python3 -m unittest discover -s tests
 
 ---
 
+## 🎙 Voice counting
+
+An optional mode to record grains by voice, inspired by [EcoCount](https://doi.org/10.1177/2158244014537500) (Allen & Sewell, 2014). Press **Voce** in the GUI; every phrase must start with the activation word **conta**, otherwise it is ignored (so lab conversation is never recorded):
+
+| Say | Effect |
+|---|---|
+| `conta ventiquattro` | records code 24 |
+| `conta graminacee` | records a species by name |
+| `conta acero per tre` | records 3 grains (2–20) |
+| `conta annulla` / `conta ripeti` | undo / repeat the last entry |
+| `conta totale` | reads the day's total aloud |
+
+The computer repeats the name it understood, so a wrong recognition can be undone straight away. Saving, closing the day and quitting are keyboard/button only. *Prova voce* tells you what it understood without recording anything. Everything runs offline.
+
+**Setup** (one-off): install `vosk sounddevice pyttsx3` (on Linux also `libportaudio2` and `espeak-ng`), then download `vosk-model-small-it-0.22` from <https://alphacephei.com/vosk/models> and unzip it into `codice/modelli/`. You need a microphone and, for the spoken confirmation, an Italian system voice. Many Latin names are not in the model's vocabulary: say the code or a common name instead (the **Codici** tab lists what each species accepts). Activation word and extra synonyms can be customised in `pollencounter.cfg` (see `codice/pollencounter.cfg.esempio` and `ISTRUZIONI.txt`).
+
+**Status:** tested with a real microphone on Linux. The Windows executable was built and started under Wine only, and the macOS build is untested: please check the microphone and spoken confirmation on your system.
+
+---
+
 ## ⚙️ Configuration and Conventions
 
 **`.cfg` File** — `pollencounter.cfg` (created next to the script/executable on first start, see `codice/pollencounter.cfg.esempio`) stores the work folder chosen for each year. It is local to each machine and is not tracked by git.
@@ -141,6 +168,8 @@ python3 script_aiuto/applica_formattazione.py
 ## 🛠 Troubleshooting (FAQ)
 
 **The executable won't start?** Ensure you have correctly extracted the ZIP archive and that your antivirus is not blocking the executable file.
+
+**Voice counting does not work?** Check that `vosk`, `sounddevice` and `pyttsx3` are installed and that the Italian model is in `codice/modelli/`; the **Voce** button explains what is missing. The program always works from the keyboard without it.
 
 **Errors with Excel files?** Verify that you haven't modified or moved the column structure in the templates within the `codice/` folder.
 
@@ -178,4 +207,5 @@ If you use Pollencounter in your project or report, please cite the authors:
 | `tkinter` | Mandatory (GUI) | On Debian: `sudo apt install python3-tk` |
 | `python-docx` | Optional | Word bulletin generation |
 | `sv-ttk` | Optional | Modern graphic theme (Windows only) |
+| `vosk`, `sounddevice`, `pyttsx3` | Optional | Voice counting (also needs the Vosk Italian model; Linux: `libportaudio2`, `espeak-ng`) |
 | `pyinstaller` | Development only | Windows/macOS executable build |
