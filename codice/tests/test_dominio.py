@@ -191,5 +191,135 @@ class TestInterpretaComando(unittest.TestCase):
         self.assertIsInstance(r, d.ComandoNonValido)
 
 
+class TestVocale(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.vocab, cls.avvisi = d.costruisci_vocabolario_vocale()
+
+    def v(self, frase):
+        """Interpreta una frase pronunciata con la parola di attivazione."""
+        return d.interpreta_vocale("conta " + frase if frase else frase, self.vocab)
+
+    def test_numeri_in_parole(self):
+        self.assertEqual(d.numero_in_parole(1), "uno")
+        self.assertEqual(d.numero_in_parole(21), "ventuno")
+        self.assertEqual(d.numero_in_parole(28), "ventotto")
+        self.assertEqual(d.numero_in_parole(33), "trentatre")
+        self.assertEqual(d.numero_in_parole(50), "cinquanta")
+        self.assertEqual(d.numero_in_parole(59), "cinquantanove")
+
+    def test_numero_in_parole_fuori_range(self):
+        with self.assertRaises(ValueError):
+            d.numero_in_parole(0)
+        with self.assertRaises(ValueError):
+            d.numero_in_parole(60)
+
+    def test_vocabolario_di_default_senza_conflitti(self):
+        self.assertEqual(self.avvisi, [])
+
+    def test_ogni_codice_ha_numero_e_nome_parlati(self):
+        for codice, nome in d.CODICI_SPECIE.items():
+            self.assertEqual(self.vocab[d.numero_in_parole(int(codice))], codice)
+            self.assertEqual(self.vocab[d.normalizza_parlato(nome)], codice)
+
+    def test_codice_a_voce(self):
+        r = self.v("ventiquattro")
+        self.assertEqual((r.codice, r.quantita), ("24", 1))
+
+    def test_nome_a_voce_con_sinonimo(self):
+        self.assertEqual(self.v("Graminacee").codice, "24")
+        self.assertEqual(self.v("gramineae").codice, "24")
+
+    def test_nome_con_parentesi_e_barra(self):
+        self.assertEqual(self.v("corylaceae").codice, "12")
+        self.assertEqual(self.v("carpinus ostrya").codice, "13")
+
+    def test_quantita_a_voce(self):
+        r = self.v("graminacee per tre")
+        self.assertEqual((r.codice, r.quantita), ("24", 3))
+        r = self.v("uno per venti")
+        self.assertEqual((r.codice, r.quantita), ("01", 20))
+
+    def test_quantita_fuori_range_o_non_capita(self):
+        for frase in ("graminacee per uno", "graminacee per ventuno", "graminacee per pippo"):
+            self.assertIsInstance(self.v(frase), d.ComandoNonValido)
+
+    def test_comandi_vocali_reversibili(self):
+        self.assertEqual(self.v("annulla"), d.Azione("u"))
+        self.assertIsInstance(self.v("ripeti"), d.Ripeti)
+        self.assertIsInstance(self.v("ancora"), d.Ripeti)
+        self.assertIsInstance(self.v("totale"), d.Totale)
+
+    def test_nessun_comando_distruttivo_raggiungibile_a_voce(self):
+        azioni = {c.lettera for c in d.COMANDI_VOCALI.values() if isinstance(c, d.Azione)}
+        self.assertEqual(azioni, {"u"})
+        for frase in ("salva", "chiudi", "esci", "chiudi giornata", "s", "q", "d"):
+            self.assertNotIsInstance(self.v(frase), d.Azione)
+
+    def test_fuori_vocabolario_scartato_in_silenzio(self):
+        for frase in ("[unk]", "ventiquattro [unk]", "buongiorno a tutti", ""):
+            r = self.v(frase)
+            self.assertIsInstance(r, d.ComandoNonValido)
+            self.assertEqual(r.messaggio, "")
+
+    def test_grammatica_coerente_con_interprete(self):
+        for frase in d.costruisci_grammatica(self.vocab):
+            self.assertNotIsInstance(d.interpreta_vocale(frase, self.vocab), d.ComandoNonValido, frase)
+        for frase in d.costruisci_grammatica(self.vocab, attivazione=""):
+            self.assertNotIsInstance(d.interpreta_vocale(frase, self.vocab, attivazione=""),
+                                     d.ComandoNonValido, frase)
+
+    def test_sinonimi_personali(self):
+        vocab, avvisi = d.costruisci_vocabolario_vocale({"24": ["erba"]})
+        self.assertEqual(d.interpreta_vocale("conta erba", vocab).codice, "24")
+        self.assertEqual(avvisi, [])
+
+    def test_sinonimo_personale_in_conflitto_segnalato(self):
+        vocab, avvisi = d.costruisci_vocabolario_vocale({"05": ["graminacee"]})
+        self.assertEqual(d.interpreta_vocale("conta graminacee", vocab).codice, "24")
+        self.assertEqual(len(avvisi), 1)
+
+    def test_sinonimo_personale_su_comando_ignorato(self):
+        vocab, avvisi = d.costruisci_vocabolario_vocale({"24": ["annulla"]})
+        self.assertNotIn("annulla", vocab)
+        self.assertEqual(len(avvisi), 1)
+
+    def test_sinonimi_per_codice_inesistente_segnalati(self):
+        _, avvisi = d.costruisci_vocabolario_vocale({"99": ["pippo"]})
+        self.assertEqual(len(avvisi), 1)
+
+
+    def test_senza_parola_di_attivazione_scartato(self):
+        # "due", "tre", "sei" sono parole comuni: senza "conta" non registrano nulla
+        for frase in ("due", "tre", "sei", "ventiquattro", "graminacee per tre", "annulla", "totale"):
+            r = d.interpreta_vocale(frase, self.vocab)
+            self.assertIsInstance(r, d.ComandoNonValido, frase)
+            self.assertEqual(r.messaggio, "")
+
+    def test_parola_di_attivazione_sola_scartata(self):
+        self.assertIsInstance(d.interpreta_vocale("conta", self.vocab), d.ComandoNonValido)
+
+    def test_prefisso_disattivato(self):
+        r = d.interpreta_vocale("ventiquattro", self.vocab, attivazione="")
+        self.assertEqual((r.codice, r.quantita), ("24", 1))
+        self.assertIsInstance(d.interpreta_vocale("annulla", self.vocab, attivazione=""), d.Azione)
+
+    def test_parola_di_attivazione_personalizzata(self):
+        r = d.interpreta_vocale("registra graminacee", self.vocab, attivazione="registra")
+        self.assertEqual(r.codice, "24")
+        self.assertIsInstance(d.interpreta_vocale("conta graminacee", self.vocab, attivazione="registra"),
+                              d.ComandoNonValido)
+
+    def test_grammatica_tutta_con_prefisso(self):
+        grammatica = d.costruisci_grammatica(self.vocab)
+        self.assertTrue(all(f.startswith("conta ") for f in grammatica))
+        self.assertIn("conta ventiquattro per tre", grammatica)
+
+    def test_sinonimo_uguale_alla_parola_di_attivazione_ignorato(self):
+        vocab, avvisi = d.costruisci_vocabolario_vocale({"24": ["conta"]})
+        self.assertNotIn("conta", vocab)
+        self.assertEqual(len(avvisi), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

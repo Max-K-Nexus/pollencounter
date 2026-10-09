@@ -24,6 +24,7 @@ import dominio
 import esportatori
 import percorsi
 import sessione
+import voce
 
 try:
     import openpyxl  # noqa: F401  (verificato qui per il messaggio d'errore in main())
@@ -60,7 +61,18 @@ Comandi (lettera + Invio nella casella di inserimento):
   d   chiudi la giornata corrente
   q   salva ed esci
 
-Gli stessi comandi sono disponibili anche dai pulsanti sulla sinistra."""
+Gli stessi comandi sono disponibili anche dai pulsanti sulla sinistra.
+
+Lettura vocale (pulsante "Voce"): ogni frase inizia con "conta".
+  conta ventiquattro        inserisce il codice 24
+  conta graminacee          inserisce la specie per nome
+  conta graminacee per tre  inserisce 3 occorrenze (da 2 a 20)
+  conta annulla             annulla l'ultimo inserimento
+  conta ripeti              ripete l'ultimo codice
+  conta totale              il computer legge il totale del giorno
+Il computer ripete a voce cio' che ha capito. Con "Prova voce" il computer
+dice cosa ha capito senza registrare nulla: utile per provare i nomi.
+Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante."""
 
 
 class _ScrollableFrame(tk.Frame):
@@ -119,6 +131,11 @@ class PollineCounterGUI:
         self._modificato = False
         self._undo_consecutivi = 0
         self._giorno_bottoni = {}
+        self._voce = None            # (Ascoltatore, Sintesi) quando la voce e' attiva
+        self._voce_after = None
+        self._voce_prova = False
+        self._voce_vocabolario = {}
+        self._voce_attivazione = dominio.PAROLA_ATTIVAZIONE_DEFAULT
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self._carica_config_iniziale()
@@ -381,6 +398,10 @@ class PollineCounterGUI:
         tk.Button(barra_azioni, text="Annulla (u)", command=lambda: self._esegui_azione("u")).pack(side=tk.LEFT, padx=2)
         self.btn_beep = tk.Button(barra_azioni, text="Beep: off", command=lambda: self._esegui_azione("b"))
         self.btn_beep.pack(side=tk.LEFT, padx=2)
+        self.btn_voce = tk.Button(barra_azioni, text="Voce: off", command=self._toggle_voce)
+        self.btn_voce.pack(side=tk.LEFT, padx=2)
+        self.btn_prova = tk.Button(barra_azioni, text="Prova voce: off", command=self._toggle_prova_voce)
+        self.btn_prova.pack(side=tk.LEFT, padx=2)
         tk.Button(barra_azioni, text="Chiudi giornata (d)", command=lambda: self._esegui_azione("d")).pack(side=tk.RIGHT, padx=2)
         tk.Button(barra_azioni, text="Salva (s)", command=lambda: self._esegui_azione("s")).pack(side=tk.RIGHT, padx=2)
         tk.Button(barra_azioni, text="Esci (q)", command=lambda: self._esegui_azione("q")).pack(side=tk.RIGHT, padx=2)
@@ -489,12 +510,16 @@ class PollineCounterGUI:
         self.entry_cerca_codici.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.entry_cerca_codici.bind("<KeyRelease>", self._filtra_tab_codici)
 
-        columns = ("codice", "specie")
+        columns = ("codice", "specie", "voce")
         self.tree_codici = ttk.Treeview(tab, columns=columns, show="headings", style="Summary.Treeview")
         self.tree_codici.heading("codice", text="Cod.")
         self.tree_codici.heading("specie", text="Specie")
+        self.tree_codici.heading("voce", text="A voce")
         self.tree_codici.column("codice", width=50, anchor=tk.CENTER)
-        self.tree_codici.column("specie", width=220)
+        self.tree_codici.column("specie", width=200)
+        self.tree_codici.column("voce", width=220)
+        self._parole_sconosciute = set()     # parole che il modello vocale non conosce
+        self._forme_vocali = self._calcola_forme_vocali()
         scroll = tk.Scrollbar(tab, command=self.tree_codici.yview)
         self.tree_codici.configure(yscrollcommand=scroll.set)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -507,14 +532,31 @@ class PollineCounterGUI:
         tk.Button(azioni_frame, text="Stampa elenco (Word)",
                  command=self._stampa_cheatsheet_codici).pack(side=tk.LEFT, padx=10)
 
+    def _calcola_forme_vocali(self):
+        """{codice: 'ventiquattro, graminacee'}: cosa si puo' dire per ogni
+        specie (il nome stesso della specie e' gia' nella colonna accanto).
+        Dopo la prima attivazione della voce restano solo le forme che il
+        modello vocale conosce davvero."""
+        extra = sessione.leggi_sinonimi_vocali(percorsi.CONFIG_FILE)
+        attivazione = sessione.leggi_parola_attivazione(percorsi.CONFIG_FILE)
+        vocabolario, _ = dominio.costruisci_vocabolario_vocale(extra, attivazione)
+        forme = {c: [] for c in dominio.TUTTI_CODICI}
+        for frase, codice in vocabolario.items():
+            if self._parole_sconosciute.intersection(frase.split()):
+                continue
+            if frase != dominio.normalizza_parlato(dominio.CODICI_SPECIE[codice]):
+                forme[codice].append(frase)
+        return {c: ", ".join(sorted(f, key=lambda x: (len(x), x))) for c, f in forme.items()}
+
     def _popola_tab_codici(self, filtro=""):
         self.tree_codici.delete(*self.tree_codici.get_children())
         filtro = filtro.strip().lower()
         for codice in dominio.TUTTI_CODICI:
             specie = dominio.CODICI_SPECIE[codice]
-            if filtro and filtro not in codice.lower() and filtro not in specie.lower():
+            voce_forme = self._forme_vocali.get(codice, "")
+            if filtro and not any(filtro in t.lower() for t in (codice, specie, voce_forme)):
                 continue
-            self.tree_codici.insert("", tk.END, values=(codice, specie))
+            self.tree_codici.insert("", tk.END, values=(codice, specie, voce_forme))
 
     def _filtra_tab_codici(self, _event=None):
         self._popola_tab_codici(self.entry_cerca_codici.get())
@@ -530,6 +572,120 @@ class PollineCounterGUI:
             return
         self._log(f"[OK] Elenco codici stampabile generato: {percorso}")
         messagebox.showinfo("Elenco generato", f"Foglio stampabile creato:\n{percorso}")
+
+    # ================================================================
+    # Lettura vocale (voce.py + dominio.interpreta_vocale)
+    # ================================================================
+    def _toggle_voce(self):
+        if self._voce is not None:
+            self._voce_spegni()
+            self._log("Voce disattivata.")
+            return
+
+        extra = sessione.leggi_sinonimi_vocali(percorsi.CONFIG_FILE)
+        self._voce_attivazione = sessione.leggi_parola_attivazione(percorsi.CONFIG_FILE)
+        self._voce_vocabolario, avvisi = dominio.costruisci_vocabolario_vocale(
+            extra, self._voce_attivazione)
+        grammatica = dominio.costruisci_grammatica(self._voce_vocabolario, self._voce_attivazione)
+
+        self._log("Carico il riconoscimento vocale...")
+        self.root.update_idletasks()
+        try:
+            asc, sintesi, sconosciute = voce.crea_voce(grammatica)
+        except voce.VoceNonDisponibile as e:
+            self._log("Lettura vocale non disponibile.")
+            messagebox.showinfo("Lettura vocale non disponibile", str(e))
+            return
+
+        self._voce = (asc, sintesi)
+        self.btn_voce.config(text="Voce: ON")
+        if sintesi.avviso:
+            self._log(f"[voce] Attenzione: {sintesi.avviso}")
+        for avviso in avvisi:
+            self._log(f"[voce] Attenzione: {avviso}")
+        if sconosciute:
+            self._parole_sconosciute = set(sconosciute)
+            self._forme_vocali = self._calcola_forme_vocali()
+            self._popola_tab_codici(self.entry_cerca_codici.get())
+            self._log(f"[voce] {len(sconosciute)} parole (soprattutto nomi latini) non sono nel "
+                      "dizionario vocale e non verranno capite. Per quelle specie di' il numero "
+                      "o il nome comune: vedi la colonna 'A voce' della scheda Codici.")
+            self._log("[voce] Non capite: " + ", ".join(sconosciute))
+        inizio = f"{self._voce_attivazione} " if self._voce_attivazione else ""
+        self._log(f"Voce ATTIVA. Di' ad esempio: \u00ab{inizio}ventiquattro\u00bb, "
+                  f"\u00ab{inizio}graminacee per tre\u00bb, \u00ab{inizio}annulla\u00bb.")
+        sintesi.parla("voce attiva")
+        self._voce_after = self.root.after(100, self._poll_voce)
+
+    def _toggle_prova_voce(self):
+        self._voce_prova = not self._voce_prova
+        self.btn_prova.config(text=f"Prova voce: {'ON' if self._voce_prova else 'off'}")
+        if self._voce_prova:
+            self._log("Prova voce ATTIVA: il computer dice cosa ha capito, senza registrare nulla.")
+            if self._voce is None:
+                self._toggle_voce()
+        else:
+            self._log("Prova voce disattivata: ora le frasi vengono registrate.")
+
+    def _voce_spegni(self):
+        if self._voce_after is not None:
+            self.root.after_cancel(self._voce_after)
+            self._voce_after = None
+        if self._voce is not None:
+            asc, sintesi = self._voce
+            self._voce = None
+            sintesi.ferma()
+            asc.ferma()
+        self._voce_prova = False
+        if hasattr(self, "btn_voce") and self.btn_voce.winfo_exists():
+            self.btn_voce.config(text="Voce: off")
+            self.btn_prova.config(text="Prova voce: off")
+
+    def _poll_voce(self):
+        """Svuota la coda delle frasi capite (nel thread di Tk: tkinter non e'
+        thread-safe, quindi il thread di ascolto si limita a riempire la coda)."""
+        self._voce_after = None
+        if self._voce is None:
+            return
+        asc, sintesi = self._voce
+        if asc.errore:
+            self._log(f"[voce] Errore del microfono: {asc.errore}")
+            self._voce_spegni()
+            return
+        frase = asc.prossima_frase()
+        while frase is not None:
+            self._gestisci_frase_vocale(frase, sintesi)
+            frase = asc.prossima_frase()
+        self._voce_after = self.root.after(100, self._poll_voce)
+
+    def _gestisci_frase_vocale(self, frase, sintesi):
+        # Con un dialogo aperto (correggi, nota, conferme...) la voce non deve
+        # toccare i dati: la frase viene scartata.
+        if self.root.grab_current() is not None:
+            return
+        cmd = dominio.interpreta_vocale(frase, self._voce_vocabolario, self._voce_attivazione)
+        if isinstance(cmd, dominio.ComandoNonValido):
+            if cmd.messaggio:
+                self._log(f"[voce] {cmd.messaggio}")
+                sintesi.parla("non capito")
+            return          # rumore di fondo / fuori vocabolario: silenzio
+        if self._voce_prova:
+            detto = self._testo_parlato_comando(cmd)
+            self._log(f"[prova] Ho capito: {detto}")
+            sintesi.parla(detto)
+            return
+        detto = self._esegui_comando(cmd, fonte="voce")
+        if detto:
+            sintesi.parla(detto)
+
+    def _testo_parlato_comando(self, cmd):
+        if isinstance(cmd, dominio.Inserisci):
+            return self._testo_parlato_inserimento(cmd.codice, cmd.quantita)
+        if isinstance(cmd, dominio.Ripeti):
+            return "ripeti"
+        if isinstance(cmd, dominio.Totale):
+            return "totale"
+        return "annulla"
 
     # ================================================================
     # Selezione giorno
@@ -567,38 +723,61 @@ class PollineCounterGUI:
         self.entry.delete(0, tk.END)
         if not testo.strip():
             return
+        self._esegui_comando(dominio.interpreta_comando(testo))
+
+    def _esegui_comando(self, cmd, fonte=""):
+        """Esegue un comando gia' interpretato, da tastiera o da voce (stesso
+        percorso: stesso modello, stesso journal). Ritorna il testo che la voce
+        deve ripetere all'operatore, o None."""
         if self.settimana.giorno_attivo is None:
             self._log("Seleziona prima un giorno.")
-            return
+            return None
+        prefisso = f"[{fonte}] " if fonte else ""
+        giorno_num = self.settimana.giorno_attivo
 
-        cmd = dominio.interpreta_comando(testo)
         if isinstance(cmd, dominio.Azione):
+            if cmd.lettera == "u":
+                return self._annulla(giorno_num)
             self._esegui_azione(cmd.lettera)
-            return
+            return None
 
         self._undo_consecutivi = 0
-        giorno_num = self.settimana.giorno_attivo
+
+        if isinstance(cmd, dominio.Totale):
+            totale = self.settimana.totale_giorno(giorno_num)
+            self._log(f"{prefisso}Totale giornata: {totale}")
+            return f"totale {totale}"
 
         if isinstance(cmd, dominio.Ripeti):
             if not self.settimana.ultimo_codice:
                 self._log("Nessun codice precedente da ripetere.")
-                return
+                return "niente da ripetere"
             codice, quantita = self.settimana.ultimo_codice, 1
         elif isinstance(cmd, dominio.Inserisci):
             codice, quantita = cmd.codice, cmd.quantita
         else:
             self._log(cmd.messaggio or "Comando non riconosciuto.")
-            return
+            return "non capito" if fonte else None
 
         specie = dominio.CODICI_SPECIE[codice]
         nuovo_val = self.settimana.inserisci(giorno_num, codice, quantita, journal=self.journal)
         self._modificato = True
         if quantita > 1:
-            self._log(f"-> [{codice}] {specie} x{quantita}  (totale giorno: {nuovo_val})")
+            self._log(f"-> {prefisso}[{codice}] {specie} x{quantita}  (totale giorno: {nuovo_val})")
         else:
-            self._log(f"-> [{codice}] {specie}  (totale giorno: {nuovo_val})")
+            self._log(f"-> {prefisso}[{codice}] {specie}  (totale giorno: {nuovo_val})")
         if self.settimana.beep:
             self.root.bell()
+        return self._testo_parlato_inserimento(codice, quantita)
+
+    @staticmethod
+    def _testo_parlato_inserimento(codice, quantita):
+        """Cio' che la voce ripete: nome della specie (e quantita' se > 1)."""
+        nome = dominio.normalizza_parlato(dominio.CODICI_SPECIE[codice])
+        if quantita > 1:
+            q = dominio.numero_in_parole(quantita) if quantita <= 59 else str(quantita)
+            return f"{nome} per {q}"
+        return nome
 
     def _esegui_azione(self, lettera):
         if self.settimana is None:
@@ -650,11 +829,11 @@ class PollineCounterGUI:
                     "Conferma",
                     f"Hai annullato {self._undo_consecutivi - 1} inserimenti di fila. Continuare?"):
                 self._undo_consecutivi = 0
-                return
+                return None
         ris = self.settimana.annulla(giorno_num, journal=self.journal)
         if ris is None:
             self._log("Nessun inserimento da annullare.")
-            return
+            return "niente da annullare"
         codice, qty, _ = ris
         specie = dominio.CODICI_SPECIE[codice]
         self._modificato = True
@@ -662,6 +841,7 @@ class PollineCounterGUI:
             self._log(f"<- Annullato: [{codice}] {specie} x{qty}")
         else:
             self._log(f"<- Annullato: [{codice}] {specie}")
+        return "annullato " + self._testo_parlato_inserimento(codice, qty)
 
     def _chiudi_giornata(self):
         if self.settimana.giorno_attivo is None:
@@ -886,6 +1066,7 @@ class PollineCounterGUI:
         return scelta["valore"]
 
     def _torna_ad_avvio(self):
+        self._voce_spegni()
         self.pane.destroy()
         self.settimana = None
         self.journal = None
@@ -1009,6 +1190,7 @@ class PollineCounterGUI:
                     self.journal.chiudi()
             else:
                 self.journal.elimina()
+        self._voce_spegni()
         self.root.destroy()
 
 

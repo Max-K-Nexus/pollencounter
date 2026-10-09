@@ -208,6 +208,39 @@ class TestConfig(unittest.TestCase):
             sessione.salva_cartella_anno(cfg, 2026, cartella_fantasma)
             self.assertIsNone(sessione.leggi_cartella_anno(cfg, 2026))
 
+    def _cfg(self, tmp, contenuto):
+        cfg = Path(tmp) / "pollencounter.cfg"
+        cfg.write_text(json.dumps(contenuto), encoding="utf-8")
+        return cfg
+
+    def test_sinonimi_vocali_assenti(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sessione.leggi_sinonimi_vocali(Path(tmp) / "nonesiste.cfg"), {})
+            self.assertEqual(sessione.leggi_sinonimi_vocali(self._cfg(tmp, {"2026": "x"})), {})
+
+    def test_sinonimi_vocali_letti_e_ripuliti(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._cfg(tmp, {"sinonimi_vocali": {"24": ["erba", 3], "05": "no"}})
+            self.assertEqual(sessione.leggi_sinonimi_vocali(cfg), {"24": ["erba"]})
+
+    def test_sinonimi_vocali_sopravvivono_al_salvataggio_cartella(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._cfg(tmp, {"sinonimi_vocali": {"24": ["erba"]}})
+            sessione.salva_cartella_anno(cfg, 2026, Path(tmp))
+            self.assertEqual(sessione.leggi_sinonimi_vocali(cfg), {"24": ["erba"]})
+
+    def test_parola_attivazione_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sessione.leggi_parola_attivazione(Path(tmp) / "nonesiste.cfg"), "conta")
+            self.assertEqual(sessione.leggi_parola_attivazione(self._cfg(tmp, {"parola_attivazione": 5})), "conta")
+
+    def test_parola_attivazione_personalizzata_e_disattivata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sessione.leggi_parola_attivazione(
+                self._cfg(tmp, {"parola_attivazione": "Registra"})), "registra")
+            self.assertEqual(sessione.leggi_parola_attivazione(
+                self._cfg(tmp, {"parola_attivazione": ""})), "")
+
 
 if __name__ == "__main__":
     unittest.main()

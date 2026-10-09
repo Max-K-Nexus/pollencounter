@@ -28,6 +28,25 @@ fi
 echo ""
 echo "[2/3] Creazione applicazione .app..."
 cd "$SCRIPT_DIR"
+
+# Lettura vocale: inclusa solo se il modello vocale e' in codice/modelli
+# (vedi ISTRUZIONI_MAC.txt). Senza modello l'app funziona, ma senza voce.
+# ATTENZIONE: la parte vocale su macOS NON e' stata verificata (sviluppata
+# senza un Mac): provare il pulsante "Voce" prima di distribuire l'app.
+VOCE_OPTS=()
+if ls "$CODICE"/modelli/vosk-model* >/dev/null 2>&1; then
+    echo "Modello vocale trovato: includo la lettura vocale."
+    if pip3 install vosk sounddevice pyttsx3; then
+        VOCE_OPTS=(--add-data "$CODICE/modelli:modelli" \
+                   --collect-all vosk --collect-all sounddevice --collect-all _sounddevice_data \
+                   --hidden-import pyttsx3.drivers --hidden-import pyttsx3.drivers.nsss)
+    else
+        echo "ATTENZIONE: librerie vocali non installate, creo l'app senza voce."
+    fi
+else
+    echo "Modello vocale non trovato in codice/modelli: creo l'app senza voce."
+fi
+
 pyinstaller --windowed \
   --add-data "$CODICE/Polline_Template_Settimanale.xlsx:." \
   --add-data "$CODICE/concentrazioni_polliniche.xlsx:." \
@@ -37,13 +56,24 @@ pyinstaller --windowed \
   --hidden-import sessione \
   --hidden-import esportatori \
   --hidden-import percorsi \
+  --hidden-import voce \
   --hidden-import docx \
   --hidden-import sv_ttk \
+  "${VOCE_OPTS[@]}" \
   --name "Conta_Pollinica" \
   "$CODICE/polline_counter_gui.py"
 if [ $? -ne 0 ]; then
     echo "ERRORE durante la creazione dell'applicazione."
     exit 1
+fi
+
+echo ""
+if [ ${#VOCE_OPTS[@]} -gt 0 ]; then
+    # macOS chiude le app che usano il microfono senza questa descrizione.
+    /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string Conta Pollinica usa il microfono per la lettura vocale dei granuli." \
+        dist/Conta_Pollinica.app/Contents/Info.plist
+    # La modifica invalida la firma: ri-firma "ad hoc" (senza certificato Apple).
+    codesign --force --deep -s - dist/Conta_Pollinica.app
 fi
 
 echo ""

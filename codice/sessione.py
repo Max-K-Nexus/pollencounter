@@ -452,3 +452,24 @@ def salva_cartella_anno(config_file, anno, cartella):
     config = _leggi_config(config_file)
     config[str(anno)] = str(cartella)
     config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def leggi_sinonimi_vocali(config_file):
+    """Sinonimi vocali personali da pollencounter.cfg, chiave 'sinonimi_vocali':
+    {"24": ["erba", ...]}. Ritorna {} se assenti o malformati (mai un errore:
+    la voce funziona comunque con i sinonimi di default)."""
+    valore = _leggi_config(config_file).get("sinonimi_vocali")
+    if not isinstance(valore, dict):
+        return {}
+    return {str(codice): [f for f in forme if isinstance(f, str)]
+            for codice, forme in valore.items() if isinstance(forme, list)}
+
+
+def leggi_parola_attivazione(config_file):
+    """Parola di attivazione della voce da pollencounter.cfg, chiave
+    'parola_attivazione'. Assente o non testuale -> default ('conta');
+    stringa vuota -> prefisso disattivato."""
+    valore = _leggi_config(config_file).get("parola_attivazione")
+    if not isinstance(valore, str):
+        return dominio.PAROLA_ATTIVAZIONE_DEFAULT
+    return dominio.normalizza_parlato(valore)

@@ -8,6 +8,7 @@ per questo e' interamente coperto da test (vedi tests/test_dominio.py).
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -420,4 +421,202 @@ def interpreta_comando(testo):
     if not codice_valido(codice):
         return ComandoNonValido(f"Codice non riconosciuto: {testo}")
 
+    return Inserisci(codice=codice, quantita=quantita)
+
+
+# ============================================================
+# Interpretazione dei comandi vocali
+#
+# La voce e' una seconda sorgente di comandi: produce gli stessi oggetti
+# di interpreta_comando() (Inserisci, Ripeti, Azione, ComandoNonValido).
+# Solo azioni reversibili sono raggiungibili a voce: salvare, chiudere la
+# giornata o uscire restano da tastiera/pulsante, cosi' un falso
+# riconoscimento non puo' chiudere o perdere nulla.
+#
+# Parola di attivazione (come "Count" in EcoCount, Allen & Sewell 2014): ogni
+# frase deve iniziare con "conta" ("conta ventiquattro", "conta annulla").
+# La grammatica chiusa da sola non basta: "due", "tre", "sei" sono parole
+# comuni e una conversazione in laboratorio le registrerebbe come granuli.
+# Disattivabile con la chiave "parola_attivazione" di pollencounter.cfg.
+# ============================================================
+PAROLA_ATTIVAZIONE_DEFAULT = "conta"
+QUANTITA_VOCALE_MIN = 2
+QUANTITA_VOCALE_MAX = 20
+
+_UNITA = ["", "uno", "due", "tre", "quattro", "cinque", "sei", "sette",
+          "otto", "nove", "dieci", "undici", "dodici", "tredici",
+          "quattordici", "quindici", "sedici", "diciassette", "diciotto",
+          "diciannove"]
+_DECINE = {2: "venti", 3: "trenta", 4: "quaranta", 5: "cinquanta"}
+
+# Forme parlate aggiuntive rispetto a codice (a numero) e nome in CODICI_SPECIE.
+# Gia' normalizzate (minuscolo, senza accenti). Estendibili dall'utente con la
+# chiave "sinonimi_vocali" di pollencounter.cfg (vedi sessione.leggi_sinonimi_vocali).
+SINONIMI_VOCALI_DEFAULT = {
+    "01": ["aceracee", "acero", "aceri"],
+    "03": ["betulacee"],
+    "04": ["ontano"],
+    "05": ["betulla"],
+    "06": ["cannabacee", "canapa", "luppolo"],
+    "07": ["cheno amarantacee", "amaranto"],
+    "08": ["composite", "asteracee"],
+    "09": ["altre composite"],
+    "12": ["corilacee"],
+    "14": ["carpino bianco"],
+    "15": ["carpino nero"],
+    "16": ["nocciolo"],
+    "17": ["cupressacee taxacee", "cipresso", "cipressi"],
+    "18": ["erica"],
+    "20": ["fagacee"],
+    "21": ["castagno"],
+    "22": ["faggio"],
+    "23": ["quercia"],
+    "24": ["graminacee"],
+    "25": ["ippocastano"],
+    "26": ["noce"],
+    "27": ["alloro"],
+    "28": ["mimosa"],
+    "29": ["moracee", "gelso"],
+    "30": ["mirto", "eucalipto"],
+    "31": ["oleacee"],
+    "32": ["altre oleacee"],
+    "33": ["frassino"],
+    "34": ["ligustro"],
+    "35": ["olivo", "ulivo"],
+    "36": ["pinacee", "pino", "pini"],
+    "37": ["plantaginacee"],
+    "38": ["platanacee", "platano", "platani"],
+    "39": ["non identificati"],
+    "40": ["poligonacee", "acetosa"],
+    "41": ["salicacee"],
+    "42": ["pioppo"],
+    "43": ["salice"],
+    "44": ["tiliacee", "tiglio"],
+    "45": ["ulmacee", "olmo"],
+    "46": ["ombrellifere"],
+    "47": ["urticacee", "ortica"],
+}
+
+class Totale:
+    """Comando vocale 'totale': il PC legge il totale del giorno (sola lettura)."""
+
+
+COMANDI_VOCALI = {
+    "annulla": Azione("u"),
+    "ripeti": Ripeti(),
+    "ancora": Ripeti(),
+    "totale": Totale(),
+}
+
+
+def numero_in_parole(n):
+    """Numero 1-59 in lettere italiane, senza accenti ('tre' -> 'ventitre')."""
+    if not 1 <= n <= 59:
+        raise ValueError(f"Numero fuori intervallo: {n}")
+    if n < 20:
+        return _UNITA[n]
+    base = _DECINE[n // 10]
+    unita = n % 10
+    if unita == 0:
+        return base
+    if unita in (1, 8):               # elisione: ventuno, ventotto
+        base = base[:-1]
+    return base + _UNITA[unita]
+
+
+def normalizza_parlato(testo):
+    """Minuscolo, senza accenti ne' punteggiatura, spazi singoli."""
+    testo = unicodedata.normalize("NFD", testo.lower())
+    testo = "".join(c for c in testo if not unicodedata.combining(c))
+    testo = re.sub(r"\([^)]*\)", " ", testo)      # '(somma c+o)' non si pronuncia
+    testo = re.sub(r"[^a-z0-9]+", " ", testo)
+    return testo.strip()
+
+
+def costruisci_vocabolario_vocale(extra=None, attivazione=PAROLA_ATTIVAZIONE_DEFAULT):
+    """Ritorna (vocabolario, avvisi): vocabolario = {frase parlata: codice}.
+
+    Per ogni codice: il numero in lettere, il nome in CODICI_SPECIE e i
+    sinonimi (default + 'extra' dell'utente). Una frase che porterebbe a due
+    codici diversi viene scartata dalla seconda comparsa e segnalata in
+    'avvisi' (testi in italiano, mostrabili all'utente)."""
+    vocabolario = {}
+    avvisi = []
+
+    def aggiungi(frase, codice, origine):
+        frase = normalizza_parlato(frase)
+        if not frase:
+            return
+        if frase in COMANDI_VOCALI or frase == "per" or (attivazione and frase == attivazione):
+            avvisi.append(f"'{frase}' ({origine}) e' una parola riservata della voce: ignorata.")
+            return
+        esistente = vocabolario.get(frase)
+        if esistente is not None and esistente != codice:
+            avvisi.append(f"'{frase}' indica sia {esistente} sia {codice}: "
+                          f"tengo {esistente}, ignoro {codice}.")
+            return
+        vocabolario[frase] = codice
+
+    for codice, nome in CODICI_SPECIE.items():
+        aggiungi(numero_in_parole(int(codice)), codice, "numero")
+        aggiungi(nome, codice, "nome")
+    for sorgente, origine in ((SINONIMI_VOCALI_DEFAULT, "sinonimo"), (extra or {}, "sinonimo personale")):
+        for codice, forme in sorgente.items():
+            codice = normalizza_codice(str(codice))
+            if not codice_valido(codice):
+                avvisi.append(f"Sinonimi per un codice inesistente: {codice}.")
+                continue
+            for forma in forme:
+                aggiungi(forma, codice, origine)
+    return vocabolario, avvisi
+
+
+def costruisci_grammatica(vocabolario, attivazione=PAROLA_ATTIVAZIONE_DEFAULT):
+    """Elenco di tutte le frasi che il riconoscitore puo' restituire, ciascuna
+    preceduta dalla parola di attivazione (se non vuota)."""
+    frasi = set(COMANDI_VOCALI)
+    for frase in vocabolario:
+        frasi.add(frase)
+        for q in range(QUANTITA_VOCALE_MIN, QUANTITA_VOCALE_MAX + 1):
+            frasi.add(f"{frase} per {numero_in_parole(q)}")
+    if attivazione:
+        frasi = {f"{attivazione} {f}" for f in frasi}
+    return sorted(frasi)
+
+
+def _quantita_da_parole(testo):
+    for q in range(QUANTITA_VOCALE_MIN, QUANTITA_VOCALE_MAX + 1):
+        if numero_in_parole(q) == testo:
+            return q
+    return None
+
+
+def interpreta_vocale(testo, vocabolario, attivazione=PAROLA_ATTIVAZIONE_DEFAULT):
+    """Interpreta una frase riconosciuta dalla voce. Stessi tipi di
+    interpreta_comando() piu' Totale. Il testo fuori vocabolario o senza la
+    parola di attivazione ('[unk]', rumore di fondo) da' ComandoNonValido con
+    messaggio vuoto: va scartato in silenzio."""
+    if "[unk]" in testo.lower():
+        return ComandoNonValido("")
+    frase = normalizza_parlato(testo)
+    if attivazione:
+        prefisso = attivazione + " "
+        if not frase.startswith(prefisso):
+            return ComandoNonValido("")
+        frase = frase[len(prefisso):].strip()
+    if not frase:
+        return ComandoNonValido("")
+    if frase in COMANDI_VOCALI:
+        return COMANDI_VOCALI[frase]
+
+    quantita = 1
+    if " per " in frase:
+        frase, _, parole_q = frase.rpartition(" per ")
+        quantita = _quantita_da_parole(parole_q)
+        if quantita is None:
+            return ComandoNonValido(f"Quantita' non capita: {testo}")
+
+    codice = vocabolario.get(frase)
+    if codice is None:
+        return ComandoNonValido("")
     return Inserisci(codice=codice, quantita=quantita)

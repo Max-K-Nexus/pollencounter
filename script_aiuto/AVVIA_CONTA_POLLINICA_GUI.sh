@@ -10,7 +10,8 @@ if ! python3 -c "import tkinter" 2>/dev/null; then
     echo "ERRORE: tkinter non e' installato"
     echo ""
     echo "Installa con:"
-    echo "  sudo apt install python3-tk"
+    echo "  sudo apt install python3-tk        (Debian/Ubuntu)"
+    echo "  sudo zypper install python3-tk     (openSUSE)"
     echo ""
     exit 1
 fi

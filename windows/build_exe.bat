@@ -26,6 +26,22 @@ if errorlevel 1 (
 echo.
 echo [2/3] Creazione eseguibile...
 cd /d "%~dp0"
+
+REM Lettura vocale: inclusa solo se il modello vocale e' in codice\modelli
+REM (vedi ISTRUZIONI_WINDOWS.txt). Senza modello l'exe funziona, ma senza voce.
+set VOCE_OPTS=
+if exist "..\codice\modelli\vosk-model*" (
+    echo Modello vocale trovato: includo la lettura vocale.
+    pip install vosk sounddevice pyttsx3
+    if errorlevel 1 (
+        echo ATTENZIONE: librerie vocali non installate, creo l'exe senza voce.
+    ) else (
+        set VOCE_OPTS=--add-data "..\codice\modelli;modelli" --collect-all vosk --collect-all sounddevice --collect-all _sounddevice_data --hidden-import pyttsx3.drivers --hidden-import pyttsx3.drivers.sapi5 --hidden-import comtypes.client --hidden-import win32com.client --hidden-import pythoncom
+    )
+) else (
+    echo Modello vocale non trovato in codice\modelli: creo l'exe senza voce.
+)
+
 pyinstaller --onefile --windowed ^
   --add-data "..\codice\Polline_Template_Settimanale.xlsx;." ^
   --add-data "..\codice\concentrazioni_polliniche.xlsx;." ^
@@ -35,8 +51,10 @@ pyinstaller --onefile --windowed ^
   --hidden-import sessione ^
   --hidden-import esportatori ^
   --hidden-import percorsi ^
+  --hidden-import voce ^
   --hidden-import docx ^
   --hidden-import sv_ttk ^
+  %VOCE_OPTS% ^
   --name "Conta_Pollinica" ^
   ..\codice\polline_counter_gui.py
 if errorlevel 1 (
