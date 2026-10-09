@@ -11,6 +11,17 @@ python-docx>=1.0.0
 #   pip install sv-ttk
 sv-ttk>=2.6.0
 
+# Lettura vocale dei pollini (pulsante "Voce" della GUI), tutta offline:
+#   pip install vosk sounddevice pyttsx3
+#   Linux: sudo apt install libportaudio2 espeak-ng
+# Serve anche il modello italiano di Vosk, da decomprimere in codice/modelli/
+# (https://alphacephei.com/vosk/models -> vosk-model-small-it-0.22, ~50 MB).
+# Senza queste librerie la GUI funziona normalmente e il pulsante Voce spiega
+# cosa installare.
+vosk>=0.3.45
+sounddevice>=0.4.6
+pyttsx3>=2.90
+
 # ── Note ─────────────────────────────────────────────────────────────────────
 # tkinter è richiesto dalla GUI ma fa parte della stdlib di Python.
 # Su Debian/Ubuntu potrebbe richiedere installazione separata:

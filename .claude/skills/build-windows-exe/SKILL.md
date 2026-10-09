@@ -75,6 +75,41 @@ ls -lh Conta_Pollinica.exe   # verifica ~15-20MB (piu' grande di prima: include 
 - `windows/Conta_Pollinica.exe` non è più tracciato in git (vedi `.gitignore`):
   ogni build resta solo locale, non finisce nella storia del repository.
 
+## Build con la lettura vocale (verificata sotto Wine il 2026-10-09)
+
+La GUI importa `voce.py`, che funziona anche senza `vosk`/`sounddevice`/
+`pyttsx3`: la build standard qui sopra produce un exe **senza** voce (il
+pulsante Voce spiega cosa manca). Per includerla (exe ~81 MB, l'avvio e'
+piu' lento: il modello da 50 MB viene estratto a ogni lancio):
+
+```bash
+WINEDEBUG=-all wine python -m pip install --quiet vosk sounddevice pyttsx3
+
+# stesso comando di build di sopra, con in piu':
+  --add-data "../codice/modelli;modelli" \
+  --hidden-import voce \
+  --collect-all vosk --collect-all sounddevice --collect-all _sounddevice_data \
+  --hidden-import pyttsx3.drivers --hidden-import pyttsx3.drivers.sapi5 \
+  --hidden-import comtypes.client --hidden-import win32com.client --hidden-import pythoncom \
+```
+
+`windows/build_exe.bat` (per chi compila su Windows) fa lo stesso da solo: se
+trova `codice\modelli\vosk-model*` installa le librerie e passa queste opzioni,
+altrimenti crea l'exe senza voce.
+
+`codice/modelli/` deve contenere `vosk-model-small-it-0.22` (~50 MB, non in
+git: vedi `ISTRUZIONI.txt`). Warning attesi e innocui: `sounddevice` "not a
+package" (PortAudio e' raccolto da `_sounddevice_data`) e `mfc140u.dll` di
+`pythonwin`.
+
+Cosa e' stato verificato sotto Wine: la build termina, l'exe contiene
+`libvosk.dll`, PortAudio, il modello e i moduli (`voce`, driver `sapi5`,
+`comtypes`), l'exe si avvia e mostra la GUI, e nel Python Windows `vosk` carica
+il modello. **Non verificabile sotto Wine:** la sintesi SAPI5 (Wine la
+implementa solo in parte: `NotImplementedError`, la GUI lo segnala nel log) e il
+microfono. Provare sempre il pulsante "Voce" su un Windows vero; per la voce
+italiana serve il pacchetto lingua italiano di Windows.
+
 ## Flusso completo post-modifica
 
 ```bash

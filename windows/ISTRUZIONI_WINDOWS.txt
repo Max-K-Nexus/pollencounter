@@ -27,8 +27,16 @@ PASSI (da fare UNA SOLA VOLTA su un PC con internet):
      Il template Excel e' gia' incluso dentro il .exe.
 
   6. Per usarlo: doppio clic su Conta_Pollinica.exe.
-     Il file di output .xlsx verra' salvato nella stessa
-     cartella dove si trova l'eseguibile.
+     Al primo avvio chiede in quale cartella salvare i file
+     della stagione (si puo' cambiare dalla schermata iniziale);
+     la scelta e' ricordata nel file pollencounter.cfg, che
+     compare accanto all'eseguibile.
+
+  LETTURA VOCALE: l'exe gia' pronto (windows\Conta_Pollinica.exe)
+  la include. Se lo ricompili con build_exe.bat, la voce viene
+  inclusa solo se prima metti il modello vocale in codice\modelli
+  (vedi la sezione LETTURA VOCALE piu' sotto); senza modello
+  l'exe funziona ma senza voce.
 
 
 OPZIONE 2: USARE DIRETTAMENTE CON PYTHON
@@ -45,9 +53,12 @@ Se il PC ha gia' Python installato:
      In alternativa, da Prompt dei comandi:
        python polline_counter_gui.py
 
+  Per la lettura vocale: pip install vosk sounddevice pyttsx3
+  e il modello in codice\modelli (vedi LETTURA VOCALE).
+
   Nota: tutti i file della cartella "codice/" (i moduli .py
   polline_counter.py, polline_counter_gui.py, dominio.py,
-  sessione.py, esportatori.py, percorsi.py, il template
+  sessione.py, esportatori.py, percorsi.py, voce.py, il template
   "Polline_Template_Settimanale.xlsx", il file soglie
   "concentrazioni_polliniche.xlsx" e i due template dei
   bollettini .docx) devono trovarsi nella stessa cartella.
@@ -126,6 +137,48 @@ Si digitano nella casella di inserimento, esattamente come nella CLI.
   q           Salva ed esci dalla sessione
 
 I comandi c, n, u, s, d, q sono disponibili anche come pulsanti.
+
+
+LETTURA VOCALE
+---------------
+Permette di registrare i granuli a voce, senza staccare gli occhi dal
+microscopio. Funziona senza internet: la voce non esce dal computer.
+
+Requisiti:
+  - un microfono, con l'accesso attivo in Impostazioni di Windows >
+    Privacy > Microfono (anche per le "app desktop");
+  - una voce italiana di Windows per la conferma parlata (Impostazioni >
+    Ora e lingua > Lingua: aggiungere Italiano con la sintesi vocale);
+    senza, la conta funziona ma il computer parla con voce straniera.
+  - per ricompilare l'exe con la voce: scaricare "vosk-model-small-it-0.22"
+    da https://alphacephei.com/vosk/models, decomprimerlo in
+    codice\modelli\ e lanciare build_exe.bat (l'exe pesa ~80 MB e
+    si avvia piu' lentamente: il modello viene estratto a ogni avvio).
+
+Uso: premere il pulsante "Voce" (diventa "Voce: ON"). Ogni frase deve
+cominciare con "conta": senza, il computer ignora tutto, cosi' le
+conversazioni in laboratorio non vengono registrate. Il computer ripete a
+voce il nome che ha capito; se e' sbagliato dire "conta annulla".
+
+  conta ventiquattro          inserisce il codice 24
+  conta graminacee            inserisce la specie per nome
+  conta acero per tre         inserisce 3 occorrenze (da 2 a 20)
+  conta annulla               annulla l'ultimo inserimento
+  conta ripeti                ripete l'ultimo codice
+  conta totale                il computer legge il totale del giorno
+
+Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante.
+"Prova voce": il computer dice cosa ha capito senza registrare nulla.
+Il modello vocale non conosce molti nomi latini (es. stemphylium,
+urticaceae): il log li elenca all'attivazione; per quelle specie dire il
+numero o il nome comune. La scheda "Codici", colonna "A voce", mostra cosa
+si puo' dire per ogni specie. Dettagli e personalizzazione (pollencounter.cfg:
+"parola_attivazione", "sinonimi_vocali"): vedi ISTRUZIONI.txt, sezione
+LETTURA VOCALE.
+
+Stato: provata su Linux al microfono; l'exe Windows e' stato compilato
+e avviato sotto Wine, ma microfono e sintesi vocale di Windows vanno
+ancora verificati su un PC Windows vero.
 
 
 SALVATAGGIO

@@ -11,6 +11,9 @@ codice/*_BACKUP.xlsx
 codice/*_bak.xlsx
 codice/*.docx.*.bak
 
+# Modello vocale Vosk (~50 MB, si scarica a parte: vedi ISTRUZIONI.txt)
+codice/modelli/
+
 # Journal di sessione (file temporanei di lavoro)
 ~sessione_*.jsonl
 

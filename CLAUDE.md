@@ -20,13 +20,14 @@ Riscrittura del guscio completata il 2026-09-22 (vedi CHANGELOG). Un solo
 modello di dominio, condiviso da CLI e GUI, che girano nello stesso processo
 dell'interfaccia: **non esiste più un sottoprocesso CLI pilotato dalla GUI**,
 né un protocollo di marker nello stdout, né un autosave periodico dell'intero
-workbook con rilettura da file. Cinque moduli in `codice/`:
+workbook con rilettura da file. Sei moduli in `codice/`:
 
 | Modulo | Ruolo | I/O |
 |---|---|---|
 | `dominio.py` | Codici specie, date, soglie, calcolo concentrazione/livello, struttura del bollettino (`BOLLETTINO_RIGHE`), interpretazione dei comandi da tastiera (`interpreta_comando`) | **Nessuno** — puro, interamente coperto da `tests/test_dominio.py` |
 | `sessione.py` | Modello in memoria `Settimana` (conteggi, log, storico, undo) e `Journal` (persistenza incrementale JSONL) | Legge/scrive il journal e i file `.xlsx` in import |
 | `esportatori.py` | `esporta_xlsx`, `esporta_riepilogo_annuale`, `genera_bollettini_word`, `carica_soglie` | Scrive `.xlsx`/`.docx`, legge il template e `concentrazioni_polliniche.xlsx` |
+| `voce.py` | Lettura vocale (opzionale): `Ascoltatore` (microfono -> riconoscitore -> coda di frasi), `Sintesi` (talkback), `crea_voce`. Il motore (Vosk) e' dietro un'interfaccia sostituibile | Microfono, altoparlanti, modello Vosk in `modelli/` |
 | `percorsi.py` | Risoluzione `BUNDLE_DIR`/`SCRIPT_DIR`/`EXE_DIR`/`CONFIG_FILE` (frozen vs sorgente) | — |
 | `polline_counter.py` (CLI) / `polline_counter_gui.py` (GUI) | Interfacce, entrambe sopra lo stesso `sessione.Settimana` | Input utente (terminale o tkinter) |
 
@@ -50,6 +51,46 @@ workbook con rilettura da file. Cinque moduli in `codice/`:
   all'avvio insieme ai file `.xlsx` già salvati. Il salvataggio su `.xlsx`
   resta un'azione esplicita dell'utente (comando/pulsante `s` o `q`); dopo un
   salvataggio riuscito il journal viene eliminato.
+
+### Lettura vocale (`dominio.interpreta_vocale` + `voce.py`)
+
+La voce e' una **seconda sorgente di comandi** sopra lo stesso percorso della
+tastiera: `dominio.interpreta_vocale()` produce gli stessi oggetti di
+`interpreta_comando()` (+ `Totale`) e la GUI li esegue con
+`_esegui_comando(cmd, fonte="voce")`, la stessa funzione usata da `_invia()`:
+stesso `Settimana.inserisci(..., journal=...)`, quindi journal, undo e tab live
+funzionano senza modifiche. Idee prese da EcoCount (Allen & Sewell 2014, SAGE
+Open 4(2)): parola di attivazione, talkback di cio' che e' stato capito,
+annullo a voce, dizionario dei taxa personalizzabile.
+
+- **Parola di attivazione "conta"** obbligatoria su ogni frase (anche
+  "conta annulla"): la sola grammatica chiusa non basta, "due/tre/sei" sono
+  parole comuni. Disattivabile con `"parola_attivazione": ""` in
+  `pollencounter.cfg`.
+- **Solo azioni reversibili a voce** (`dominio.COMANDI_VOCALI`: annulla,
+  ripeti, ancora, totale). Salva/chiudi giornata/esci restano da tastiera: un
+  falso riconoscimento non deve poter chiudere o perdere nulla (test dedicato).
+- **Grammatica chiusa** (`costruisci_grammatica`) passata a Vosk con `[unk]`;
+  frasi sotto soglia di confidenza o con `[unk]` vengono scartate in silenzio.
+  Quantita' a voce solo 2-20 (grammatica piu' piccola); da tastiera resta 1-100.
+- **Anti-eco:** durante la sintesi l'audio in ingresso e' scartato
+  (`Ascoltatore.silenzia`), altrimenti il PC registrerebbe la propria voce.
+- **Dialogo aperto = voce ignorata** (`root.grab_current()` in
+  `_gestisci_frase_vocale`). tkinter non e' thread-safe: il thread di ascolto
+  riempie solo una coda, svuotata da `root.after(100, ...)`.
+- Sinonimi personali: chiave `sinonimi_vocali` di `pollencounter.cfg`
+  (`sessione.leggi_sinonimi_vocali`). Dipendenze `vosk`/`sounddevice`/
+  `pyttsx3` e modello in `codice/modelli/` (non in git) sono **opzionali**.
+- Il modello piccolo italiano **non conosce molti nomi latini/famiglie**:
+  `crea_voce` li individua con `vosk_model_find_word`, toglie le frasi
+  corrispondenti dalla grammatica e li segnala; per quelle specie valgono
+  numero e nomi comuni (`SINONIMI_VOCALI_DEFAULT`). La voce di sintesi viene
+  scelta italiana (`scegli_voce_italiana`).
+- Provato con motore reale su audio sintetico (espeak-ng) e, il 2026-10-09,
+  dall'utente al microfono su Linux ("conta acero", "conta ontano", "conta
+  acero per tre": OK). L'exe Windows con la voce e' compilato e si avvia sotto Wine, ma
+  non e' provato su Windows vero (microfono, SAPI5), ne' in ambienti
+  rumorosi o con altri accenti.
 
 ### Bollettino: un'unica fonte di colore (`dominio.righe_bollettino`)
 
@@ -90,7 +131,9 @@ python3 -m unittest discover -s tests
 `test_dominio.py` copre l'intero modulo puro; `test_sessione.py` copre modello
 e journal (incluso il replay dopo crash); `test_esportatori.py` copre
 l'esportazione `.xlsx`/annuale/`.docx` (i test sul bollettino Word si
-saltano automaticamente se `python-docx` non è installato).
+saltano automaticamente se `python-docx` non è installato). `test_voce.py`
+copre `voce.py` con un riconoscitore finto (anti-eco, soglia di confidenza,
+errori del microfono, scelta della voce italiana, ricerca del modello).
 
 ---
 
@@ -144,6 +187,9 @@ winsound      ← solo Windows, incluso nella stdlib
 
 Per ricompilare `Conta_Pollinica.exe` (Wine + PyInstaller Windows), vedi la skill
 `build-windows-exe` (`.claude/skills/build-windows-exe/SKILL.md`).
+`windows/build_exe.bat` e `mac/build_app.sh` includono la lettura vocale solo se
+`codice/modelli/vosk-model*` esiste (altrimenti build senza voce, come prima);
+quello per macOS non e' verificato.
 
 ---
 

@@ -72,6 +72,52 @@ Da fare su un Mac con Python gia' installato.
      in un archivio .zip (clic destro > Comprimi).
 
 
+LETTURA VOCALE (opzionale)
+---------------------------
+Permette di registrare i granuli a voce, senza staccare gli occhi dal
+microscopio. Funziona senza internet. Per usarla:
+
+  1. Installa le librerie (Terminale):
+       pip3 install vosk sounddevice pyttsx3
+  2. Scarica il modello italiano "vosk-model-small-it-0.22" da
+       https://alphacephei.com/vosk/models
+     e decomprimilo nella cartella codice/modelli/ (deve restare
+     una cartella "vosk-model-small-it-...").
+  3. Avvia il programma e premi "Voce". Alla prima volta macOS chiede
+     il permesso di usare il microfono (per gli script lanciati da
+     Terminale il permesso va dato a "Terminale": Impostazioni di
+     Sistema > Privacy e sicurezza > Microfono).
+  4. Per l'app .app: se il modello e' in codice/modelli quando lanci
+     build_app.sh, la voce viene inclusa (e viene aggiunta la
+     descrizione d'uso del microfono richiesta da macOS); senza
+     modello l'app funziona ma senza voce.
+
+Uso: premere il pulsante "Voce" (diventa "Voce: ON"). Ogni frase deve
+cominciare con "conta": senza, il computer ignora tutto, cosi' le
+conversazioni in laboratorio non vengono registrate. Il computer ripete a
+voce il nome che ha capito; se e' sbagliato dire "conta annulla".
+
+  conta ventiquattro          inserisce il codice 24
+  conta graminacee            inserisce la specie per nome
+  conta acero per tre         inserisce 3 occorrenze (da 2 a 20)
+  conta annulla               annulla l'ultimo inserimento
+  conta ripeti                ripete l'ultimo codice
+  conta totale                il computer legge il totale del giorno
+
+Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante.
+"Prova voce": il computer dice cosa ha capito senza registrare nulla.
+Il modello vocale non conosce molti nomi latini (es. stemphylium,
+urticaceae): il log li elenca all'attivazione; per quelle specie dire il
+numero o il nome comune. La scheda "Codici", colonna "A voce", mostra cosa
+si puo' dire per ogni specie. Dettagli e personalizzazione (pollencounter.cfg:
+"parola_attivazione", "sinonimi_vocali"): vedi ISTRUZIONI.txt, sezione
+LETTURA VOCALE.
+
+Stato: NON verificata su macOS (sviluppata e provata su Linux, senza un
+Mac a disposizione). Il resto del programma non dipende dalla voce: se
+non funziona, si usa normalmente da tastiera.
+
+
 NOTA SUI FILE .SH (script di avvio)
 -------------------------------------
 Su macOS gli script .sh non si aprono con doppio clic

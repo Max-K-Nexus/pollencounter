@@ -11,6 +11,7 @@ REQUISITI
 - (Opzionale) python3-docx per la generazione dei bollettini Word:
     sudo apt install python3-docx
   oppure:  pip3 install python-docx
+- (Opzionale) per la lettura vocale: vedi la sezione LETTURA VOCALE
 
 
 AVVIO
@@ -149,6 +150,50 @@ COMANDI DURANTE L'INSERIMENTO
             salvare, viene chiesto se conservare il lavoro per
             riprenderlo alla prossima esecuzione (vedi
             SALVATAGGIO E FILE).
+
+
+LETTURA VOCALE (solo interfaccia grafica)
+-----------------------------------------
+Permette di registrare i granuli a voce, senza staccare gli occhi dal
+microscopio. Il computer ripete a voce cio' che ha capito.
+
+Installazione (una volta sola):
+  pip3 install vosk sounddevice pyttsx3
+  Linux (Debian/Ubuntu): sudo apt install libportaudio2 espeak-ng
+  Linux (openSUSE):      sudo zypper install libportaudio2 espeak-ng
+  Scaricare il modello italiano "vosk-model-small-it" da
+  https://alphacephei.com/vosk/models e decomprimerlo nella cartella
+  codice/modelli/ (deve restare una cartella "vosk-model-small-it-...").
+
+Uso: premere il pulsante "Voce" (diventa "Voce: ON") e parlare nel
+microfono. Ogni frase deve cominciare con la parola "conta": senza, il
+computer ignora tutto, cosi' le conversazioni in laboratorio non
+vengono registrate come granuli.
+
+  conta ventiquattro          inserisce il codice 24
+  conta graminacee            inserisce la specie per nome
+  conta graminacee per tre    inserisce 3 occorrenze (da 2 a 20)
+  conta annulla               annulla l'ultimo inserimento
+  conta ripeti                ripete l'ultimo codice
+  conta totale                il computer legge il totale del giorno
+
+I nomi e i numeri accettati per ogni specie sono nella colonna "A voce"
+della scheda Codici. Salvare, chiudere la giornata e uscire NON si
+possono fare a voce, solo da tastiera o con i pulsanti.
+
+"Prova voce": il computer dice cosa ha capito ma non registra nulla.
+Serve per provare la pronuncia dei nomi latini prima di iniziare.
+
+Personalizzazione (file pollencounter.cfg, vedi pollencounter.cfg.esempio):
+  "parola_attivazione": "conta"    cambia la parola ("" la disattiva)
+  "sinonimi_vocali": {"24": ["erba"]}   altre parole per una specie
+
+Il modello vocale non conosce molti nomi latini (es. stemphylium,
+urticaceae): quando si attiva la voce il log elenca quelli non capiti.
+Per quelle specie dire il numero o il nome comune (colonna "A voce"),
+oppure aggiungere in "sinonimi_vocali" una parola italiana che il
+modello conosca. Se manca una voce italiana per la sintesi, il log lo
+segnala e il computer parla con una voce straniera.
 
 
 CODICI SPECIE

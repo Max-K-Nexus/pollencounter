@@ -13,7 +13,8 @@ The main objective is to reduce manual labor on Excel files, standardize calcula
 - **Versatility** — Can be used via a Graphical User Interface (GUI) or Python scripts via Command Line (CLI).
 - **Cross-platform** — Native support for Windows, macOS, and Linux.
 - **Automatic Bulletins** — Generates pollen bulletins in Italian and English (`.docx`) with a concentration color scale.
-- **Autosave** — Automatic saving every 5 entries; data is never lost.
+- **Crash-proof sessions** — Every entry is written to disk immediately (session journal); after a crash or power loss the session is offered for recovery, so data is never lost.
+- **Voice counting (optional)** — Record pollen grains by voice without looking away from the microscope (`conta ventiquattro`, `conta acero per tre`, `conta annulla`). Offline, with spoken confirmation of what was understood; see `ISTRUZIONI.txt`.
 
 ---
 
@@ -22,8 +23,15 @@ The main objective is to reduce manual labor on Excel files, standardize calcula
 ```
 pollencounter/
 ├── codice/                          # Main scripts and reference files
+│   ├── dominio.py                   # Pure domain logic: codes, thresholds, bulletin, command parsing (no I/O)
+│   ├── sessione.py                  # In-memory week model and crash-safe session journal
+│   ├── esportatori.py               # Excel / Word export
+│   ├── percorsi.py                  # Path resolution (source vs. packaged executable)
+│   ├── voce.py                      # Optional voice input/output (Vosk, sounddevice, pyttsx3)
 │   ├── polline_counter.py           # Processing logic (CLI, cross-platform)
 │   ├── polline_counter_gui.py       # GUI version (tkinter)
+│   ├── tests/                       # Unit tests: python3 -m unittest discover -s tests
+│   ├── modelli/                     # Vosk Italian model for voice input (not in git, see ISTRUZIONI.txt)
 │   ├── Polline_Template_Settimanale.xlsx        # Base template for calculations
 │   ├── concentrazioni_polliniche.xlsx           # Bulletin thresholds (fallback)
 │   ├── ITA_Template_Bollettino_pubblicazione.docx  # Italian bulletin template
@@ -71,6 +79,8 @@ This method does not require Python installation.
 3. Read the `ISTRUZIONI_WINDOWS.txt` file.
 4. Launch the application by double-clicking `Conta_Pollinica.exe` or `AVVIA_CONTA_POLLINICA.bat`.
 
+The pre-compiled `Conta_Pollinica.exe` includes voice counting (press **Voce**; the guide explains the microphone and Italian-voice requirements). Rebuilding it with `build_exe.bat` includes voice only if the Vosk model is in `codice/modelli/`.
+
 ### 🍎 macOS Users (Non-technical)
 
 1. Download the project from GitHub (`Code → Download ZIP`) and extract it.
@@ -95,6 +105,8 @@ pip install openpyxl
 pip install python-docx
 # Optional — Windows visual theme:
 pip install sv-ttk
+# Optional — voice counting (also needs the Vosk Italian model in codice/modelli/):
+pip install vosk sounddevice pyttsx3
 ```
 
 On Debian/Ubuntu systems, tkinter may require separate installation:
@@ -102,6 +114,8 @@ On Debian/Ubuntu systems, tkinter may require separate installation:
 ```bash
 sudo apt install python3-tk python3-docx
 ```
+
+On openSUSE: `sudo zypper install python3-tk python3-python-docx`. For voice counting on Linux also install `libportaudio2` and `espeak-ng` (`apt` or `zypper`).
 
 Run the script:
 

@@ -4,6 +4,117 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-10-09
+
+### Lettura vocale dei granuli (pulsante "Voce" della GUI)
+
+**Problema:** per registrare un granulo l'operatore deve staccare lo sguardo
+dal microscopio per digitare il codice (e controllare sullo schermo che sia
+quello giusto), e ogni errore di battitura passa inosservato.
+
+**Causa:** l'unica sorgente di comandi era la tastiera. Il paper EcoCount
+(Allen & Sewell, SAGE Open 4(2), 2014, doi:10.1177/2158244014537500) mostra
+che la registrazione a voce, con conferma parlata di cio' che il computer ha
+capito, permette di non perdere il contatto con il campo visivo.
+
+**Correzione:** la voce e' una seconda sorgente di comandi sopra lo stesso
+percorso della tastiera (stesso `Settimana.inserisci`, stesso journal, stesso
+undo). Struttura di `Settimana`, `Journal` e template Excel invariate.
+- `codice/dominio.py`: nuovi `numero_in_parole`, `normalizza_parlato`,
+  `SINONIMI_VOCALI_DEFAULT`, `COMANDI_VOCALI`, `Totale`,
+  `costruisci_vocabolario_vocale`, `costruisci_grammatica`,
+  `interpreta_vocale`. Ogni frase deve iniziare con la parola di attivazione
+  "conta" (come "Count" in EcoCount): senza, "due/tre/sei" detti in
+  conversazione verrebbero registrati. A voce solo comandi reversibili
+  (annulla, ripeti/ancora, totale); salva, chiudi giornata ed esci restano da
+  tastiera. Quantita' a voce 2-20 (da tastiera resta 1-100).
+- `codice/voce.py` (nuovo): `Ascoltatore` (microfono -> riconoscitore ->
+  coda, con scarto delle frasi sotto soglia di confidenza e anti-eco durante
+  la sintesi), `Sintesi` (il PC ripete il nome capito), `crea_voce`. Motore
+  Vosk (offline) dietro un'interfaccia sostituibile; dipendenze opzionali.
+- `codice/sessione.py`: `leggi_sinonimi_vocali`, `leggi_parola_attivazione`
+  (chiavi `sinonimi_vocali` e `parola_attivazione` di `pollencounter.cfg`).
+- `codice/polline_counter_gui.py`: `_invia` ora delega a `_esegui_comando`
+  (condiviso con la voce); `_annulla` ritorna il testo da leggere; pulsanti
+  "Voce" e "Prova voce" (dice cosa ha capito senza registrare); coda svuotata
+  con `root.after` (tkinter non e' thread-safe); frasi scartate se e' aperto
+  un dialogo; colonna "A voce" nella tab Codici; testo di aiuto aggiornato.
+- `requirements.txt`, `ISTRUZIONI.txt`, `CLAUDE.md`, `.gitignore`
+  (`codice/modelli/`), `pollencounter.cfg.esempio`, skill `build-windows-exe`
+  (sezione opzionale: la build standard produce un exe senza voce).
+- Test: 23 nuovi in `test_dominio.py`, 5 in `test_sessione.py`, nuovo
+  `test_voce.py` (riconoscitore finto). Suite: 121 test OK.
+
+**Provato con il motore reale** (Vosk 0.3.45 + `vosk-model-small-it-0.22`,
+espeak-ng, audio sintetizzato: nessun microfono) e corretto di conseguenza:
+- Il modello piccolo **non conosce circa 65 parole** (quasi tutti i nomi
+  latini e molte famiglie in -acee/-aceae: urticaceae, stemphylium...) e
+  Vosk le ignora con un solo avviso su stderr. Il primo controllo, basato su
+  `graph/words.txt`, non vedeva nulla perche' quel file nel modello piccolo
+  non esiste. Ora `voce.crea_voce` chiede al modello (`vosk_model_find_word`),
+  toglie dalla grammatica le frasi con parole ignote (3584 -> 2184 frasi) e
+  la GUI le elenca nel log; la colonna "A voce" mostra solo le forme capite.
+- Per compensare, `SINONIMI_VOCALI_DEFAULT` include nomi comuni italiani
+  noti al modello (pino, ortica, platano, olmo, tiglio, cipresso...). I
+  numeri funzionano sempre.
+- La voce di sintesi predefinita di pyttsx3 era inglese (`gmw/en`): nuovo
+  `voce.scegli_voce_italiana` (espeak `roa/it`, SAPI per nome/lingua) con
+  avviso nel log se manca una voce italiana o la sintesi non parte.
+- Visto in prova: una frase di conversazione viene "agganciata" a parole
+  della grammatica ("oggi fa proprio caldo qui" -> "otto per otto olmo") e una
+  parola fuori grammatica alla frase piu' vicina ("urticaceae" -> "ortica").
+  Senza "conta" davanti il dominio le scarta: conferma che il prefisso serve.
+
+**Verificato dall'utente (2026-10-09, Linux, microfono reale):** "conta
+acero", "conta ontano" e "conta acero per tre" vengono capiti e registrati.
+
+**Exe Windows con la voce** (`windows/Conta_Pollinica.exe`, 81 MB, non in
+git): ricompilato con Wine + PyInstaller includendo `vosk`, `sounddevice`,
+`pyttsx3` e il modello (comando in `.claude/skills/build-windows-exe/`).
+Verificato sotto Wine: build ok, DLL/modello/moduli presenti nell'archivio,
+l'exe si avvia e mostra la GUI, `vosk` carica il modello nel Python Windows.
+Lo script `build_exe.bat` e' stato poi allineato (vedi voce successiva).
+
+**Non verificato:** rumore di laboratorio e altri accenti (soglia di
+confidenza); su Windows vero: pulsante "Voce", microfono e sintesi SAPI5
+(sotto Wine SAPI5 non funziona), voce italiana (richiede il pacchetto lingua). Il paper non misura il
+guadagno di tempo (solo impressioni d'uso): va misurato con una prova sul
+campo, una giornata a voce contro una da tastiera.
+
+### Allineamento di Windows, macOS e Linux alla lettura vocale
+
+**Problema:** dopo la lettura vocale solo la GUI sorgente e l'exe Windows la
+conoscevano: gli script di build di Windows/macOS non la includevano, le
+istruzioni di Windows e macOS non la spiegavano, le istruzioni di Windows
+dicevano ancora che i file vengono salvati accanto all'eseguibile (non e' piu'
+vero dalla riscrittura: la cartella viene scelta al primo avvio) e il README
+parlava ancora di "autosave ogni 5 inserimenti" e non elencava i nuovi moduli.
+
+**Causa:** la voce e' stata sviluppata e provata su Linux; gli altri
+sistemi avevano solo il codice comune (`codice/`) senza script e guide proprie.
+
+**Correzione:** solo aggiunte e correzioni di frasi superate, nessuna
+descrizione rimossa.
+- `windows/build_exe.bat`: se `codice\modelli\vosk-model*` esiste installa
+  `vosk sounddevice pyttsx3` e passa a PyInstaller le opzioni vocali (le
+  stesse della build verificata sotto Wine); altrimenti crea l'exe senza voce
+  come prima. Aggiunto `--hidden-import voce`. Logica condizionale provata
+  con `cmd` sotto Wine, nei due casi (con e senza modello).
+- `mac/build_app.sh`: stessa logica; con il modello aggiunge la descrizione
+  d'uso del microfono (`NSMicrophoneUsageDescription`) e ri-firma "ad hoc".
+  **Non verificato su macOS** (nessun Mac disponibile): solo `bash -n`.
+- `windows/ISTRUZIONI_WINDOWS.txt`, `mac/ISTRUZIONI_MAC.txt`: nuova sezione
+  LETTURA VOCALE (requisiti, installazione, comandi, stato di verifica); in
+  Windows corretta la frase sulla cartella di salvataggio.
+- `ISTRUZIONI.txt`: comando `zypper` accanto ad `apt` per la voce su Linux.
+- `script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh`: suggerimento `zypper` per tkinter.
+- `README.md`: riga "Autosave" sostituita da journal di sessione, funzione
+  voce, nuovi moduli (`dominio`, `sessione`, `esportatori`, `percorsi`,
+  `voce`, `tests/`, `modelli/`), dipendenze opzionali, nota sull'exe.
+- `CITATION.cff` non toccato (versione 1.0.0 invariata: decisione del titolare).
+
+---
+
 ## 2026-09-22 (4)
 
 ### Tasto "Annulla" nel dialogo "Giorno gia' presente" (riepilogo annuale)
