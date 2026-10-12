@@ -52,8 +52,6 @@ pollencounter/
 │   ├── AVVIA_CONTA_POLLINICA_CLI.bat # CLI quick start with Python installed
 │   ├── build_exe.bat                # Script to build the executable (dev)
 │   └── ISTRUZIONI_WINDOWS.txt       # Windows guide
-├── docs/                            # Technical review and design notes
-├── riferimenti/                     # Historical tables and reference data
 ├── esempio di bollettino.pdf        # Example of the final bulletin
 ├── CHANGELOG.md                     # Change history
 └── ISTRUZIONI.txt                   # General documentation (Italian)

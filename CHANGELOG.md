@@ -32,6 +32,19 @@ e `"\a"` (CLI), cioe' il campanello del desktop, di solito disattivato.
 - `codice/tests/test_voce.py`: test su scelta del lettore, WAV del beep,
   `Sintesi` con motore finto, scelta del motore.
 
+### Repository: tolti i file non necessari a chi scarica il programma
+
+**Problema:** il repository pubblico conteneva appunti di sviluppo e dati storici
+che non servono a chi vuole solo usare il programma.
+
+**Correzione:** non piu' tracciati (restano nella copia di lavoro, sono in
+`.gitignore`): `CLAUDE.md`, `.claude/` (skill di sviluppo), `docs/` (revisione
+tecnica, prompt web app, opzioni di distribuzione) e `riferimenti/` (tabelle
+storiche dei monitoraggi 2022-2023, elenco codici stampabile). `README.md`:
+rimosse le due voci dall'albero. Restano `CHANGELOG.md`, `CITATION.cff`,
+`LICENSE` e `esempio di bollettino.pdf`. La storia git gia' pubblicata non e'
+stata riscritta: i file restano visibili nei commit precedenti.
+
 ### Le tre versioni (Linux, macOS, Windows) allo stesso livello
 
 **Problema:** le tre versioni avevano gli stessi sorgenti ma non lo stesso

@@ -1,5 +1,9 @@
-# Impostazioni locali Claude Code
-.claude/settings.local.json
+# Strumenti di sviluppo e appunti: restano nella copia di lavoro ma non vanno
+# pubblicati (non servono a chi scarica il programma per usarlo).
+CLAUDE.md
+.claude/
+docs/
+riferimenti/
 
 # Configurazione locale (percorsi macchina-specifici, eventuali segreti).
 # CONFIG_FILE e' risolto accanto a script/eseguibile (EXE_DIR in percorsi.py),
