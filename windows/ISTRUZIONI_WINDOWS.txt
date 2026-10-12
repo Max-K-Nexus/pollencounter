@@ -54,7 +54,12 @@ Se il PC ha gia' Python installato:
        python polline_counter_gui.py
 
   Per la lettura vocale: pip install vosk sounddevice pyttsx3
-  e il modello in codice\modelli (vedi LETTURA VOCALE).
+  e il modello in codice\modelli (vedi LETTURA VOCALE). Se il modello
+  e' gia' in codice\modelli, AVVIA_CONTA_POLLINICA.bat installa da solo
+  le librerie mancanti.
+
+  Versione da terminale (stessi comandi della GUI, non ha la voce):
+  doppio clic su "AVVIA_CONTA_POLLINICA_CLI.bat".
 
   Nota: tutti i file della cartella "codice/" (i moduli .py
   polline_counter.py, polline_counter_gui.py, dominio.py,
@@ -91,6 +96,13 @@ divisa in due pannelli:
 
     Scheda "Giornaliero": griglia specie x giorno (lun-dom)
       con subtotali per ciascun giorno.
+
+    Nelle due schede, per le famiglie che sono la somma di piu' specie
+    (Betulaceae, Compositae, Corylaceae, Fagaceae, Oleaceae, Salicaceae)
+    compare una riga grigia in grassetto "NOME (totale)" con la somma di
+    specie e "dubbi"; la riga del codice di famiglia diventa "NOME
+    (dubbi)" (granuli di cui non si e' stabilita la specie). I totali
+    Pollini / Spore / TOTALE non contano due volte.
 
     Scheda "Bollettino": anteprima del bollettino pollinico, con
       ogni giorno colorato secondo la propria concentrazione
@@ -169,16 +181,22 @@ voce il nome che ha capito; se e' sbagliato dire "conta annulla".
 
 Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante.
 "Prova voce": il computer dice cosa ha capito senza registrare nulla.
-Il modello vocale non conosce molti nomi latini (es. stemphylium,
-urticaceae): il log li elenca all'attivazione; per quelle specie dire il
-numero o il nome comune. La scheda "Codici", colonna "A voce", mostra cosa
-si puo' dire per ogni specie. Dettagli e personalizzazione (pollencounter.cfg:
+Il modello vocale non conosce molti nomi latini (es. alternaria,
+betulacee), ma quasi tutti sono riconosciuti lo stesso grazie a pronunce
+incorporate nel programma: si dicono normalmente ("conta alternaria",
+"conta betulacee"). Con voci o accenti diversi puo' capitare di non essere
+capiti o, raramente, di essere scambiati per un'altra specie: il computer
+ripete cio' che ha capito, quindi basta dire "conta annulla". In "Prova
+voce" il log scrive anche le frasi sentite ma non riconosciute ("Sentito
+ma non in elenco"): servono per aggiungere nuove varianti. In caso di
+dubbio dire il numero o il nome comune; la scheda "Codici", colonna "A
+voce", mostra cosa si puo' dire per ogni specie. Dettagli e personalizzazione (pollencounter.cfg:
 "parola_attivazione", "sinonimi_vocali"): vedi ISTRUZIONI.txt, sezione
 LETTURA VOCALE.
 
-Stato: provata su Linux al microfono; l'exe Windows e' stato compilato
-e avviato sotto Wine, ma microfono e sintesi vocale di Windows vanno
-ancora verificati su un PC Windows vero.
+Stato: provata al microfono su Linux (riconosce tutte le specie); l'exe
+Windows e' stato compilato e avviato sotto Wine, ma microfono e sintesi
+vocale di Windows vanno ancora verificati su un PC Windows vero.
 
 
 SALVATAGGIO

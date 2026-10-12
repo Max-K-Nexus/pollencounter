@@ -38,5 +38,22 @@ if errorlevel 1 (
     )
 )
 
+REM Lettura vocale (opzionale): solo se il modello vocale e' stato messo in
+REM codice\modelli. Se mancano le librerie prova a installarle; il programma
+REM parte comunque anche senza voce.
+if exist "%~dp0..\codice\modelli\vosk-model*" (
+    python -c "import vosk, sounddevice, pyttsx3" >nul 2>&1
+    if errorlevel 1 (
+        echo Librerie della lettura vocale non trovate. Installazione in corso...
+        python -m pip install vosk sounddevice pyttsx3
+        if errorlevel 1 (
+            echo ATTENZIONE: impossibile installare la lettura vocale.
+            echo Il programma funziona, ma senza voce.
+            echo Prova manualmente: python -m pip install vosk sounddevice pyttsx3
+            pause
+        )
+    )
+)
+
 REM Avvia l'interfaccia grafica (pythonw = nessuna finestra console aggiuntiva)
 start "" pythonw "%~dp0..\codice\polline_counter_gui.py"

@@ -21,9 +21,17 @@ funziona normalmente e il pulsante Voce spiega cosa installare.
 """
 
 import json
+import math
+import os
 import queue
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
 import threading
 import time
+import wave
 from pathlib import Path
 
 import percorsi
@@ -42,6 +50,11 @@ try:
     import pyttsx3
 except ImportError:
     pyttsx3 = None
+
+try:
+    import winsound
+except ImportError:
+    winsound = None
 
 SAMPLE_RATE = 16000
 SOGLIA_CONFIDENZA_DEFAULT = 0.5
@@ -164,6 +177,103 @@ class SorgenteMicrofono:
 
 
 # ============================================================
+# Riproduzione audio (beep e talkback)
+#
+# Su Linux non ci si puo' affidare al "campanello" del desktop (di solito
+# disattivato) ne' a pyttsx3, che riproduce il suono chiamando `aplay`
+# (pacchetto alsa-utils, spesso assente con PipeWire/PulseAudio). Si usa
+# invece il primo lettore di file WAV che c'e' sul sistema.
+# ============================================================
+BEEP_HZ = 800
+BEEP_MS = 150
+_beep_wav = None                    # percorso del WAV del beep, creato al primo uso
+
+
+def trova_lettore_audio(which=shutil.which, piattaforma=None):
+    """Comando (lista) per riprodurre un file WAV passandogli il percorso in
+    coda, o None se non c'e' (su Windows si usa winsound, quindi None)."""
+    piattaforma = piattaforma or sys.platform
+    if piattaforma.startswith("win"):
+        return None
+    if piattaforma == "darwin":
+        candidati = [["afplay"]]
+    else:
+        candidati = [["paplay"], ["pw-play"], ["aplay", "-q"]]
+    for comando in candidati:
+        percorso = which(comando[0])
+        if percorso:
+            return [percorso] + comando[1:]
+    return None
+
+
+def scrivi_wav_beep(percorso, hz=BEEP_HZ, ms=BEEP_MS, rate=22050):
+    """Scrive un breve tono (mono, 16 bit) con attacco/rilascio morbidi, per
+    evitare lo 'scatto' all'inizio e alla fine."""
+    n = int(rate * ms / 1000)
+    rampa = max(1, int(rate * 0.01))
+    campioni = []
+    for i in range(n):
+        ampiezza = min(1.0, i / rampa, (n - 1 - i) / rampa)
+        campioni.append(int(12000 * ampiezza * math.sin(2 * math.pi * hz * i / rate)))
+    with wave.open(str(percorso), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(rate)
+        f.writeframes(struct.pack(f"<{n}h", *campioni))
+
+
+def riproduci_wav(percorso, attendi=True, lettore=None):
+    """Riproduce un WAV. Ritorna True se la riproduzione e' partita (e, con
+    ``attendi``, terminata senza errori), False altrimenti: mai eccezioni."""
+    if sys.platform.startswith("win"):
+        if winsound is None:
+            return False
+        try:
+            flag = winsound.SND_FILENAME | (0 if attendi else winsound.SND_ASYNC)
+            winsound.PlaySound(str(percorso), flag)
+            return True
+        except Exception:
+            return False
+    comando = lettore or trova_lettore_audio()
+    if not comando:
+        return False
+    try:
+        if attendi:
+            subprocess.run(comando + [str(percorso)], check=True, timeout=30,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            processo = subprocess.Popen(comando + [str(percorso)],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            threading.Thread(target=processo.wait, daemon=True).start()    # niente zombie
+        return True
+    except Exception:
+        return False
+
+
+def beep():
+    """Beep di conferma udibile su Windows, Linux e macOS. Ritorna True se e'
+    partito un suono. Non blocca (tranne i 150 ms di winsound.Beep)."""
+    global _beep_wav
+    if sys.platform.startswith("win"):
+        if winsound is None:
+            return False
+        try:
+            winsound.Beep(BEEP_HZ, BEEP_MS)
+            return True
+        except Exception:
+            return False
+    try:
+        if _beep_wav is None or not os.path.exists(_beep_wav):
+            fd, percorso = tempfile.mkstemp(prefix="polline_beep_", suffix=".wav")
+            os.close(fd)
+            scrivi_wav_beep(percorso)
+            _beep_wav = percorso
+    except Exception:
+        return False
+    return riproduci_wav(_beep_wav, attendi=False)
+
+
+# ============================================================
 # Sintesi vocale (talkback)
 # ============================================================
 def scegli_voce_italiana(voci):
@@ -187,17 +297,89 @@ def scegli_voce_italiana(voci):
     return None
 
 
+class MotorePyttsx3:
+    """Sintesi con pyttsx3 (SAPI5 su Windows, NSSpeech su macOS). Va creato
+    nel thread che lo usera' (richiesto da COM su Windows)."""
+
+    def __init__(self):
+        self._motore = pyttsx3.init()
+        self.avviso = ""
+        id_voce = scegli_voce_italiana(self._motore.getProperty("voices"))
+        if id_voce:
+            self._motore.setProperty("voice", id_voce)
+        else:
+            self.avviso = ("Nessuna voce italiana installata: il computer pronuncera' "
+                           "i nomi con una voce straniera.")
+
+    def dici(self, testo):
+        self._motore.say(testo)
+        self._motore.runAndWait()
+
+
+class MotoreEspeak:
+    """Sintesi con espeak-ng da riga di comando + lettore WAV del sistema
+    (paplay/pw-play/aplay). Evita pyttsx3 su Linux, che richiede `aplay`."""
+
+    def __init__(self, eseguibile, lettore):
+        self._eseguibile = eseguibile
+        self._lettore = lettore
+        self.avviso = ""
+
+    def dici(self, testo):
+        fd, percorso = tempfile.mkstemp(prefix="polline_voce_", suffix=".wav")
+        os.close(fd)
+        try:
+            subprocess.run([self._eseguibile, "-v", "it", "-w", percorso, "--", testo],
+                           check=True, timeout=15,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if not riproduci_wav(percorso, attendi=True, lettore=self._lettore):
+                raise RuntimeError("non riesco a riprodurre l'audio")
+        finally:
+            try:
+                os.remove(percorso)
+            except OSError:
+                pass
+
+
+def crea_motore_sintesi(which=shutil.which, piattaforma=None):
+    """Sceglie il motore di sintesi: espeak-ng + lettore WAV su Linux se ci
+    sono entrambi, altrimenti pyttsx3. Ritorna (motore, avviso)."""
+    piattaforma = piattaforma or sys.platform
+    if piattaforma.startswith("linux"):
+        lettore = trova_lettore_audio(which, piattaforma)
+        eseguibile = which("espeak-ng") or which("espeak")
+        if lettore and eseguibile:
+            return MotoreEspeak(eseguibile, lettore), ""
+        if not lettore:
+            avviso = ("Non trovo un programma per riprodurre l'audio: la voce restera' muta. "
+                      "Installa 'pulseaudio-utils' o 'alsa-utils' "
+                      "(es. sudo zypper install alsa-utils).")
+        else:
+            avviso = ""
+        motore = MotorePyttsx3()
+        return motore, avviso or motore.avviso
+    motore = MotorePyttsx3()
+    return motore, motore.avviso
+
+
 class Sintesi:
     """Il PC dice a voce cio' che ha capito. Un solo thread possiede il
     motore di sintesi (richiesto da pyttsx3/COM su Windows); le frasi
-    arrivano da una coda. Prima di parlare silenzia l'ascoltatore.
+    arrivano da una coda. Prima di parlare silenzia l'ascoltatore, e lo
+    silenzia di nuovo a fine frase (la coda di eco parte da quando l'audio e'
+    davvero finito).
 
+    ``motore``: oggetto con ``dici(testo)`` (bloccante); se None lo sceglie
+    ``crea_motore_sintesi`` nel thread di sintesi.
     ``avviso``: se non vuoto, la sintesi non e' pienamente disponibile
-    (nessuna voce italiana, motore non avviabile): da mostrare all'utente."""
+    (nessuna voce italiana, nessun lettore audio, motore non avviabile):
+    da mostrare all'utente."""
 
-    def __init__(self, ascoltatore=None, durata_stimata=lambda testo: 0.5 + 0.08 * len(testo)):
+    def __init__(self, ascoltatore=None, durata_stimata=lambda testo: 0.5 + 0.08 * len(testo),
+                 motore=None):
         self._ascoltatore = ascoltatore
         self._durata = durata_stimata
+        self._motore = motore
         self._coda = queue.Queue()
         self.avviso = ""
         self._pronta = threading.Event()
@@ -212,16 +394,12 @@ class Sintesi:
         self._coda.put(None)
 
     def _ciclo(self):
-        motore = None
+        motore = self._motore
         try:
-            motore = pyttsx3.init()
-            id_voce = scegli_voce_italiana(motore.getProperty("voices"))
-            if id_voce:
-                motore.setProperty("voice", id_voce)
-            else:
-                self.avviso = ("Nessuna voce italiana installata: il computer pronuncera' "
-                               "i nomi con una voce straniera.")
+            if motore is None:
+                motore, self.avviso = crea_motore_sintesi()
         except Exception as e:
+            motore = None
             self.avviso = f"Sintesi vocale non disponibile ({e}): niente conferma parlata."
         finally:
             self._pronta.set()
@@ -234,8 +412,9 @@ class Sintesi:
             try:
                 if self._ascoltatore is not None:
                     self._ascoltatore.silenzia(self._durata(testo))
-                motore.say(testo)
-                motore.runAndWait()
+                motore.dici(testo)
+                if self._ascoltatore is not None:
+                    self._ascoltatore.silenzia(0)
             except Exception as e:      # un errore di sintesi non deve fermare la conta
                 self.avviso = f"Errore della sintesi vocale: {e}"
 

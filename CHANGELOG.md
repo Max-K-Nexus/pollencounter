@@ -4,6 +4,126 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-10-12
+
+### Audio udibile su Linux: ripetizione vocale e beep
+
+**Problema:** su Linux (openSUSE, PipeWire) il computer non ripeteva a voce
+cio' che aveva capito e il beep di inserimento non emetteva alcun suono.
+
+**Causa:** `pyttsx3` su Linux sintetizza con espeak-ng ma riproduce il WAV
+chiamando `aplay` (pacchetto `alsa-utils`, non installato qui): l'errore
+veniva inghiottito e la voce restava muta. Il beep usava `root.bell()` (GUI)
+e `"\a"` (CLI), cioe' il campanello del desktop, di solito disattivato.
+
+**Correzione:**
+- `codice/voce.py`: nuove `trova_lettore_audio` (paplay > pw-play > aplay su
+  Linux, afplay su macOS), `riproduci_wav`, `scrivi_wav_beep`, `beep()` (tono
+  WAV di 150 ms a 800 Hz; su Windows resta `winsound.Beep`). `Sintesi` ora
+  usa un "motore" sostituibile: `MotoreEspeak` (espeak-ng + lettore WAV) su
+  Linux quando ci sono entrambi, altrimenti `MotorePyttsx3` come prima
+  (Windows/SAPI5, macOS). Senza alcun lettore audio la GUI avvisa e dice cosa
+  installare. L'ascoltatore viene silenziato anche a fine frase (coda di eco
+  dall'audio realmente finito).
+- `codice/polline_counter_gui.py`: il beep usa `voce.beep()`; se non puo'
+  suonare lo scrive nel log.
+- `codice/polline_counter.py`: `_beep()` usa `voce.beep()` (resta `"\a"` come
+  ultimo ripiego, solo ASCII).
+- `codice/tests/test_voce.py`: test su scelta del lettore, WAV del beep,
+  `Sintesi` con motore finto, scelta del motore.
+
+### Le tre versioni (Linux, macOS, Windows) allo stesso livello
+
+**Problema:** le tre versioni avevano gli stessi sorgenti ma non lo stesso
+livello di servizio: l'exe Windows era stato compilato prima delle ultime
+modifiche (audio, pronunce, totali di famiglia); Linux non aveva una guida
+propria; solo Windows installava da solo python-docx; nessun lanciatore
+avvisava delle librerie vocali mancanti; Windows non aveva il lanciatore da
+terminale; le guide dicevano ancora che i nomi latini non erano capiti; su
+macOS non era scritto che `pyttsx3` richiede `pyobjc`.
+
+**Correzione:**
+- `windows/Conta_Pollinica.exe` ricompilato sotto Wine con la voce (84 MB):
+  verificato che contiene `PRONUNCE_VOCALI`, `totali_famiglia`, `voce.beep`,
+  `MotoreEspeak`, il modello vocale e che si avvia. (L'exe resta locale, non in git.)
+- Lanciatori: Linux e macOS segnalano con una "Nota" python-docx mancante e,
+  se il modello e' in `codice/modelli`, le librerie vocali (Linux anche
+  espeak-ng e un lettore audio); Windows installa da solo le librerie vocali
+  se il modello c'e'. Nuovo `windows/AVVIA_CONTA_POLLINICA_CLI.bat` (la CLI
+  aveva lanciatore solo su Linux e macOS).
+- Nuova guida `script_aiuto/ISTRUZIONI_LINUX.txt` (installazione per
+  openSUSE/Debian, voce, audio muto, icona Desktop).
+- `ISTRUZIONI.txt`, `windows/ISTRUZIONI_WINDOWS.txt`, `mac/ISTRUZIONI_MAC.txt`,
+  `README.md`: sezione sui nomi latini aggiornata (pronunce incorporate),
+  totali di famiglia, installazione audio per sistema, `pyobjc` su macOS,
+  rimandi incrociati; `requirements.txt` con note per sistema.
+- `CLAUDE.md`: tabella di parita' e regole per mantenerla; skill
+  `build-windows-exe` con il comando completo verificato.
+
+**Non verificato:** i `.command` e il `.app` su un Mac, i `.bat` su un Windows
+vero (solo l'exe sotto Wine); di Linux e' stata verificata la sintassi degli
+script (`bash -n`).
+
+### Nomi parlati per tutte le specie (con pronunce in parole note al modello)
+
+**Problema:** 22 specie (nomi di famiglia e di generi/spore, es. betulacee,
+alternaria, cladosporio) si potevano dire solo col numero.
+
+**Causa:** il modello Vosk piccolo italiano non conosce quei nomi nel suo
+dizionario e non si possono aggiungere (e' distribuito gia' compilato, senza
+lessico). Le frasi che li contenevano venivano tolte dalla grammatica.
+
+**Correzione:** ogni nome si riconosce come sequenza di parole che il modello
+conosce e che, pronunciate, suonano uguale (es. "betulacee" -> "bet ula cee").
+Le trascrizioni sono quelle che Vosk ha davvero restituito ascoltando il nome
+sintetizzato (espeak-ng, 12 combinazioni di velocita'/altezza). Pronunce
+fornite dall'utente. Ogni frammento di parola aggiunto alla grammatica compete
+con le parole vere (Vosk usa le parole della grammatica a mucchio, non le frasi),
+quindi le trascrizioni sono state **potate misurando** l'effetto sulle specie che
+gia' funzionavano: da 1 a 4 per nome. Prima misura: "plata nus" faceva scendere
+"platani" da 4/4 a 0/4 e "ur tica cee" faceva perdere "ortica" (4/4 -> 0/4);
+"ole ace" scambiava corilacee per oleacee.
+- Risultato su voce sintetica (4 varianti per frase, soglia di confidenza 0,5):
+  nomi gia' presenti 370/384 -> 362/384 (96,4% -> 94,3%); nomi nuovi 7/160 ->
+  130/160 (4% -> 81%). Peggiorati di una variante su quattro: nove, undici,
+  artemisia, noce, pini; platani 4 -> 2.
+- Specie ancora deboli o senza trascrizione: corilacee (0/4: confuso con "aceri"),
+  platanus e urticacee (nessuna trascrizione: si dicono "platano"/"ortica" o col
+  numero), epicoccum (1/4), elmintospori (1/4), alnus (3/4).
+- `codice/dominio.py`: nuovi `PRONUNCE_VOCALI` ({nome leggibile: (codice,
+  trascrizioni)}), `TRASCRIZIONI_VOCALI`, `PAROLE_CON_PRONUNCIA`;
+  `costruisci_vocabolario_vocale` aggiunge le trascrizioni. Nuovi sinonimi con
+  parole gia' note: carpino (14), cup (17), lauro (27), mora (29), altre olea /
+  altri olivi / altri ulivi (32), olio (35), pinus (36), non identificato (39),
+  poligono/poligoni (40), pioppi (42), salici (43), tigli (44), olmi (45),
+  ortiche (47). Non inseriti i refusi dell'elenco (ippocastanao, venticinqu,
+  sentisette, trentase) e "trentotto" riferito a 40 (e' il numero di 38).
+- `codice/polline_counter_gui.py`: la colonna "A voce" della scheda Codici
+  mostra il nome vero, non la trascrizione; il messaggio "Non capite" non
+  elenca i nomi che hanno una pronuncia. In "Prova voce" le frasi che iniziano
+  con la parola di attivazione ma non sono in elenco vengono scritte nel log
+  (`[prova] Sentito ma non in elenco: ...`) per scoprire nuove varianti.
+- `codice/tests/test_dominio.py`: ogni trascrizione porta al suo codice, nessuna
+  collisione, nomi comuni aggiunti, refusi esclusi.
+
+**Limite:** verificato su voce sintetica, non sulla voce dell'operatore.
+
+### Totali di famiglia nelle tab Settimanale e Giornaliero
+
+**Problema:** nelle tab della GUI il codice di una famiglia (es. 03
+BETULACEAE) mostra solo i granuli "in dubbio" fra le specie; il totale di
+famiglia (dubbi + Alnus + Betula) c'era solo nel bollettino.
+
+**Correzione:** `dominio.FAMIGLIE_SOMMA` (derivata da `BOLLETTINO_RIGHE`: 03,
+08, 12, 20, 31, 41) e `dominio.totali_famiglia`. In `_refresh_tabs` compare una
+riga evidenziata "Σ NOME (totale)" prima del gruppo, quando c'e' almeno un
+granulo di una specie della famiglia; la riga del codice diventa "NOME
+(dubbi)". I totali Pollini/Spore/TOTALE restano sui conteggi grezzi (nessun
+doppio conteggio). L'Excel non cambia.
+- `codice/dominio.py`, `codice/polline_counter_gui.py`, `codice/tests/test_dominio.py`.
+
+---
+
 ## 2026-10-09
 
 ### Lettura vocale dei granuli (pulsante "Voce" della GUI)

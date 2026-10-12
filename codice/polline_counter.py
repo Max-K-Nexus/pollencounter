@@ -18,15 +18,11 @@ except ImportError:
     print("  pip3 install openpyxl")
     sys.exit(1)
 
-try:
-    import winsound
-except ImportError:
-    winsound = None
-
 import dominio
 import esportatori
 import percorsi
 import sessione
+import voce
 
 OUTPUT_DIR = percorsi.EXE_DIR
 
@@ -67,10 +63,9 @@ def display_menu():
 
 
 def _beep():
-    """Emette un beep sonoro (winsound su Windows, bell ASCII come fallback)."""
-    if winsound is not None:
-        winsound.Beep(800, 150)
-    else:
+    """Emette un beep sonoro (voce.beep: winsound su Windows, tono WAV su
+    Linux/macOS; bell ASCII come ultimo ripiego)."""
+    if not voce.beep():
         print("\a", end="", flush=True)
 
 

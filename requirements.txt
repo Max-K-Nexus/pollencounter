@@ -13,7 +13,12 @@ sv-ttk>=2.6.0
 
 # Lettura vocale dei pollini (pulsante "Voce" della GUI), tutta offline:
 #   pip install vosk sounddevice pyttsx3
-#   Linux: sudo apt install libportaudio2 espeak-ng
+#   Windows e macOS: nient'altro (pyttsx3 installa da solo pywin32/comtypes su
+#     Windows e pyobjc su macOS; l'installazione su Mac puo' richiedere minuti).
+#   Linux: sudo apt install libportaudio2 espeak-ng      (Debian/Ubuntu)
+#          sudo zypper install libportaudio2 espeak-ng   (openSUSE)
+#     e, se beep e voce restano muti, un lettore WAV: paplay, pw-play o aplay
+#     (pacchetto alsa-utils).
 # Serve anche il modello italiano di Vosk, da decomprimere in codice/modelli/
 # (https://alphacephei.com/vosk/models -> vosk-model-small-it-0.22, ~50 MB).
 # Senza queste librerie la GUI funziona normalmente e il pulsante Voce spiega

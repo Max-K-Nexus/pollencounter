@@ -9,6 +9,7 @@ periodica di un autosave. Ogni inserimento aggiorna il modello in memoria e
 notifica le tab con una chiamata diretta (nessun polling, nessuna corsa dati).
 """
 
+import re
 import sys
 import tkinter as tk
 from datetime import timedelta
@@ -433,6 +434,8 @@ class PollineCounterGUI:
         self.tree_sett.column("conteggio", width=60, anchor=tk.CENTER)
         scroll = tk.Scrollbar(tab, command=self.tree_sett.yview)
         self.tree_sett.configure(yscrollcommand=scroll.set)
+        self.tree_sett.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
+                                     background="#E6E6E6", foreground="#000000")
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_sett.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
@@ -462,6 +465,8 @@ class PollineCounterGUI:
             self.tree_giorn.column(col_id, width=40, anchor=tk.CENTER)
         scroll = tk.Scrollbar(tab, command=self.tree_giorn.yview)
         self.tree_giorn.configure(yscrollcommand=scroll.set)
+        self.tree_giorn.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
+                                      background="#E6E6E6", foreground="#000000")
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_giorn.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
@@ -535,12 +540,14 @@ class PollineCounterGUI:
         extra = sessione.leggi_sinonimi_vocali(percorsi.CONFIG_FILE)
         attivazione = sessione.leggi_parola_attivazione(percorsi.CONFIG_FILE)
         vocabolario, _ = dominio.costruisci_vocabolario_vocale(extra, attivazione)
-        forme = {c: [] for c in dominio.TUTTI_CODICI}
+        forme = {c: set() for c in dominio.TUTTI_CODICI}
         for frase, codice in vocabolario.items():
             if self._parole_sconosciute.intersection(frase.split()):
                 continue
+            # le trascrizioni ("be tu lace") si mostrano col nome vero ("betulacee")
+            frase = dominio.TRASCRIZIONI_VOCALI.get(frase, frase)
             if frase != dominio.normalizza_parlato(dominio.CODICI_SPECIE[codice]):
-                forme[codice].append(frase)
+                forme[codice].add(frase)
         return {c: ", ".join(sorted(f, key=lambda x: (len(x), x))) for c, f in forme.items()}
 
     def _popola_tab_codici(self, filtro=""):
@@ -602,10 +609,13 @@ class PollineCounterGUI:
             self._parole_sconosciute = set(sconosciute)
             self._forme_vocali = self._calcola_forme_vocali()
             self._popola_tab_codici(self.entry_cerca_codici.get())
-            self._log(f"[voce] {len(sconosciute)} parole (soprattutto nomi latini) non sono nel "
-                      "dizionario vocale e non verranno capite. Per quelle specie di' il numero "
-                      "o il nome comune: vedi la colonna 'A voce' della scheda Codici.")
-            self._log("[voce] Non capite: " + ", ".join(sconosciute))
+            # le parole con una trascrizione (dominio.PRONUNCE_VOCALI) si capiscono lo stesso
+            non_capite = [p for p in sconosciute if p not in dominio.PAROLE_CON_PRONUNCIA]
+            if non_capite:
+                self._log(f"[voce] {len(non_capite)} parole (soprattutto nomi latini) non sono nel "
+                          "dizionario vocale e non verranno capite. Per quelle specie di' il numero "
+                          "o il nome comune: vedi la colonna 'A voce' della scheda Codici.")
+                self._log("[voce] Non capite: " + ", ".join(non_capite))
         inizio = f"{self._voce_attivazione} " if self._voce_attivazione else ""
         self._log(f"Voce ATTIVA. Di' ad esempio: \u00ab{inizio}ventiquattro\u00bb, "
                   f"\u00ab{inizio}graminacee per tre\u00bb, \u00ab{inizio}annulla\u00bb.")
@@ -663,6 +673,10 @@ class PollineCounterGUI:
             if cmd.messaggio:
                 self._log(f"[voce] {cmd.messaggio}")
                 sintesi.parla("non capito")
+            elif self._voce_prova and self._frase_con_attivazione(frase):
+                # Solo in prova: aiuta a scoprire come il riconoscitore scrive i
+                # nomi che non conosce, per aggiungerli ai sinonimi.
+                self._log(f"[prova] Sentito ma non in elenco: «{frase}»")
             return          # rumore di fondo / fuori vocabolario: silenzio
         if self._voce_prova:
             detto = self._testo_parlato_comando(cmd)
@@ -672,6 +686,14 @@ class PollineCounterGUI:
         detto = self._esegui_comando(cmd, fonte="voce")
         if detto:
             sintesi.parla(detto)
+
+    def _frase_con_attivazione(self, frase):
+        """True se la frase inizia con la parola di attivazione (sempre True se
+        la parola di attivazione e' disattivata)."""
+        normalizzata = dominio.normalizza_parlato(frase)
+        if not self._voce_attivazione:
+            return bool(normalizzata)
+        return normalizzata.startswith(self._voce_attivazione + " ")
 
     def _testo_parlato_comando(self, cmd):
         if isinstance(cmd, dominio.Inserisci):
@@ -762,7 +784,7 @@ class PollineCounterGUI:
         else:
             self._log(f"-> {prefisso}[{codice}] {specie}  (totale giorno: {nuovo_val})")
         if self.settimana.beep:
-            self.root.bell()
+            voce.beep()
         return self._testo_parlato_inserimento(codice, quantita)
 
     @staticmethod
@@ -791,8 +813,9 @@ class PollineCounterGUI:
             self.settimana.beep = not self.settimana.beep
             self.btn_beep.config(text=f"Beep: {'on' if self.settimana.beep else 'off'}")
             self._log(f"Beep sonoro: {'ATTIVO' if self.settimana.beep else 'disattivo'}")
-            if self.settimana.beep:
-                self.root.bell()
+            if self.settimana.beep and not voce.beep():
+                self._log("Non riesco a riprodurre il beep: manca un programma audio "
+                          "(installa 'pulseaudio-utils' o 'alsa-utils').")
         elif lettera == "c":
             self._dialog_correggi()
         elif lettera == "n":
@@ -1091,6 +1114,20 @@ class PollineCounterGUI:
         if settimana.giorno_attivo:
             self._imposta_giorno_ui(settimana.giorno_attivo)
 
+    @staticmethod
+    def _nome_famiglia(codice):
+        """Nome della famiglia senza note fra parentesi ('CORYLACEAE (somma c+o)'
+        -> 'CORYLACEAE'): nelle tab lo spazio e' poco."""
+        return re.sub(r"\s*\(.*\)", "", dominio.CODICI_SPECIE[codice])
+
+    @staticmethod
+    def _mostra_totale_famiglia(codice, conteggi):
+        """True se per questa famiglia va mostrata la riga di totale: c'e' almeno
+        un granulo di una specie della famiglia (se ci sono solo i 'dubbi' il
+        totale coinciderebbe con la riga del codice e sarebbe un doppione)."""
+        return codice in dominio.FAMIGLIE_SOMMA and any(
+            sum(conteggi[c]) > 0 for c in dominio.FAMIGLIE_SOMMA[codice] if c != codice)
+
     def _refresh_tabs(self):
         s = self.settimana
         if s is None:
@@ -1099,12 +1136,21 @@ class PollineCounterGUI:
         # Tab Settimanale
         self.tree_sett.delete(*self.tree_sett.get_children())
         tot_p, tot_s = 0, 0
-        for codice, specie, val in s.righe_specie(None):
-            self.tree_sett.insert("", tk.END, values=(codice, specie, val))
-            if codice in dominio.POLLINI_CODICI:
-                tot_p += val
-            else:
-                tot_s += val
+        famiglie = dominio.totali_famiglia(s.conteggi)
+        for codice in dominio.TUTTI_CODICI:
+            val = sum(s.conteggi[codice])
+            specie = dominio.CODICI_SPECIE[codice]
+            if self._mostra_totale_famiglia(codice, s.conteggi):
+                nome = self._nome_famiglia(codice)
+                self.tree_sett.insert("", tk.END, tags=("famiglia",),
+                                      values=("\u03a3", f"{nome} (totale)", sum(famiglie[codice])))
+                specie = f"{nome} (dubbi)"
+            if val > 0:
+                self.tree_sett.insert("", tk.END, values=(codice, specie, val))
+                if codice in dominio.POLLINI_CODICI:
+                    tot_p += val
+                else:
+                    tot_s += val
         self.lbl_s_pollini.config(text=f"Pollini: {tot_p}")
         self.lbl_s_spore.config(text=f"Spore: {tot_s}")
         self.lbl_s_totale.config(text=f"TOTALE: {tot_p + tot_s}")
@@ -1114,10 +1160,18 @@ class PollineCounterGUI:
         gp, gs = [0] * 7, [0] * 7
         for codice in dominio.TUTTI_CODICI:
             vals = s.conteggi[codice]
+            specie = dominio.CODICI_SPECIE[codice]
+            if self._mostra_totale_famiglia(codice, s.conteggi):
+                nome = self._nome_famiglia(codice)
+                somma = famiglie[codice]
+                self.tree_giorn.insert("", tk.END, tags=("famiglia",),
+                                       values=("\u03a3", f"{nome} (totale)",
+                                               *[str(v) if v > 0 else "-" for v in somma]))
+                specie = f"{nome} (dubbi)"
             if not any(v > 0 for v in vals):
                 continue
             display = [str(v) if v > 0 else "-" for v in vals]
-            self.tree_giorn.insert("", tk.END, values=(codice, dominio.CODICI_SPECIE[codice], *display))
+            self.tree_giorn.insert("", tk.END, values=(codice, specie, *display))
             for i in range(7):
                 if codice in dominio.POLLINI_CODICI:
                     gp[i] += vals[i]

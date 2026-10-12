@@ -317,5 +317,79 @@ class TestVocale(unittest.TestCase):
         self.assertEqual(len(avvisi), 1)
 
 
+class TestPronunceVocali(unittest.TestCase):
+    def setUp(self):
+        self.voc, self.avvisi = d.costruisci_vocabolario_vocale()
+
+    def test_nessun_avviso_di_collisione(self):
+        self.assertEqual(self.avvisi, [])
+
+    def test_ogni_trascrizione_porta_al_suo_codice(self):
+        for nome, (codice, trascrizioni) in d.PRONUNCE_VOCALI.items():
+            self.assertTrue(d.codice_valido(codice), nome)
+            self.assertTrue(trascrizioni, nome)
+            for t in trascrizioni:
+                cmd = d.interpreta_vocale(f"conta {t}", self.voc)
+                self.assertEqual(cmd, d.Inserisci(codice, 1), f"{nome}: {t}")
+
+    def test_trascrizione_con_quantita(self):
+        self.assertEqual(d.interpreta_vocale("conta alterna ria per tre", self.voc),
+                         d.Inserisci("48", 3))
+
+    def test_trascrizioni_sono_frasi_di_almeno_cinque_lettere_e_senza_per(self):
+        for t in d.TRASCRIZIONI_VOCALI:
+            self.assertGreaterEqual(len(t.replace(" ", "")), 5, t)
+            self.assertNotIn("per", t.split(), t)
+            self.assertEqual(t, d.normalizza_parlato(t))
+
+    def test_trascrizione_ricondotta_al_nome_leggibile(self):
+        self.assertEqual(d.TRASCRIZIONI_VOCALI["bet ula cee"], "betulacee")
+        self.assertIn("betulacee", d.PRONUNCE_VOCALI)
+
+    def test_trascrizioni_nella_grammatica(self):
+        grammatica = d.costruisci_grammatica(self.voc)
+        self.assertIn("conta bot rite", grammatica)
+        self.assertIn("conta bot rite per due", grammatica)
+
+    def test_nomi_comuni_aggiunti(self):
+        for frase, codice in (("cup", "17"), ("olio", "35"), ("carpino", "14"), ("lauro", "27"),
+                              ("mora", "29"), ("pinus", "36"), ("poligoni", "40"),
+                              ("altri olivi", "32"), ("non identificato", "39")):
+            self.assertEqual(d.interpreta_vocale(f"conta {frase}", self.voc),
+                             d.Inserisci(codice, 1), frase)
+
+    def test_i_refusi_dell_elenco_non_sono_stati_inseriti(self):
+        for refuso in ("ippocastanao", "venticinqu", "sentisette", "trentase"):
+            self.assertNotIn(refuso, self.voc)
+
+    def test_trentotto_resta_di_platanaceae(self):
+        self.assertEqual(d.interpreta_vocale("conta trentotto", self.voc), d.Inserisci("38", 1))
+
+
+class TestFamiglieSomma(unittest.TestCase):
+    def test_le_sei_famiglie_indicate_dall_utente(self):
+        self.assertEqual(d.FAMIGLIE_SOMMA, {
+            "03": ("03", "04", "05"),               # Betulaceae = Alnus + Betula
+            "08": ("08", "09", "10", "11"),         # Compositae
+            "12": ("12", "13", "14", "15", "16"),   # Corylaceae
+            "20": ("20", "21", "22", "23"),         # Fagaceae
+            "31": ("31", "32", "33", "34", "35"),   # Oleaceae
+            "41": ("41", "42", "43"),               # Salicaceae
+        })
+
+    def test_somma_dubbi_e_specie(self):
+        conteggi = {"03": [1, 0, 0, 0, 0, 0, 0], "04": [2, 0, 0, 0, 0, 0, 3],
+                    "05": [0, 4, 0, 0, 0, 0, 0]}
+        self.assertEqual(d.totali_famiglia(conteggi)["03"], [3, 4, 0, 0, 0, 0, 3])
+
+    def test_famiglie_a_zero_assenti(self):
+        conteggi = {"24": [5] * 7}                  # graminacee: nessuna somma
+        self.assertEqual(d.totali_famiglia(conteggi), {})
+
+    def test_codici_mancanti_non_danno_errore(self):
+        self.assertEqual(d.totali_famiglia({"43": [0, 0, 2, 0, 0, 0, 0]})["41"],
+                         [0, 0, 2, 0, 0, 0, 0])
+
+
 if __name__ == "__main__":
     unittest.main()

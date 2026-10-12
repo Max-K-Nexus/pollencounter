@@ -1,0 +1,92 @@
+============================================================
+  CONTA POLLINICA - ISTRUZIONI PER LINUX
+============================================================
+
+Su Linux il programma si usa direttamente dal codice Python (non c'e'
+un eseguibile da creare). Le istruzioni d'uso generali (comandi, codici,
+salvataggio, bollettini) sono in ISTRUZIONI.txt, nella cartella
+principale del progetto; qui c'e' solo cio' che e' specifico di Linux.
+
+
+INSTALLAZIONE (una sola volta)
+-------------------------------
+  openSUSE:
+    sudo zypper install python3-tk python3-openpyxl python3-python-docx
+
+  Debian / Ubuntu:
+    sudo apt install python3-tk python3-openpyxl python3-docx
+
+  Altre distribuzioni (o per usare pip):
+    pip3 install --user openpyxl python-docx
+    (tkinter si installa col pacchetto "python3-tk" della distribuzione)
+
+  python-docx e' opzionale: serve solo per i bollettini Word.
+
+
+AVVIO
+-----
+  Dalla cartella principale del progetto (pollencounter/):
+
+    ./script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh     (interfaccia grafica)
+    ./script_aiuto/AVVIA_CONTA_POLLINICA.sh         (da terminale)
+
+  Se non partono: chmod +x script_aiuto/*.sh
+
+  Gli script controllano che tkinter e openpyxl siano installati e, se
+  manca qualcosa, spiegano come installarlo. Se manca python-docx o la
+  parte vocale (solo se il modello e' in codice/modelli) lo segnalano
+  con una "Nota", ma il programma parte comunque.
+
+  Icona sul Desktop: crea un file ContaPollinica.desktop con
+    [Desktop Entry]
+    Type=Application
+    Name=Conta Pollinica
+    Exec=bash /PERCORSO/pollencounter/script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh
+    Terminal=false
+  Se sposti la cartella del progetto, aggiorna il campo Exec.
+
+
+LETTURA VOCALE (opzionale)
+---------------------------
+Permette di registrare i granuli a voce, senza staccare gli occhi dal
+microscopio. Funziona senza internet. Per usarla:
+
+  1. Librerie Python:
+       pip3 install --user vosk sounddevice pyttsx3
+     Se pip risponde "externally-managed-environment" (distribuzioni
+     recenti) aggiungi  --break-system-packages  oppure usa un ambiente
+     virtuale.
+  2. Pacchetti di sistema:
+       openSUSE:       sudo zypper install libportaudio2 espeak-ng
+       Debian/Ubuntu:  sudo apt install libportaudio2 espeak-ng
+  3. Modello italiano "vosk-model-small-it-0.22" da
+       https://alphacephei.com/vosk/models
+     decompresso in codice/modelli/ (deve restare una cartella
+     "vosk-model-small-it-...").
+  4. Un microfono funzionante (controlla il livello in Impostazioni >
+     Audio).
+
+Come si usa (parola "conta", comandi, "Prova voce", personalizzazione):
+vedi la sezione LETTURA VOCALE di ISTRUZIONI.txt.
+
+Come funziona l'audio su Linux: la conferma parlata usa espeak-ng (voce
+italiana) e il suono viene riprodotto con il primo programma che trova fra
+paplay, pw-play e aplay; lo stesso vale per il beep (comando "b" o
+pulsante "Beep"). Con PulseAudio/PipeWire c'e' di solito gia' paplay o
+pw-play. Se beep e voce restano muti:
+  - controlla il volume e l'uscita audio selezionata;
+  - prova da terminale:  espeak-ng -v it "prova"
+  - se non esce nessun suono, installa un lettore:
+       sudo zypper install alsa-utils      (openSUSE)
+       sudo apt install alsa-utils         (Debian/Ubuntu)
+  - se la GUI scrive "Nessuna voce italiana installata", installa i dati
+    italiani di espeak-ng (di solito inclusi nel pacchetto espeak-ng).
+
+Stato: provata al microfono su Linux (openSUSE): riconosce tutte le
+specie con la voce dell'utente.
+
+
+ALTRI SISTEMI
+-------------
+  Windows:  cartella windows/  (ISTRUZIONI_WINDOWS.txt)
+  macOS:    cartella mac/      (ISTRUZIONI_MAC.txt)

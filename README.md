@@ -40,6 +40,7 @@ pollencounter/
 ├── script_aiuto/                    # Linux launchers and maintenance utilities
 │   ├── AVVIA_CONTA_POLLINICA.sh     # CLI launch
 │   ├── AVVIA_CONTA_POLLINICA_GUI.sh # GUI launch
+│   ├── ISTRUZIONI_LINUX.txt         # Linux guide
 │   └── applica_formattazione.py     # Utility to update template formatting
 ├── mac/                             # macOS resources
 │   ├── AVVIA_CONTA_POLLINICA.command     # CLI launch (double-click)
@@ -47,7 +48,8 @@ pollencounter/
 │   ├── build_app.sh                 # Script to build the .app bundle
 │   └── ISTRUZIONI_MAC.txt           # macOS guide
 ├── windows/                         # Windows resources (no source copies here)
-│   ├── AVVIA_CONTA_POLLINICA.bat    # Quick start with Python installed
+│   ├── AVVIA_CONTA_POLLINICA.bat    # GUI quick start with Python installed
+│   ├── AVVIA_CONTA_POLLINICA_CLI.bat # CLI quick start with Python installed
 │   ├── build_exe.bat                # Script to build the executable (dev)
 │   └── ISTRUZIONI_WINDOWS.txt       # Windows guide
 ├── docs/                            # Technical review and design notes
@@ -86,6 +88,10 @@ The built executable does not require Python installation.
 4. Launch the application by double-clicking `AVVIA_CONTA_POLLINICA_GUI.command` (the first time: right-click → Open).
 
 Voice counting has been developed and tested on Linux; on macOS it is **untested** (the `.app` built by `mac/build_app.sh` includes it only if the model is present, see below).
+
+### 🐧 Linux Users
+
+There is no executable: run from the source. Install `python3-tk`, `openpyxl` (and optionally `python-docx`) with your package manager, then run `./script_aiuto/AVVIA_CONTA_POLLINICA_GUI.sh`. The launchers check what is missing and explain how to install it. See `script_aiuto/ISTRUZIONI_LINUX.txt` (includes the desktop icon and what to do if beep or voice are silent).
 
 ### 🐍 Python Users (Developers)
 
@@ -143,9 +149,11 @@ An optional mode to record grains by voice, inspired by [EcoCount](https://doi.o
 
 The computer repeats the name it understood, so a wrong recognition can be undone straight away. Saving, closing the day and quitting are keyboard/button only. *Prova voce* tells you what it understood without recording anything. Everything runs offline.
 
-**Setup** (one-off): install `vosk sounddevice pyttsx3` (on Linux also `libportaudio2` and `espeak-ng`), then download `vosk-model-small-it-0.22` from <https://alphacephei.com/vosk/models> and unzip it into `codice/modelli/`. You need a microphone and, for the spoken confirmation, an Italian system voice. Many Latin names are not in the model's vocabulary: say the code or a common name instead (the **Codici** tab lists what each species accepts). Activation word and extra synonyms can be customised in `pollencounter.cfg` (see `codice/pollencounter.cfg.esempio` and `ISTRUZIONI.txt`).
+**Setup** (one-off): install `vosk sounddevice pyttsx3` (on Linux also `libportaudio2` and `espeak-ng`), then download `vosk-model-small-it-0.22` from <https://alphacephei.com/vosk/models> and unzip it into `codice/modelli/`. You need a microphone and, for the spoken confirmation, an Italian system voice. The small Vosk model does not know many Latin names; they are recognised through built-in pronunciations (e.g. `conta alternaria`, `conta betulacee`) that were tuned on a synthetic voice and checked with a real one on Linux. If a name is not understood, say the code or a common name instead (the **Codici** tab lists what each species accepts; in *Prova voce* the log also shows phrases that were heard but not matched). Activation word and extra synonyms can be customised in `pollencounter.cfg` (see `codice/pollencounter.cfg.esempio` and `ISTRUZIONI.txt`).
 
-**Status:** tested with a real microphone on Linux. The Windows executable was built and started under Wine only, and the macOS build is untested: please check the microphone and spoken confirmation on your system.
+**Audio on each system:** Windows uses its own speech voices (SAPI5; install the Italian language pack) and `winsound` for the beep; macOS uses the system voice (`pyttsx3` pulls in `pyobjc`); Linux uses `espeak-ng` plus the first of `paplay`/`pw-play`/`aplay` found (install `alsa-utils` if beep and voice are silent).
+
+**Status:** tested with a real microphone on Linux, where it recognises every species. The Windows executable was built and started under Wine only, and the macOS build is untested: please check the microphone and spoken confirmation on your system.
 
 ---
 
@@ -173,7 +181,7 @@ python3 script_aiuto/applica_formattazione.py
 
 **Errors with Excel files?** Verify that you haven't modified or moved the column structure in the templates within the `codice/` folder.
 
-**Using on Linux?** Use the scripts in the `script_aiuto/` folder.
+**Using on Linux?** Use the scripts in the `script_aiuto/` folder (guide: `script_aiuto/ISTRUZIONI_LINUX.txt`). **No sound from the beep or the voice?** Install `alsa-utils` (or make sure `paplay`/`pw-play` exist) and `espeak-ng`.
 
 **Using on macOS?** Use the scripts in the `mac/` folder. The GUI is compatible with macOS Tahoe (Tk 9.0) and earlier versions.
 
@@ -207,5 +215,5 @@ If you use Pollencounter in your project or report, please cite the authors:
 | `tkinter` | Mandatory (GUI) | On Debian: `sudo apt install python3-tk` |
 | `python-docx` | Optional | Word bulletin generation |
 | `sv-ttk` | Optional | Modern graphic theme (Windows only) |
-| `vosk`, `sounddevice`, `pyttsx3` | Optional | Voice counting (also needs the Vosk Italian model; Linux: `libportaudio2`, `espeak-ng`) |
+| `vosk`, `sounddevice`, `pyttsx3` | Optional | Voice counting (also needs the Vosk Italian model; Linux: `libportaudio2`, `espeak-ng` and a WAV player such as `paplay`; Windows/macOS: nothing else, `pyttsx3` installs `pywin32`/`comtypes` or `pyobjc` itself) |
 | `pyinstaller` | Development only | Windows/macOS executable build |

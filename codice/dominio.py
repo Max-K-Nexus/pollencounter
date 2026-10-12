@@ -100,6 +100,26 @@ BOLLETTINO_RIGHE = (
     ("Cladosporium",        "Cladosporium",           ("50",),                       "Cladosporium"),
 )
 
+# Famiglie il cui totale e' la somma di piu' codici: {codice_famiglia: codici}.
+# Derivata da BOLLETTINO_RIGHE (unica fonte): il codice della famiglia conta i
+# granuli "in dubbio" fra le specie, e il totale di famiglia li somma alle specie.
+FAMIGLIE_SOMMA = {righe[2][0]: righe[2] for righe in BOLLETTINO_RIGHE if len(righe[2]) > 1}
+
+
+def totali_famiglia(conteggi):
+    """{codice_famiglia: [7 interi]} con la somma di dubbi e specie, solo per
+    le famiglie con almeno un granulo. ``conteggi``: {codice: [7 interi]}."""
+    totali = {}
+    for famiglia, codici in FAMIGLIE_SOMMA.items():
+        somma = [0] * 7
+        for codice in codici:
+            for i, v in enumerate(conteggi.get(codice, [0] * 7)):
+                somma[i] += v
+        if any(somma):
+            totali[famiglia] = somma
+    return totali
+
+
 # Soglie di fallback (usate solo se concentrazioni_polliniche.xlsx non e' leggibile)
 SOGLIE_FALLBACK = {
     "Aceracee": (0.9, 19.9, 39.9),
@@ -439,10 +459,10 @@ SINONIMI_VOCALI_DEFAULT = {
     "08": ["composite", "asteracee"],
     "09": ["altre composite"],
     "12": ["corilacee"],
-    "14": ["carpino bianco"],
+    "14": ["carpino bianco", "carpino"],
     "15": ["carpino nero"],
     "16": ["nocciolo"],
-    "17": ["cupressacee taxacee", "cipresso", "cipressi"],
+    "17": ["cupressacee taxacee", "cipresso", "cipressi", "cup"],
     "18": ["erica"],
     "20": ["fagacee"],
     "21": ["castagno"],
@@ -451,28 +471,83 @@ SINONIMI_VOCALI_DEFAULT = {
     "24": ["graminacee"],
     "25": ["ippocastano"],
     "26": ["noce"],
-    "27": ["alloro"],
+    "27": ["alloro", "lauro"],
     "28": ["mimosa"],
-    "29": ["moracee", "gelso"],
+    "29": ["moracee", "gelso", "mora"],
     "30": ["mirto", "eucalipto"],
     "31": ["oleacee"],
-    "32": ["altre oleacee"],
+    "32": ["altre oleacee", "altre olea", "altri olivi", "altri ulivi"],
     "33": ["frassino"],
     "34": ["ligustro"],
-    "35": ["olivo", "ulivo"],
-    "36": ["pinacee", "pino", "pini"],
+    "35": ["olivo", "ulivo", "olio"],
+    "36": ["pinacee", "pino", "pini", "pinus"],
     "37": ["plantaginacee"],
     "38": ["platanacee", "platano", "platani"],
-    "39": ["non identificati"],
-    "40": ["poligonacee", "acetosa"],
+    "39": ["non identificati", "non identificato"],
+    "40": ["poligonacee", "acetosa", "poligono", "poligoni"],
     "41": ["salicacee"],
-    "42": ["pioppo"],
-    "43": ["salice"],
-    "44": ["tiliacee", "tiglio"],
-    "45": ["ulmacee", "olmo"],
+    "42": ["pioppo", "pioppi"],
+    "43": ["salice", "salici"],
+    "44": ["tiliacee", "tiglio", "tigli"],
+    "45": ["ulmacee", "olmo", "olmi"],
     "46": ["ombrellifere"],
-    "47": ["urticacee", "ortica"],
+    "47": ["urticacee", "ortica", "ortiche"],
 }
+
+# Nomi che il modello vocale piccolo non conosce (latini, di famiglia): non si
+# possono aggiungere al suo dizionario, quindi si riconoscono come sequenze di
+# parole che conosce e che, pronunciate, suonano uguale ("betulacee" ->
+# "bet ula cee"). {nome leggibile: (codice, [trascrizioni])}. Le trascrizioni
+# sono quelle che il riconoscitore ha davvero restituito ascoltando il nome
+# (voce di sintesi, varie velocita' e altezze), poi potate misurando l'effetto
+# sulle specie che gia' funzionavano: ogni frammento di parola in piu' nella
+# grammatica rischia di "rubare" parole vere (es. "plata nus" faceva perdere
+# "platani"). Per questo ce ne sono poche per nome e alcune specie (platanus,
+# urticacee) non ne hanno: si dicono col numero o col nome comune.
+# Vedi CHANGELOG. Il nome leggibile resta quello mostrato all'utente.
+PRONUNCE_VOCALI = {
+    "betulacee": ("03", ["bet ula cee"]),
+    "alnus": ("04", ["al nus"]),
+    "corilacee": ("12", ["cor ila cee", "cori lac ee"]),
+    "carpinus ostria": ("13", ["car pinus ost ria", "carpi nus ost ria"]),
+    "carpino ostria": ("13", ["carpi ost ria", "carpino ost ria"]),
+    "ostria": ("15", ["ost ria"]),
+    "corilus": ("16", ["cori lus", "cor il us"]),
+    "euforbia": ("19", ["eu fo rb ia", "eu for bia"]),
+    "fagacee": ("20", ["fa gac ee", "fag ac ee", "fa gac"]),
+    "oleacee": ("31", ["olea cee"]),
+    "salicacee": ("41", ["salica cee", "sal ica cee"]),
+    "plantago": ("37", ["plan tago"]),
+    "piantaggine": ("37", ["pian tag gine"]),
+    "plantagine": ("37", ["planta gine", "plan tag ine"]),
+    "poligonacee": ("40", ["poli gon ace"]),
+    "ulmacee": ("45", ["ulma cee"]),
+    "ombrellifere": ("46", ["ombrelli fere", "ombre lli fere"]),
+    "ombrellifera": ("46", ["ombrelli fera", "ombre lli fera"]),
+    "alternaria": ("48", ["alte rna ria", "alterna ria", "alt erna ria", "alte rn aria"]),
+    "alternarie": ("48", ["alterna rie", "alte rna rie", "alt erna rie", "alte rn arie"]),
+    "botrite": ("49", ["bot rite"]),
+    "botriti": ("49", ["bot riti"]),
+    "cladosporio": ("50", ["cla do spo rio", "cla dos po rio"]),
+    "cladospori": ("50", ["cla dos pori"]),
+    "curvularia": ("51", ["cur vu laria", "cur vu la ria"]),
+    "epicocco": ("52", ["epico cco", "epi cocco", "epic oc co"]),
+    "epicocchi": ("52", ["epic occhi", "epi cocchi", "epi coc chi"]),
+    "epicoccum": ("52", ["epi coc cum"]),
+    "elmintosporio": ("53", ["elmi nto spo rio", "elm into spo rio", "elm int osp orio"]),
+    "elmintospori": ("53", ["elm int osp ori"]),
+    "pitomices": ("54", ["pit omi ces"]),
+    "pleospora": ("55", ["ple osp ora"]),
+    "pleospore": ("55", ["ple osp ori", "ple osp ore"]),
+    "politrincio": ("56", ["po lit rin cio", "poli trinci o"]),
+    "politrincium": ("56", ["poli trinci um", "po lit rin ci um"]),
+    "stemfilio": ("57", ["stem fi lio", "stem fil io"]),
+    "tetraploa": ("58", ["tet rap loa"]),
+    "torula": ("59", ["tor ula"]),
+}
+TRASCRIZIONI_VOCALI = {t: nome for nome, (_, ts) in PRONUNCE_VOCALI.items() for t in ts}
+PAROLE_CON_PRONUNCIA = frozenset(p for nome in PRONUNCE_VOCALI for p in nome.split())
+
 
 class Totale:
     """Comando vocale 'totale': il PC legge il totale del giorno (sola lettura)."""
@@ -545,6 +620,10 @@ def costruisci_vocabolario_vocale(extra=None, attivazione=PAROLA_ATTIVAZIONE_DEF
                 continue
             for forma in forme:
                 aggiungi(forma, codice, origine)
+        if sorgente is SINONIMI_VOCALI_DEFAULT:
+            for codice, trascrizioni in PRONUNCE_VOCALI.values():
+                for trascrizione in trascrizioni:
+                    aggiungi(trascrizione, codice, "pronuncia")
     return vocabolario, avvisi
 
 

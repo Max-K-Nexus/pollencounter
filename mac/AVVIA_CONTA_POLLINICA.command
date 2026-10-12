@@ -27,4 +27,11 @@ if ! python3 -c "import openpyxl" 2>/dev/null; then
     exit 1
 fi
 
+# Opzionale: bollettini Word. Il programma parte comunque.
+if ! python3 -c "import docx" 2>/dev/null; then
+    echo "Nota: python-docx non e' installato: i bollettini Word non saranno disponibili."
+    echo "  pip3 install python-docx"
+    echo ""
+fi
+
 python3 "$SCRIPT_DIR/../codice/polline_counter.py"

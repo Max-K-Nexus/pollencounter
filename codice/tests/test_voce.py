@@ -203,5 +203,114 @@ class TestDipendenze(unittest.TestCase):
         self.assertIn("modelli", str(ctx.exception))
 
 
+def which_finto(*presenti):
+    return lambda nome: f"/usr/bin/{nome}" if nome in presenti else None
+
+
+class TestLettoreAudio(unittest.TestCase):
+    def test_ordine_di_preferenza_su_linux(self):
+        self.assertEqual(voce.trova_lettore_audio(which_finto("aplay", "pw-play", "paplay"), "linux"),
+                         ["/usr/bin/paplay"])
+        self.assertEqual(voce.trova_lettore_audio(which_finto("aplay", "pw-play"), "linux"),
+                         ["/usr/bin/pw-play"])
+        self.assertEqual(voce.trova_lettore_audio(which_finto("aplay"), "linux"),
+                         ["/usr/bin/aplay", "-q"])
+
+    def test_nessun_lettore(self):
+        self.assertIsNone(voce.trova_lettore_audio(which_finto(), "linux"))
+
+    def test_windows_usa_winsound_quindi_nessun_comando(self):
+        self.assertIsNone(voce.trova_lettore_audio(which_finto("paplay"), "win32"))
+
+    def test_macos(self):
+        self.assertEqual(voce.trova_lettore_audio(which_finto("afplay"), "darwin"),
+                         ["/usr/bin/afplay"])
+
+    def test_wav_del_beep_valido(self):
+        import wave
+        with tempfile.TemporaryDirectory() as d:
+            percorso = Path(d) / "beep.wav"
+            voce.scrivi_wav_beep(percorso)
+            with wave.open(str(percorso), "rb") as f:
+                self.assertEqual(f.getnchannels(), 1)
+                self.assertEqual(f.getsampwidth(), 2)
+                durata_ms = 1000 * f.getnframes() / f.getframerate()
+        self.assertAlmostEqual(durata_ms, voce.BEEP_MS, delta=5)
+
+    def test_riproduci_senza_lettore_non_solleva(self):
+        with mock.patch.object(voce.sys, "platform", "linux"), \
+                mock.patch.object(voce, "trova_lettore_audio", return_value=None):
+            self.assertFalse(voce.riproduci_wav("x.wav"))
+
+    def test_beep_senza_lettore_ritorna_false(self):
+        with mock.patch.object(voce.sys, "platform", "linux"), \
+                mock.patch.object(voce, "trova_lettore_audio", return_value=None):
+            self.assertFalse(voce.beep())
+
+
+class MotoreFinto:
+    def __init__(self, errore_alla=None):
+        self.detto = []
+        self._errore_alla = errore_alla
+
+    def dici(self, testo):
+        if testo == self._errore_alla:
+            raise RuntimeError("audio guasto")
+        self.detto.append(testo)
+
+
+class AscoltatoreFinto:
+    def __init__(self):
+        self.chiamate = []
+
+    def silenzia(self, secondi):
+        self.chiamate.append(secondi)
+
+
+class TestSintesi(unittest.TestCase):
+    def _attendi(self, sintesi):
+        sintesi.ferma()
+        sintesi._thread.join(timeout=2)
+
+    def test_il_testo_arriva_al_motore_e_l_ascoltatore_e_silenziato_prima_e_dopo(self):
+        motore, asc = MotoreFinto(), AscoltatoreFinto()
+        sintesi = voce.Sintesi(asc, durata_stimata=lambda t: 1.5, motore=motore)
+        sintesi.parla("graminacee")
+        self._attendi(sintesi)
+        self.assertEqual(motore.detto, ["graminacee"])
+        self.assertEqual(asc.chiamate, [1.5, 0])
+
+    def test_errore_del_motore_non_ferma_il_thread(self):
+        motore = MotoreFinto(errore_alla="uno")
+        sintesi = voce.Sintesi(None, motore=motore)
+        sintesi.parla("uno")
+        sintesi.parla("due")
+        self._attendi(sintesi)
+        self.assertEqual(motore.detto, ["due"])
+        self.assertIn("audio guasto", sintesi.avviso)
+
+    def test_motore_non_avviabile_da_un_avviso(self):
+        with mock.patch.object(voce, "crea_motore_sintesi", side_effect=RuntimeError("no driver")):
+            sintesi = voce.Sintesi(None)
+            sintesi.parla("uno")
+            self._attendi(sintesi)
+        self.assertIn("no driver", sintesi.avviso)
+
+
+class TestSceltaMotoreSintesi(unittest.TestCase):
+    def test_linux_con_espeak_e_lettore_non_usa_pyttsx3(self):
+        motore, avviso = voce.crea_motore_sintesi(which_finto("espeak-ng", "paplay"), "linux")
+        self.assertIsInstance(motore, voce.MotoreEspeak)
+        self.assertEqual(avviso, "")
+
+    def test_linux_senza_lettore_avvisa_e_dice_cosa_installare(self):
+        finto = mock.Mock()
+        finto.init.return_value.getProperty.return_value = []
+        with mock.patch.object(voce, "pyttsx3", finto):
+            motore, avviso = voce.crea_motore_sintesi(which_finto("espeak-ng"), "linux")
+        self.assertIsInstance(motore, voce.MotorePyttsx3)
+        self.assertIn("alsa-utils", avviso)
+
+
 if __name__ == "__main__":
     unittest.main()

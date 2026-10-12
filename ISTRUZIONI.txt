@@ -12,6 +12,10 @@ REQUISITI
     sudo apt install python3-docx
   oppure:  pip3 install python-docx
 - (Opzionale) per la lettura vocale: vedi la sezione LETTURA VOCALE
+- Istruzioni specifiche per sistema operativo:
+    Linux:    script_aiuto/ISTRUZIONI_LINUX.txt
+    macOS:    mac/ISTRUZIONI_MAC.txt
+    Windows:  windows/ISTRUZIONI_WINDOWS.txt
 
 
 AVVIO
@@ -161,6 +165,8 @@ Installazione (una volta sola):
   pip3 install vosk sounddevice pyttsx3
   Linux (Debian/Ubuntu): sudo apt install libportaudio2 espeak-ng
   Linux (openSUSE):      sudo zypper install libportaudio2 espeak-ng
+  Windows e macOS: nessun pacchetto di sistema da aggiungere (pip installa
+  da solo cio' che serve: pywin32/comtypes su Windows, pyobjc su macOS).
   Scaricare il modello italiano "vosk-model-small-it" da
   https://alphacephei.com/vosk/models e decomprimerlo nella cartella
   codice/modelli/ (deve restare una cartella "vosk-model-small-it-...").
@@ -188,16 +194,35 @@ Personalizzazione (file pollencounter.cfg, vedi pollencounter.cfg.esempio):
   "parola_attivazione": "conta"    cambia la parola ("" la disattiva)
   "sinonimi_vocali": {"24": ["erba"]}   altre parole per una specie
 
-Il modello vocale non conosce molti nomi latini (es. stemphylium,
-urticaceae): quando si attiva la voce il log elenca quelli non capiti.
-Per quelle specie dire il numero o il nome comune (colonna "A voce"),
-oppure aggiungere in "sinonimi_vocali" una parola italiana che il
-modello conosca. Se manca una voce italiana per la sintesi, il log lo
-segnala e il computer parla con una voce straniera.
+Il modello vocale non conosce molti nomi latini (es. alternaria,
+betulacee), ma quasi tutti sono riconosciuti lo stesso grazie a pronunce
+incorporate nel programma: si dicono normalmente ("conta alternaria",
+"conta betulacee"). Con voci o accenti diversi puo' capitare di non essere
+capiti o, raramente, di essere scambiati per un'altra specie: il computer
+ripete cio' che ha capito, quindi basta dire "conta annulla". In "Prova
+voce" il log scrive anche le frasi sentite ma non riconosciute ("Sentito
+ma non in elenco"): servono per aggiungere nuove varianti. In caso di
+dubbio dire il numero o il nome comune; la scheda "Codici", colonna "A
+voce", mostra cosa si puo' dire per ogni specie.
+Per una specie che non viene mai capita si puo' aggiungere in
+"sinonimi_vocali" una parola italiana che il modello conosca. Se manca una
+voce italiana per la sintesi, il log lo segnala e il computer parla con
+una voce straniera.
+
+Sistemi operativi: la lettura vocale e' la stessa su Windows, macOS e
+Linux; cambia solo l'installazione (vedi ISTRUZIONI_WINDOWS.txt,
+ISTRUZIONI_MAC.txt, script_aiuto/ISTRUZIONI_LINUX.txt).
 
 
 CODICI SPECIE
 -------------
+  Famiglie che sono la somma di piu' specie: BETULACEAE (03 = 03+04+05),
+  COMPOSITAE (08 = 08..11), CORYLACEAE (12 = 12..16), FAGACEAE (20 = 20..23),
+  OLEACEAE (31 = 31..35), SALICACEAE (41 = 41..43). Il codice della famiglia
+  si usa per i granuli di cui non si riesce a stabilire la specie ("dubbi");
+  il bollettino e le schede della GUI mostrano il totale di famiglia
+  (dubbi + specie).
+
 
   POLLINI (01-47):
   01: ACERACEAE                 02: ALTRI POLLINI

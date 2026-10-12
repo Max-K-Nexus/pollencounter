@@ -21,12 +21,16 @@ PASSI:
      (Applicazioni > Utility > Terminale) e digita:
        pip3 install openpyxl
 
-  3. Se gli script non partono, rendili eseguibili (una sola volta,
+  3. Opzionale, per i bollettini Word:
+       pip3 install python-docx
+     (gli script di avvio lo segnalano se manca)
+
+  4. Se gli script non partono, rendili eseguibili (una sola volta,
      da Terminale nella cartella mac/):
        chmod +x AVVIA_CONTA_POLLINICA_GUI.command
        chmod +x AVVIA_CONTA_POLLINICA.command
 
-  4. Avvia l'interfaccia grafica con doppio clic su:
+  5. Avvia l'interfaccia grafica con doppio clic su:
        AVVIA_CONTA_POLLINICA_GUI.command
      oppure da Terminale:
        ./AVVIA_CONTA_POLLINICA_GUI.command
@@ -80,6 +84,8 @@ microscopio. Funziona senza internet. Per usarla:
 
   1. Installa le librerie (Terminale):
        pip3 install vosk sounddevice pyttsx3
+     (pyttsx3 installa da solo anche pyobjc, che serve per la voce di
+     macOS: puo' richiedere qualche minuto)
   2. Scarica il modello italiano "vosk-model-small-it-0.22" da
        https://alphacephei.com/vosk/models
      e decomprimilo nella cartella codice/modelli/ (deve restare
@@ -107,10 +113,16 @@ voce il nome che ha capito; se e' sbagliato dire "conta annulla".
 
 Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante.
 "Prova voce": il computer dice cosa ha capito senza registrare nulla.
-Il modello vocale non conosce molti nomi latini (es. stemphylium,
-urticaceae): il log li elenca all'attivazione; per quelle specie dire il
-numero o il nome comune. La scheda "Codici", colonna "A voce", mostra cosa
-si puo' dire per ogni specie. Dettagli e personalizzazione (pollencounter.cfg:
+Il modello vocale non conosce molti nomi latini (es. alternaria,
+betulacee), ma quasi tutti sono riconosciuti lo stesso grazie a pronunce
+incorporate nel programma: si dicono normalmente ("conta alternaria",
+"conta betulacee"). Con voci o accenti diversi puo' capitare di non essere
+capiti o, raramente, di essere scambiati per un'altra specie: il computer
+ripete cio' che ha capito, quindi basta dire "conta annulla". In "Prova
+voce" il log scrive anche le frasi sentite ma non riconosciute ("Sentito
+ma non in elenco"): servono per aggiungere nuove varianti. In caso di
+dubbio dire il numero o il nome comune; la scheda "Codici", colonna "A
+voce", mostra cosa si puo' dire per ogni specie. Dettagli e personalizzazione (pollencounter.cfg:
 "parola_attivazione", "sinonimi_vocali"): vedi ISTRUZIONI.txt, sezione
 LETTURA VOCALE.
 
@@ -157,6 +169,13 @@ divisa in due pannelli:
 
     Scheda "Giornaliero": griglia specie x giorno (lun-dom)
       con subtotali per ciascun giorno.
+
+    Nelle due schede, per le famiglie che sono la somma di piu' specie
+    (Betulaceae, Compositae, Corylaceae, Fagaceae, Oleaceae, Salicaceae)
+    compare una riga grigia in grassetto "NOME (totale)" con la somma di
+    specie e "dubbi"; la riga del codice di famiglia diventa "NOME
+    (dubbi)" (granuli di cui non si e' stabilita la specie). I totali
+    Pollini / Spore / TOTALE non contano due volte.
 
     Scheda "Bollettino": anteprima del bollettino pollinico, con
       ogni giorno colorato secondo la propria concentrazione
