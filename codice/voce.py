@@ -73,19 +73,27 @@ class VoceNonDisponibile(Exception):
 # ============================================================
 def frase_da_risultato(risultato_json, soglia=SOGLIA_CONFIDENZA_DEFAULT):
     """Da un risultato Vosk (stringa JSON) ritorna la frase capita, oppure ''
-    se vuota, contenente '[unk]' o con almeno una parola sotto soglia di
-    confidenza (nel dubbio non si registra nulla: meglio ripetere che
-    sbagliare specie)."""
+    se vuota o se non c'e' nessuna parola sicura.
+
+    Le parole sotto soglia di confidenza diventano '[unk]' invece di far
+    scartare l'intera frase: con piu' comandi di seguito ("conta acero conta
+    pioppo") un'incertezza deve rovinare solo il suo comando, non gli altri.
+    Il comando che contiene '[unk]' viene poi scartato da
+    ``dominio.interpreta_vocale`` (nel dubbio non si registra nulla: meglio
+    ripetere che sbagliare specie)."""
     try:
         risultato = json.loads(risultato_json)
     except (TypeError, ValueError):
         return ""
     testo = (risultato.get("text") or "").strip()
-    if not testo or "[unk]" in testo:
+    if not testo:
         return ""
-    for parola in risultato.get("result", []):
-        if parola.get("conf", 1.0) < soglia:
-            return ""
+    parole = risultato.get("result") or []
+    if parole:
+        testo = " ".join(p.get("word", "") if p.get("conf", 1.0) >= soglia else "[unk]"
+                         for p in parole)
+    if all(p == "[unk]" for p in testo.split()):
+        return ""
     return testo
 
 

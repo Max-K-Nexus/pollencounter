@@ -237,8 +237,60 @@ class TestVocale(unittest.TestCase):
         self.assertEqual((r.codice, r.quantita), ("01", 20))
 
     def test_quantita_fuori_range_o_non_capita(self):
-        for frase in ("graminacee per uno", "graminacee per ventuno", "graminacee per pippo"):
+        for frase in ("graminacee per ventuno", "graminacee per pippo"):
             self.assertIsInstance(self.v(frase), d.ComandoNonValido)
+
+    def test_per_uno_vale_una_occorrenza(self):
+        r = self.v("graminacee per uno")
+        self.assertEqual((r.codice, r.quantita), ("24", 1))
+        self.assertIn("conta acero per uno", d.costruisci_grammatica(self.vocab))
+
+    def test_sequenza_di_comandi_in_una_frase(self):
+        seq = d.interpreta_vocale_sequenza(
+            "conta acero conta ontano conta graminacee per tre", self.vocab)
+        self.assertEqual([s for s, _ in seq],
+                         ["conta acero", "conta ontano", "conta graminacee per tre"])
+        self.assertEqual([c for _, c in seq],
+                         [d.Inserisci("01", 1), d.Inserisci("04", 1), d.Inserisci("24", 3)])
+
+    def test_sequenza_con_annulla_in_ordine(self):
+        seq = d.interpreta_vocale_sequenza("conta acero conta annulla conta ontano", self.vocab)
+        self.assertEqual([c for _, c in seq],
+                         [d.Inserisci("01", 1), d.Azione("u"), d.Inserisci("04", 1)])
+
+    def test_sequenza_di_un_solo_comando_come_prima(self):
+        seq = d.interpreta_vocale_sequenza("conta acero per uno", self.vocab)
+        self.assertEqual(seq, [("conta acero per uno", d.Inserisci("01", 1))])
+
+    def test_sequenza_comando_non_valido_non_blocca_gli_altri(self):
+        seq = d.interpreta_vocale_sequenza(
+            "conta acero conta [unk] conta pippo conta ontano", self.vocab)
+        comandi = [c for _, c in seq]
+        self.assertEqual(comandi[0], d.Inserisci("01", 1))
+        self.assertIsInstance(comandi[1], d.ComandoNonValido)
+        self.assertIsInstance(comandi[2], d.ComandoNonValido)
+        self.assertEqual(comandi[3], d.Inserisci("04", 1))
+
+    def test_dividi_scarta_cio_che_precede_la_prima_attivazione(self):
+        self.assertEqual(d.dividi_comandi_vocali("acero tre conta ontano"), ["conta ontano"])
+        self.assertEqual(d.dividi_comandi_vocali("acero tre"), [])
+        self.assertEqual(d.dividi_comandi_vocali(""), [])
+
+    def test_dividi_ignora_attivazioni_a_vuoto(self):
+        self.assertEqual(d.dividi_comandi_vocali("conta conta acero conta"), ["conta acero"])
+
+    def test_dividi_conserva_unk_e_normalizza(self):
+        self.assertEqual(d.dividi_comandi_vocali("Conta [unk] CONTA Acero"),
+                         ["conta [unk]", "conta acero"])
+
+    def test_dividi_senza_parola_di_attivazione_e_un_solo_comando(self):
+        self.assertEqual(d.dividi_comandi_vocali("acero per tre", ""), ["acero per tre"])
+        seq = d.interpreta_vocale_sequenza("acero per tre", self.vocab, attivazione="")
+        self.assertEqual([c for _, c in seq], [d.Inserisci("01", 3)])
+
+    def test_dividi_attivazione_personalizzata(self):
+        self.assertEqual(d.dividi_comandi_vocali("registra acero registra ontano", "registra"),
+                         ["registra acero", "registra ontano"])
 
     def test_comandi_vocali_reversibili(self):
         self.assertEqual(self.v("annulla"), d.Azione("u"))

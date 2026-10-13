@@ -475,6 +475,46 @@ def leggi_parola_attivazione(config_file):
     return dominio.normalizza_parlato(valore)
 
 
+DIVISIONE_FINESTRA_MIN, DIVISIONE_FINESTRA_MAX = 0.2, 0.8
+
+
+def leggi_layout_finestra(config_file):
+    """Dimensioni e proporzione dei pannelli salvate in pollencounter.cfg
+    (chiave 'finestra': larghezza, altezza, divisione). Ritorna un dict con le
+    sole voci valide (anche vuoto): chi chiama usa i propri valori predefiniti
+    per quelle mancanti. Non salva la posizione: con un monitor diverso la
+    finestra potrebbe finire fuori schermo."""
+    valore = _leggi_config(config_file).get("finestra")
+    if not isinstance(valore, dict):
+        return {}
+    layout = {}
+    for chiave in ("larghezza", "altezza"):
+        v = valore.get(chiave)
+        if isinstance(v, int) and not isinstance(v, bool) and 300 <= v <= 10000:
+            layout[chiave] = v
+    d = valore.get("divisione")
+    if (isinstance(d, (int, float)) and not isinstance(d, bool)
+            and DIVISIONE_FINESTRA_MIN <= d <= DIVISIONE_FINESTRA_MAX):
+        layout["divisione"] = float(d)
+    return layout
+
+
+def salva_layout_finestra(config_file, larghezza, altezza, divisione):
+    """Salva le dimensioni della finestra senza toccare le altre chiavi. Valori
+    non sensati (finestra ridotta a icona, divisione fuori limiti) si ignorano."""
+    config_file = Path(config_file)
+    config = _leggi_config(config_file)
+    layout = {}
+    if 300 <= larghezza <= 10000 and 300 <= altezza <= 10000:
+        layout["larghezza"], layout["altezza"] = int(larghezza), int(altezza)
+    if DIVISIONE_FINESTRA_MIN <= divisione <= DIVISIONE_FINESTRA_MAX:
+        layout["divisione"] = round(float(divisione), 3)
+    if not layout:
+        return
+    config["finestra"] = layout
+    config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 ATTESA_VOCALE_DEFAULT_MS = 300
 
 

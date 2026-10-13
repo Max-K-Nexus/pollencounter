@@ -437,7 +437,7 @@ def interpreta_comando(testo):
 # Disattivabile con la chiave "parola_attivazione" di pollencounter.cfg.
 # ============================================================
 PAROLA_ATTIVAZIONE_DEFAULT = "conta"
-QUANTITA_VOCALE_MIN = 2
+QUANTITA_VOCALE_MIN = 1          # "conta acero per uno" vale come "conta acero"
 QUANTITA_VOCALE_MAX = 20
 
 _UNITA = ["", "uno", "due", "tre", "quattro", "cinque", "sei", "sette",
@@ -676,3 +676,49 @@ def interpreta_vocale(testo, vocabolario, attivazione=PAROLA_ATTIVAZIONE_DEFAULT
     if codice is None:
         return ComandoNonValido("")
     return Inserisci(codice=codice, quantita=quantita)
+
+
+def dividi_comandi_vocali(testo, attivazione=PAROLA_ATTIVAZIONE_DEFAULT):
+    """Spezza una frase del riconoscitore in comandi separati: ogni parola di
+    attivazione apre un nuovo comando e chiude il precedente ("conta acero
+    conta pioppo per tre" -> ["conta acero", "conta pioppo per tre"]). Con
+    pause brevi il riconoscitore fonde piu' comandi in una sola frase.
+
+    Ritorna segmenti normalizzati, ciascuno col proprio prefisso, pronti per
+    ``interpreta_vocale``; '[unk]' e' conservato. Cio' che precede la prima
+    parola di attivazione si scarta e le attivazioni a vuoto ("conta conta
+    acero") si ignorano. Senza parola di attivazione la frase e' un solo
+    comando."""
+    parole = []
+    for token in testo.split():
+        if token.lower() == "[unk]":
+            parole.append("[unk]")
+        else:
+            parole.extend(normalizza_parlato(token).split())
+    if not attivazione:
+        return [" ".join(parole)] if parole else []
+
+    chiave = attivazione.split()
+    n = len(chiave)
+    segmenti, corrente, i = [], None, 0
+    while i < len(parole):
+        if parole[i:i + n] == chiave:
+            if corrente:
+                segmenti.append(corrente)
+            corrente = []
+            i += n
+            continue
+        if corrente is not None:
+            corrente.append(parole[i])
+        i += 1
+    if corrente:
+        segmenti.append(corrente)
+    return [" ".join(chiave + s) for s in segmenti]
+
+
+def interpreta_vocale_sequenza(testo, vocabolario, attivazione=PAROLA_ATTIVAZIONE_DEFAULT):
+    """Come ``interpreta_vocale`` ma per una frase con piu' comandi di seguito.
+    Ritorna [(segmento, comando)] nell'ordine in cui sono stati detti; un
+    segmento non valido non impedisce agli altri di essere eseguiti."""
+    return [(s, interpreta_vocale(s, vocabolario, attivazione))
+            for s in dividi_comandi_vocali(testo, attivazione)]

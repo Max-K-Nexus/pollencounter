@@ -46,6 +46,15 @@ AVVIO
   Se sposti la cartella del progetto, aggiorna il campo Exec.
 
 
+FINESTRA
+--------
+La finestra si adatta da sola allo schermo e quando la si ridimensiona: i
+pulsanti vanno a capo invece di sparire, le schede a destra (Settimanale,
+Giornaliero, Bollettino, Codici) riempiono lo spazio e il divisorio fra i
+due pannelli mantiene la proporzione. Il divisorio si puo' trascinare a
+mano: dimensione della finestra e proporzione vengono ricordate per la
+volta successiva.
+
 LETTURA VOCALE (opzionale)
 ---------------------------
 Permette di registrare i granuli a voce, senza staccare gli occhi dal

@@ -109,8 +109,17 @@ class TestFraseDaRisultato(unittest.TestCase):
         for r in ("", "non json", None, json.dumps({}), json.dumps({"text": "  "})):
             self.assertEqual(voce.frase_da_risultato(r), "")
 
-    def test_unk_scartato(self):
-        self.assertEqual(voce.frase_da_risultato(risultato("conta [unk]")), "")
+    def test_unk_non_butta_via_la_frase(self):
+        # "conta [unk]" arriva in coda e viene scartata da dominio.interpreta_vocale;
+        # una frase fatta solo di [unk] invece non serve a nessuno
+        self.assertEqual(voce.frase_da_risultato(risultato("conta [unk]")), "conta [unk]")
+        self.assertEqual(voce.frase_da_risultato(risultato("[unk] [unk]")), "")
+
+    def test_parola_incerta_diventa_unk_e_gli_altri_comandi_restano(self):
+        r = json.dumps({"text": "conta acero conta tre",
+                        "result": [{"word": "conta", "conf": 1.0}, {"word": "acero", "conf": 0.9},
+                                   {"word": "conta", "conf": 1.0}, {"word": "tre", "conf": 0.2}]})
+        self.assertEqual(voce.frase_da_risultato(r), "conta acero conta [unk]")
 
     def test_confidenza_sotto_soglia_scartata(self):
         self.assertEqual(voce.frase_da_risultato(risultato("conta ventiquattro", conf=0.3)), "")
@@ -120,7 +129,7 @@ class TestFraseDaRisultato(unittest.TestCase):
     def test_basta_una_parola_incerta(self):
         r = json.dumps({"text": "conta tre", "result": [{"word": "conta", "conf": 1.0},
                                                          {"word": "tre", "conf": 0.2}]})
-        self.assertEqual(voce.frase_da_risultato(r), "")
+        self.assertEqual(voce.frase_da_risultato(r), "conta [unk]")   # il comando non verra' eseguito
 
 
 class TestAscoltatore(unittest.TestCase):
@@ -129,7 +138,7 @@ class TestAscoltatore(unittest.TestCase):
         self.assertEqual(frasi, ["conta uno", "conta annulla"])
 
     def test_frasi_incerte_o_sconosciute_non_arrivano(self):
-        frasi, _, _ = esegui([risultato("conta [unk]"), risultato("conta tre", conf=0.1),
+        frasi, _, _ = esegui([risultato("[unk]"), risultato("conta tre", conf=0.1),
                               risultato("conta tre")])
         self.assertEqual(frasi, ["conta tre"])
 

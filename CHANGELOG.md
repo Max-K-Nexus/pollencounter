@@ -6,6 +6,79 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ## 2026-10-13
 
+### Finestra che si adatta da sola (dimensioni, pulsanti, schede)
+
+**Problema:** all'avvio la finestra non era proporzionata ai contenuti: con poca
+altezza i pulsanti sparivano, con poca larghezza servivano ~1000 px per vedere la
+barra azioni, e le schede di destra non seguivano la finestra (divisorio e colonne
+da riaggiustare ogni volta).
+
+**Causa:** (`codice/polline_counter_gui.py`) widget che si espandono impacchettati
+*prima* delle barre di pulsanti (Tk taglia per primi gli ultimi impacchettati);
+dieci pulsanti in una riga sola; pannello destro `stretch="never"` con larghezza
+fissa; colonne dei `Treeview` e celle del Bollettino con larghezze fisse.
+
+**Correzione:**
+- Dimensione iniziale 90% x 85% dello schermo (max 1400x900), centrata; minimo
+  720x480. Dimensione e proporzione dei pannelli si ricordano in
+  `pollencounter.cfg` (chiave `finestra`; `sessione.leggi_layout_finestra` /
+  `salva_layout_finestra`, valori malformati ignorati, nessuna posizione salvata).
+- Barre in basso impacchettate prima dei contenuti (schermata iniziale, pannello
+  sinistro, totali delle schede, info del Bollettino, bottone dei Codici); la
+  lista dell'avvio ha la scrollbar.
+- `_BarraFluida`: i pulsanti azione vanno a capo da soli (fino a 4 righe a 720 px).
+  Barra dei giorni con pulsanti che si dividono la larghezza.
+- Divisorio proporzionale (`_divisione`, 55% di default), riapplicato a ogni
+  ridimensionamento e aggiornato quando lo si trascina; mai sotto 330/380 px.
+- Colonne dei `Treeview` con `_colonne_tabella` (numeriche strette, "Specie"
+  elastica). Bollettino: colonne con peso (specie 3, giorni uguali), barra
+  orizzontale solo se non ci sta nemmeno al minimo.
+- Provato su schermo virtuale (Xvfb) a 720x480, 1000x600 e 1400x900: nessun
+  pulsante fuori dalla finestra in nessuna delle schede.
+
+### Conta vocale: piu' comandi di seguito nella stessa frase
+
+**Problema:** dicendo "conta alternaria", "conta populus", "conta alnus"... di
+seguito non veniva registrato nulla: le pause brevi facevano fondere a Vosk i
+comandi in un'unica frase, che `interpreta_vocale` (un solo comando per frase)
+scartava per intero come "sentito ma non in elenco".
+
+**Causa:** `dominio.interpreta_vocale` interpretava la frase come un comando solo.
+In piu' `voce.frase_da_risultato` scartava l'intera frase se *una* parola era
+sotto soglia di confidenza: con frasi fuse un'incertezza cancellava tutti i comandi.
+
+**Correzione:**
+- `dominio.dividi_comandi_vocali` / `interpreta_vocale_sequenza`: ogni parola di
+  attivazione chiude il comando precedente e ne apre uno nuovo; cio' che precede il
+  primo "conta" si scarta; "conta" a vuoto ignorati; `[unk]` conservato.
+- GUI (`_gestisci_frase_vocale`): esegue i comandi nell'ordine detto
+  ("conta acero conta annulla" funziona); un comando non valido non blocca gli altri;
+  conferme parlate unite in un'unica frase. `frase_completa` (chiusura anticipata)
+  aspetta che tutti i comandi del parziale siano validi.
+- `voce.frase_da_risultato`: la parola incerta diventa `[unk]` (il solo comando che
+  la contiene viene scartato); frase di soli `[unk]` -> vuota.
+- Provato con Vosk reale su audio sintetico (espeak-ng): 6 sequenze x pause di 0,15 /
+  0,3 / 0,5 s = 18/18 corrette. Limite noto, non nuovo: con la voce sintetica
+  "ontano" detto dopo un'altra parola puo' diventare "tago" (frammento della
+  trascrizione di "plantago"); da tarare sulla voce reale.
+- Test: `test_dominio.py` (sequenze, annulla in ordine, `[unk]`, attivazione vuota o
+  personalizzata), `test_voce.py` (confidenza per parola), `test_sessione.py` (layout).
+
+### Conta vocale: "per uno" accettato
+
+**Problema:** "conta [specie] per uno" non veniva registrato (errore visto nella
+prova del 12/10): il log mostrava "Quantita' non capita".
+
+**Causa:** `QUANTITA_VOCALE_MIN = 2`: "per uno" non era nella grammatica e
+`_quantita_da_parole("uno")` dava `None`.
+
+**Correzione:** `dominio.QUANTITA_VOCALE_MIN = 1`: "X per uno" vale come una
+occorrenza. La grammatica passa da 5264 a 5527 frasi ma le *parole* sono identiche
+(Vosk vincola le parole, non le frasi): il riconoscimento delle altre frasi non cambia.
+Aggiornati HELP_TEXT, `ISTRUZIONI.txt`, guide Linux/macOS/Windows, `README.md`,
+`CLAUDE.md` ("da 1 a 20").
+
+
 ### Riepilogo annuale: fattore di conversione e concentrazioni come formule
 
 **Problema:** il riepilogo annuale conteneva le concentrazioni come numeri

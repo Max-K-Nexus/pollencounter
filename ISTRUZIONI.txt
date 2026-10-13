@@ -95,6 +95,15 @@ FLUSSO DI LAVORO
    (es. "5" equivale a "05").
 
 
+FINESTRA
+--------
+La finestra si adatta da sola allo schermo e quando la si ridimensiona: i
+pulsanti vanno a capo invece di sparire, le schede a destra (Settimanale,
+Giornaliero, Bollettino, Codici) riempiono lo spazio e il divisorio fra i
+due pannelli mantiene la proporzione. Il divisorio si puo' trascinare a
+mano: dimensione della finestra e proporzione vengono ricordate per la
+volta successiva.
+
 COMANDI DURANTE L'INSERIMENTO
 ------------------------------
 
@@ -179,10 +188,16 @@ vengono registrate come granuli.
 
   conta ventiquattro          inserisce il codice 24
   conta graminacee            inserisce la specie per nome
-  conta graminacee per tre    inserisce 3 occorrenze (da 2 a 20)
+  conta graminacee per tre    inserisce 3 occorrenze (da 1 a 20)
   conta annulla               annulla l'ultimo inserimento
   conta ripeti                ripete l'ultimo codice
   conta totale                il computer legge il totale del giorno
+
+Piu' comandi di seguito: ogni "conta" chiude il comando precedente e ne
+inizia uno nuovo, quindi si puo' dire "conta acero conta ontano conta
+graminacee per tre" e vengono registrati tre inserimenti, nell'ordine.
+Basta una pausa breve fra un comando e l'altro. Se un comando non e'
+chiaro viene scartato da solo, senza perdere gli altri.
 
 I nomi e i numeri accettati per ogni specie sono nella colonna "A voce"
 della scheda Codici. Salvare, chiudere la giornata e uscire NON si

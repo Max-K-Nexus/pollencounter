@@ -15,6 +15,7 @@ import tkinter as tk
 from datetime import timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import font as tkfont
 
 import dominio
 import esportatori
@@ -40,6 +41,7 @@ else:
     _MONO_FONT = "Monospace"
 
 MAX_LINES_LOG = 3000
+_MIN_SINISTRA, _MIN_DESTRA = 330, 380     # larghezze minime dei due pannelli (px)
 
 HELP_TEXT = """Codici: 01-59 inserisce la specie corrispondente.
 NNxQ inserisce Q occorrenze (es. 48x4 = 4 Alternaria).
@@ -62,10 +64,13 @@ Gli stessi comandi sono disponibili anche dai pulsanti sulla sinistra.
 Lettura vocale (pulsante "Voce"): ogni frase inizia con "conta".
   conta ventiquattro        inserisce il codice 24
   conta graminacee          inserisce la specie per nome
-  conta graminacee per tre  inserisce 3 occorrenze (da 2 a 20)
+  conta graminacee per tre  inserisce 3 occorrenze (da 1 a 20)
   conta annulla             annulla l'ultimo inserimento
   conta ripeti              ripete l'ultimo codice
   conta totale              il computer legge il totale del giorno
+Piu' comandi di seguito: ogni "conta" chiude il precedente e ne inizia uno
+nuovo (es. "conta acero conta ontano conta graminacee per tre" registra tre
+inserimenti). Fra un comando e l'altro basta una pausa breve.
 Con "Ripeti a voce" attivo il computer ripete il nome di cio' che ha
 registrato (es. "conta alternaria" -> "alternaria"): utile per controllare
 senza staccare gli occhi dal microscopio. "conta totale" risponde sempre.
@@ -74,23 +79,38 @@ Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante."""
 
 class _ScrollableFrame(tk.Frame):
     """Frame con scrollbar verticale (per la scheda Bollettino, che disegna
-    una griglia di celle colorate e non un semplice elenco)."""
+    una griglia di celle colorate e non un semplice elenco). Il contenuto
+    segue la larghezza della finestra; la barra orizzontale compare solo se
+    il contenuto non ci sta nemmeno alla sua larghezza minima."""
 
     def __init__(self, parent, **kw):
         super().__init__(parent, **kw)
         self.canvas = tk.Canvas(self, highlightthickness=0, bg="#ffffff")
         vscroll = tk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
+        self._hscroll = tk.Scrollbar(self, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self._hscroll_visibile = False
         self.inner = tk.Frame(self.canvas, bg="#ffffff")
-        self.inner.bind("<Configure>",
-                        lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.inner.bind("<Configure>", self._adatta)
         self._window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
-        self.canvas.bind("<Configure>",
-                         lambda e: self.canvas.itemconfig(self._window, width=e.width))
-        self.canvas.configure(yscrollcommand=vscroll.set)
+        self.canvas.bind("<Configure>", self._adatta)
+        self.canvas.configure(yscrollcommand=vscroll.set, xscrollcommand=self._hscroll.set)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vscroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.bind("<Enter>", self._bind_wheel)
         self.canvas.bind("<Leave>", self._unbind_wheel)
+
+    def _adatta(self, _e=None):
+        larg_canvas = self.canvas.winfo_width()
+        richiesta = self.inner.winfo_reqwidth()
+        self.canvas.itemconfig(self._window, width=max(larg_canvas, richiesta))
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        serve = richiesta > larg_canvas > 1
+        if serve and not self._hscroll_visibile:
+            self._hscroll.pack(side=tk.BOTTOM, fill=tk.X, before=self.canvas)
+            self._hscroll_visibile = True
+        elif not serve and self._hscroll_visibile:
+            self._hscroll.pack_forget()
+            self._hscroll_visibile = False
 
     def _bind_wheel(self, _e):
         self.canvas.bind_all("<MouseWheel>", self._on_wheel)
@@ -111,13 +131,55 @@ class _ScrollableFrame(tk.Frame):
             self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
 
+class _BarraFluida(tk.Frame):
+    """Barra di pulsanti che va a capo da sola: i pulsanti si dispongono su
+    quante righe servono in base alla larghezza disponibile, cosi' non
+    obbligano la finestra a essere larga e non vengono mai tagliati.
+    Usa ``place`` (non ``grid``): ogni riga e' indipendente, senza colonne
+    condivise che allargherebbero tutte le righe al pulsante piu' largo."""
+
+    _SPAZIO = 4
+
+    def __init__(self, parent, **kw):
+        super().__init__(parent, **kw)
+        self._widget = []
+        self._firma = None
+        self.bind("<Configure>", self._riordina)
+
+    def aggiungi(self, widget):
+        """``widget`` deve avere questa barra come genitore."""
+        self._widget.append(widget)
+        self._firma = None
+        self._riordina()
+
+    def _riordina(self, _e=None):
+        larghezza = self.winfo_width()
+        if larghezza <= 1 or not self._widget:
+            return
+        x, y, alt_riga, posizioni = 0, self._SPAZIO, 0, []
+        for w in self._widget:
+            lw, lh = w.winfo_reqwidth(), w.winfo_reqheight()
+            if x > 0 and x + lw > larghezza:
+                x, y, alt_riga = 0, y + alt_riga + self._SPAZIO, 0
+            posizioni.append((x, y))
+            x += lw + self._SPAZIO
+            alt_riga = max(alt_riga, lh)
+        altezza = y + alt_riga + self._SPAZIO
+        firma = (tuple(posizioni), altezza)
+        if firma == self._firma:        # niente da spostare (evita cicli di <Configure>)
+            return
+        self._firma = firma
+        for w, (px, py) in zip(self._widget, posizioni):
+            w.place(x=px, y=py)
+        self.configure(height=altezza)
+
+
 class PollineCounterGUI:
 
     def __init__(self, root):
         self.root = root
         self.root.title("Conta Pollinica")
-        self.root.geometry("1200x700")
-        self.root.minsize(800, 400)
+        self._imposta_dimensioni_iniziali()
 
         self.output_dir = percorsi.EXE_DIR
         self.settimana = None
@@ -137,6 +199,32 @@ class PollineCounterGUI:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self._carica_config_iniziale()
         self._build_avvio()
+
+    # ================================================================
+    # Dimensioni della finestra
+    # ================================================================
+    def _imposta_dimensioni_iniziali(self):
+        """Finestra proporzionata allo schermo (o all'ultima dimensione usata),
+        centrata, con un minimo sotto il quale i pulsanti andrebbero a capo
+        senza spazio."""
+        layout = sessione.leggi_layout_finestra(percorsi.CONFIG_FILE)
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        larg = min(layout.get("larghezza", min(int(sw * 0.9), 1400)), sw)
+        alt = min(layout.get("altezza", min(int(sh * 0.85), 900)), sh)
+        self._divisione = layout.get("divisione", 0.55)    # quota della larghezza per il pannello sinistro
+        self.root.geometry(f"{larg}x{alt}+{(sw - larg) // 2}+{max(0, (sh - alt) // 2 - 20)}")
+        self.root.minsize(min(720, sw), min(480, sh))
+
+    def _salva_layout(self):
+        """Ricorda dimensione e proporzione per la prossima volta (mai un errore
+        all'utente: e' solo una comodita')."""
+        try:
+            if self.root.state() == "iconic":
+                return
+            sessione.salva_layout_finestra(percorsi.CONFIG_FILE, self.root.winfo_width(),
+                                           self.root.winfo_height(), self._divisione)
+        except (OSError, tk.TclError):
+            pass
 
     # ================================================================
     # Configurazione cartella di lavoro
@@ -178,42 +266,52 @@ class PollineCounterGUI:
         self.frame_avvio.pack(fill=tk.BOTH, expand=True)
 
         riga_cartella = tk.Frame(self.frame_avvio)
-        riga_cartella.pack(fill=tk.X, pady=(0, 12))
-        tk.Label(riga_cartella, text="Cartella di lavoro:", font=(_MONO_FONT, 10, "bold")).pack(side=tk.LEFT)
-        self.lbl_cartella = tk.Label(riga_cartella, text=str(self.output_dir), font=(_MONO_FONT, 10))
-        self.lbl_cartella.pack(side=tk.LEFT, padx=8)
+        riga_cartella.pack(side=tk.TOP, fill=tk.X, pady=(0, 12))
         tk.Button(riga_cartella, text="Cambia cartella...", command=self._cambia_cartella).pack(side=tk.RIGHT)
+        tk.Label(riga_cartella, text="Cartella di lavoro:", font=(_MONO_FONT, 10, "bold")).pack(side=tk.LEFT)
+        self.lbl_cartella = tk.Label(riga_cartella, text=str(self.output_dir), font=(_MONO_FONT, 10),
+                                     anchor="w")
+        self.lbl_cartella.pack(side=tk.LEFT, padx=8, fill=tk.X, expand=True)
 
         tk.Label(self.frame_avvio, text="Sessioni e file disponibili:",
-                font=(_MONO_FONT, 10, "bold")).pack(anchor="w")
+                font=(_MONO_FONT, 10, "bold")).pack(side=tk.TOP, anchor="w")
 
-        cols = ("tipo", "nome", "info")
-        self.tree_avvio = ttk.Treeview(self.frame_avvio, columns=cols, show="headings", height=12)
-        self.tree_avvio.heading("tipo", text="Tipo")
-        self.tree_avvio.heading("nome", text="Nome")
-        self.tree_avvio.heading("info", text="Dettagli")
-        self.tree_avvio.column("tipo", width=110, anchor=tk.W)
-        self.tree_avvio.column("nome", width=320, anchor=tk.W)
-        self.tree_avvio.column("info", width=260, anchor=tk.W)
-        self.tree_avvio.pack(fill=tk.BOTH, expand=True, pady=8)
-        self.tree_avvio.bind("<Double-1>", lambda e: self._avvio_riprendi_selezionata())
-
-        riga_bottoni = tk.Frame(self.frame_avvio)
-        riga_bottoni.pack(fill=tk.X, pady=(0, 12))
-        tk.Button(riga_bottoni, text="Riprendi selezionata", command=self._avvio_riprendi_selezionata).pack(side=tk.LEFT)
-        tk.Button(riga_bottoni, text="Importa file da un'altra cartella...", command=self._avvio_importa).pack(side=tk.LEFT, padx=8)
-
+        # Le righe in basso si impacchettano PRIMA dell'elenco che si espande:
+        # con la finestra bassa e' l'elenco a restringersi, non i pulsanti.
         riga_nuovo = tk.Frame(self.frame_avvio, pady=8)
-        riga_nuovo.pack(fill=tk.X)
-        tk.Label(riga_nuovo, text="Nuovo file — settimana:", font=(_MONO_FONT, 10, "bold")).pack(side=tk.LEFT)
+        riga_nuovo.pack(side=tk.BOTTOM, fill=tk.X)
+        riga_data = tk.Frame(riga_nuovo)
+        riga_data.pack(side=tk.TOP, fill=tk.X)
+        tk.Button(riga_data, text="Nuovo file dal template", command=self._avvio_nuovo_file).pack(side=tk.RIGHT)
+        tk.Label(riga_data, text="Nuovo file \u2014 settimana:", font=(_MONO_FONT, 10, "bold")).pack(side=tk.LEFT)
         import datetime as _dt
         lun_corrente = dominio.lunedi_di(_dt.datetime.now())
-        self.entry_settimana = tk.Entry(riga_nuovo, width=16, font=(_MONO_FONT, 10))
+        self.entry_settimana = tk.Entry(riga_data, width=16, font=(_MONO_FONT, 10))
         self.entry_settimana.insert(0, lun_corrente.strftime("%d-%m-%Y"))
         self.entry_settimana.pack(side=tk.LEFT, padx=8)
         tk.Label(riga_nuovo, text="(es. 9-2-2026, 9/2/26, 9 feb 2026)",
-                fg="#666666", font=(_MONO_FONT, 9)).pack(side=tk.LEFT)
-        tk.Button(riga_nuovo, text="Nuovo file dal template", command=self._avvio_nuovo_file).pack(side=tk.RIGHT)
+                fg="#666666", font=(_MONO_FONT, 9), anchor="w").pack(side=tk.TOP, fill=tk.X)
+
+        riga_bottoni = tk.Frame(self.frame_avvio)
+        riga_bottoni.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 12))
+        tk.Button(riga_bottoni, text="Riprendi selezionata", command=self._avvio_riprendi_selezionata).pack(side=tk.LEFT)
+        tk.Button(riga_bottoni, text="Importa file da un'altra cartella...", command=self._avvio_importa).pack(side=tk.LEFT, padx=8)
+
+        elenco = tk.Frame(self.frame_avvio)
+        elenco.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=8)
+        cols = ("tipo", "nome", "info")
+        self.tree_avvio = ttk.Treeview(elenco, columns=cols, show="headings", height=4)
+        self.tree_avvio.heading("tipo", text="Tipo")
+        self.tree_avvio.heading("nome", text="Nome")
+        self.tree_avvio.heading("info", text="Dettagli")
+        self.tree_avvio.column("tipo", width=110, minwidth=80, stretch=False, anchor=tk.W)
+        self.tree_avvio.column("nome", width=320, minwidth=120, stretch=True, anchor=tk.W)
+        self.tree_avvio.column("info", width=260, minwidth=100, stretch=True, anchor=tk.W)
+        scroll = tk.Scrollbar(elenco, command=self.tree_avvio.yview)
+        self.tree_avvio.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_avvio.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.tree_avvio.bind("<Double-1>", lambda e: self._avvio_riprendi_selezionata())
 
         self._aggiorna_lista_sessioni()
 
@@ -350,31 +448,23 @@ class PollineCounterGUI:
 
         # ── Pannello sinistro ──
         sinistra = tk.Frame(self.pane)
-        self.pane.add(sinistra, stretch="always", width=650)
+        self.pane.add(sinistra, stretch="always", minsize=_MIN_SINISTRA)
 
         barra_giorni = tk.Frame(sinistra, pady=4)
         barra_giorni.pack(side=tk.TOP, fill=tk.X)
         for g in range(1, 8):
             nome = dominio.GIORNI_ABBREV[g - 1]
-            btn = tk.Button(barra_giorni, text=nome, width=5,
+            btn = tk.Button(barra_giorni, text=nome, padx=2,
                             command=lambda g=g: self._pick_giorno(g))
-            btn.pack(side=tk.LEFT, padx=2)
+            btn.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
             self._giorno_bottoni[g] = btn
 
         self.lbl_giorno = tk.Label(sinistra, text="Nessun giorno selezionato",
                                    font=(_MONO_FONT, 11, "bold"), anchor="w")
         self.lbl_giorno.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(2, 4))
 
-        self.text_log = tk.Text(
-            sinistra, wrap=tk.WORD, font=(_MONO_FONT, 11),
-            bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
-            state=tk.DISABLED, relief=tk.FLAT, padx=6, pady=6,
-        )
-        scroll_log = tk.Scrollbar(sinistra, command=self.text_log.yview)
-        self.text_log.configure(yscrollcommand=scroll_log.set)
-        scroll_log.pack(side=tk.RIGHT, fill=tk.Y)
-        self.text_log.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
+        # Le barre in basso si impacchettano PRIMA del riquadro di log, che si
+        # espande: se la finestra e' bassa e' il log a restringersi, mai i pulsanti.
         input_frame = tk.Frame(sinistra, bg="#2d2d2d")
         input_frame.pack(side=tk.BOTTOM, fill=tk.X)
         prompt_lbl = tk.Label(input_frame, text=" >> ", font=(_MONO_FONT, 11),
@@ -387,26 +477,46 @@ class PollineCounterGUI:
         self.entry.bind("<Return>", self._invia)
         self.entry.focus_set()
 
-        barra_azioni = tk.Frame(sinistra, pady=4)
+        # I pulsanti vanno a capo da soli in base alla larghezza (_BarraFluida);
+        # quelli che cambiano testo hanno larghezza fissa per non far ridisporre la barra.
+        barra_azioni = _BarraFluida(sinistra, pady=4)
         barra_azioni.pack(side=tk.BOTTOM, fill=tk.X)
-        tk.Button(barra_azioni, text="Aiuto (h)", command=lambda: self._esegui_azione("h")).pack(side=tk.LEFT, padx=2)
-        tk.Button(barra_azioni, text="Correggi (c)", command=lambda: self._esegui_azione("c")).pack(side=tk.LEFT, padx=2)
-        tk.Button(barra_azioni, text="Nota (n)", command=lambda: self._esegui_azione("n")).pack(side=tk.LEFT, padx=2)
-        tk.Button(barra_azioni, text="Annulla (u)", command=lambda: self._esegui_azione("u")).pack(side=tk.LEFT, padx=2)
-        self.btn_beep = tk.Button(barra_azioni, text="Beep: off", command=lambda: self._esegui_azione("b"))
-        self.btn_beep.pack(side=tk.LEFT, padx=2)
-        self.btn_voce = tk.Button(barra_azioni, text="Voce: off", command=self._toggle_voce)
-        self.btn_voce.pack(side=tk.LEFT, padx=2)
-        self.btn_talkback = tk.Button(barra_azioni, text="Ripeti a voce: off",
-                                      command=self._toggle_talkback)
-        self.btn_talkback.pack(side=tk.LEFT, padx=2)
-        tk.Button(barra_azioni, text="Chiudi giornata (d)", command=lambda: self._esegui_azione("d")).pack(side=tk.RIGHT, padx=2)
-        tk.Button(barra_azioni, text="Salva (s)", command=lambda: self._esegui_azione("s")).pack(side=tk.RIGHT, padx=2)
-        tk.Button(barra_azioni, text="Esci (q)", command=lambda: self._esegui_azione("q")).pack(side=tk.RIGHT, padx=2)
+
+        def pulsante(testo, comando, **kw):
+            b = tk.Button(barra_azioni, text=testo, command=comando, **kw)
+            barra_azioni.aggiungi(b)
+            return b
+
+        pulsante("Aiuto (h)", lambda: self._esegui_azione("h"))
+        pulsante("Correggi (c)", lambda: self._esegui_azione("c"))
+        pulsante("Nota (n)", lambda: self._esegui_azione("n"))
+        pulsante("Annulla (u)", lambda: self._esegui_azione("u"))
+        self.btn_beep = pulsante("Beep: off", lambda: self._esegui_azione("b"), width=9)
+        self.btn_voce = pulsante("Voce: off", self._toggle_voce, width=9)
+        self.btn_talkback = pulsante("Ripeti a voce: off", self._toggle_talkback, width=17)
+        pulsante("Salva (s)", lambda: self._esegui_azione("s"))
+        pulsante("Chiudi giornata (d)", lambda: self._esegui_azione("d"))
+        pulsante("Esci (q)", lambda: self._esegui_azione("q"))
+
+        self.text_log = tk.Text(
+            sinistra, wrap=tk.WORD, font=(_MONO_FONT, 11), height=4, width=20,
+            bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
+            state=tk.DISABLED, relief=tk.FLAT, padx=6, pady=6,
+        )
+        scroll_log = tk.Scrollbar(sinistra, command=self.text_log.yview)
+        self.text_log.configure(yscrollcommand=scroll_log.set)
+        scroll_log.pack(side=tk.RIGHT, fill=tk.Y)
+        self.text_log.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         # ── Pannello destro ──
         destra = tk.Frame(self.pane)
-        self.pane.add(destra, stretch="never", width=520)
+        self.pane.add(destra, stretch="always", minsize=_MIN_DESTRA)
+
+        # Il divisorio tiene la proporzione quando la finestra cambia misura;
+        # trascinandolo a mano la nuova proporzione viene ricordata.
+        self._divisione_in_corso = False
+        self.pane.bind("<Configure>", self._applica_divisione)
+        self.pane.bind("<ButtonRelease-1>", self._memorizza_divisione)
 
         self.notebook = ttk.Notebook(destra)
         self.notebook.pack(fill=tk.BOTH, expand=True)
@@ -416,31 +526,56 @@ class PollineCounterGUI:
         style.configure("Summary.Treeview.Heading", font=(_MONO_FONT, 10, "bold"))
         if sys.platform == "darwin":
             style.map("Treeview", background=[], foreground=[])
+        self._font_tab = tkfont.Font(family=_MONO_FONT, size=10)
 
         self._build_tab_settimanale()
         self._build_tab_giornaliero()
         self._build_tab_bollettino()
         self._build_tab_codici()
 
+    def _applica_divisione(self, _e=None):
+        if self._divisione_in_corso:
+            return
+        self._divisione_in_corso = True
+        self.root.after_idle(self._posiziona_divisore)
+
+    def _posiziona_divisore(self):
+        self._divisione_in_corso = False
+        try:
+            larghezza = self.pane.winfo_width()
+            if larghezza > 1:
+                # la proporzione scelta, ma senza scendere sotto il minimo dei pannelli
+                x = int(larghezza * self._divisione)
+                x = min(x, larghezza - _MIN_DESTRA - 6)
+                self.pane.sash_place(0, max(x, _MIN_SINISTRA), 0)
+        except tk.TclError:             # finestra in chiusura o non ancora disegnata
+            pass
+
+    def _memorizza_divisione(self, _e=None):
+        try:
+            larghezza = self.pane.winfo_width()
+            if larghezza > 1:
+                self._divisione = min(sessione.DIVISIONE_FINESTRA_MAX,
+                                      max(sessione.DIVISIONE_FINESTRA_MIN,
+                                          self.pane.sash_coord(0)[0] / larghezza))
+        except tk.TclError:
+            pass
+
+    def _colonne_tabella(self, tree, misure, elastiche, margine=18, minimo=90):
+        """Colonne che seguono la scheda: quelle in ``misure`` ({colonna: testo
+        piu' largo}) restano strette quanto serve, quelle in ``elastiche``
+        dividono lo spazio che avanza (mai sotto ``minimo`` px)."""
+        for col, testo in misure.items():
+            larghezza = self._font_tab.measure(testo) + margine
+            tree.column(col, width=larghezza, minwidth=larghezza, stretch=False)
+        for col in elastiche:
+            tree.column(col, width=max(100, minimo), minwidth=minimo, stretch=True)
+
     def _build_tab_settimanale(self):
         tab = tk.Frame(self.notebook)
         self.notebook.add(tab, text=" Settimanale ")
 
-        columns = ("codice", "specie", "conteggio")
-        self.tree_sett = ttk.Treeview(tab, columns=columns, show="headings", style="Summary.Treeview")
-        self.tree_sett.heading("codice", text="Cod.")
-        self.tree_sett.heading("specie", text="Specie")
-        self.tree_sett.heading("conteggio", text="Tot.")
-        self.tree_sett.column("codice", width=50, anchor=tk.CENTER)
-        self.tree_sett.column("specie", width=220)
-        self.tree_sett.column("conteggio", width=60, anchor=tk.CENTER)
-        scroll = tk.Scrollbar(tab, command=self.tree_sett.yview)
-        self.tree_sett.configure(yscrollcommand=scroll.set)
-        self.tree_sett.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
-                                     background="#E6E6E6", foreground="#000000")
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.tree_sett.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
+        # Totali in basso impacchettati per primi: non si tagliano mai.
         totals = tk.Frame(tab, pady=8)
         totals.pack(side=tk.BOTTOM, fill=tk.X)
         self.lbl_s_pollini = tk.Label(totals, text="Pollini: 0", font=(_MONO_FONT, 11), anchor=tk.W)
@@ -451,26 +586,25 @@ class PollineCounterGUI:
         self.lbl_s_totale = tk.Label(totals, text="TOTALE: 0", font=(_MONO_FONT, 12, "bold"), anchor=tk.W)
         self.lbl_s_totale.pack(fill=tk.X, padx=10)
 
+        columns = ("codice", "specie", "conteggio")
+        self.tree_sett = ttk.Treeview(tab, columns=columns, show="headings",
+                                      style="Summary.Treeview", height=4)
+        self.tree_sett.heading("codice", text="Cod.")
+        self.tree_sett.heading("specie", text="Specie")
+        self.tree_sett.heading("conteggio", text="Tot.")
+        self.tree_sett.column("codice", anchor=tk.CENTER)
+        self.tree_sett.column("conteggio", anchor=tk.CENTER)
+        self._colonne_tabella(self.tree_sett, {"codice": "00000", "conteggio": "000000"}, ["specie"])
+        scroll = tk.Scrollbar(tab, command=self.tree_sett.yview)
+        self.tree_sett.configure(yscrollcommand=scroll.set)
+        self.tree_sett.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
+                                     background="#E6E6E6", foreground="#000000")
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_sett.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
     def _build_tab_giornaliero(self):
         tab = tk.Frame(self.notebook)
         self.notebook.add(tab, text=" Giornaliero ")
-
-        columns = ("codice", "specie", *[g.lower() for g in dominio.GIORNI_ABBREV])
-        self.tree_giorn = ttk.Treeview(tab, columns=columns, show="headings", style="Summary.Treeview")
-        self.tree_giorn.heading("codice", text="Cod.")
-        self.tree_giorn.heading("specie", text="Specie")
-        self.tree_giorn.column("codice", width=40, anchor=tk.CENTER)
-        self.tree_giorn.column("specie", width=160)
-        for g in dominio.GIORNI_ABBREV:
-            col_id = g.lower()
-            self.tree_giorn.heading(col_id, text=g)
-            self.tree_giorn.column(col_id, width=40, anchor=tk.CENTER)
-        scroll = tk.Scrollbar(tab, command=self.tree_giorn.yview)
-        self.tree_giorn.configure(yscrollcommand=scroll.set)
-        self.tree_giorn.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
-                                      background="#E6E6E6", foreground="#000000")
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.tree_giorn.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         totals = tk.Frame(tab, pady=8)
         totals.pack(side=tk.BOTTOM, fill=tk.X)
@@ -482,12 +616,30 @@ class PollineCounterGUI:
         self.lbl_g_totale = tk.Label(totals, text="TOTALE: -", font=(_MONO_FONT, 11, "bold"), anchor=tk.W)
         self.lbl_g_totale.pack(fill=tk.X, padx=10)
 
+        columns = ("codice", "specie", *[g.lower() for g in dominio.GIORNI_ABBREV])
+        self.tree_giorn = ttk.Treeview(tab, columns=columns, show="headings",
+                                       style="Summary.Treeview", height=4)
+        self.tree_giorn.heading("codice", text="Cod.")
+        self.tree_giorn.heading("specie", text="Specie")
+        self.tree_giorn.column("codice", anchor=tk.CENTER)
+        misure = {"codice": "000"}
+        for g in dominio.GIORNI_ABBREV:
+            col_id = g.lower()
+            self.tree_giorn.heading(col_id, text=g)
+            self.tree_giorn.column(col_id, anchor=tk.CENTER)
+            misure[col_id] = "000"
+        # nove colonne: margini stretti, cosi' alla finestra minima ci stanno tutte
+        self._colonne_tabella(self.tree_giorn, misure, ["specie"], margine=12, minimo=60)
+        scroll = tk.Scrollbar(tab, command=self.tree_giorn.yview)
+        self.tree_giorn.configure(yscrollcommand=scroll.set)
+        self.tree_giorn.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
+                                      background="#E6E6E6", foreground="#000000")
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_giorn.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
     def _build_tab_bollettino(self):
         tab = tk.Frame(self.notebook)
         self.notebook.add(tab, text=" Bollettino ")
-
-        self._boll_scroll = _ScrollableFrame(tab)
-        self._boll_scroll.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         info_frame = tk.Frame(tab, pady=6)
         info_frame.pack(side=tk.BOTTOM, fill=tk.X)
@@ -499,7 +651,11 @@ class PollineCounterGUI:
         if not self.soglie:
             tk.Label(info_frame,
                     text=f"ATTENZIONE: '{esportatori.SOGLIE_FILE_NOME}' non trovato, uso soglie di riserva.",
-                    fg="#B00000", font=(_MONO_FONT, 9)).pack(fill=tk.X, padx=10)
+                    fg="#B00000", font=(_MONO_FONT, 9), anchor=tk.W,
+                    wraplength=340, justify=tk.LEFT).pack(fill=tk.X, padx=10)
+
+        self._boll_scroll = _ScrollableFrame(tab)
+        self._boll_scroll.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
     def _build_tab_codici(self):
         tab = tk.Frame(self.notebook)
@@ -512,14 +668,19 @@ class PollineCounterGUI:
         self.entry_cerca_codici.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.entry_cerca_codici.bind("<KeyRelease>", self._filtra_tab_codici)
 
+        azioni_frame = tk.Frame(tab, pady=6)
+        azioni_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        tk.Button(azioni_frame, text="Stampa elenco (Word)",
+                 command=self._stampa_cheatsheet_codici).pack(side=tk.LEFT, padx=10)
+
         columns = ("codice", "specie", "voce")
-        self.tree_codici = ttk.Treeview(tab, columns=columns, show="headings", style="Summary.Treeview")
+        self.tree_codici = ttk.Treeview(tab, columns=columns, show="headings",
+                                        style="Summary.Treeview", height=4)
         self.tree_codici.heading("codice", text="Cod.")
         self.tree_codici.heading("specie", text="Specie")
         self.tree_codici.heading("voce", text="A voce")
-        self.tree_codici.column("codice", width=50, anchor=tk.CENTER)
-        self.tree_codici.column("specie", width=200)
-        self.tree_codici.column("voce", width=220)
+        self.tree_codici.column("codice", anchor=tk.CENTER)
+        self._colonne_tabella(self.tree_codici, {"codice": "00000"}, ["specie", "voce"])
         self._parole_sconosciute = set()     # parole che il modello vocale non conosce
         self._forme_vocali = self._calcola_forme_vocali()
         scroll = tk.Scrollbar(tab, command=self.tree_codici.yview)
@@ -528,11 +689,6 @@ class PollineCounterGUI:
         self.tree_codici.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         self._popola_tab_codici()
-
-        azioni_frame = tk.Frame(tab, pady=6)
-        azioni_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        tk.Button(azioni_frame, text="Stampa elenco (Word)",
-                 command=self._stampa_cheatsheet_codici).pack(side=tk.LEFT, padx=10)
 
     def _calcola_forme_vocali(self):
         """{codice: 'ventiquattro, graminacee'}: cosa si puo' dire per ogni
@@ -595,9 +751,12 @@ class PollineCounterGUI:
         vocabolario, attivazione = self._voce_vocabolario, self._voce_attivazione
 
         def frase_completa(parziale):
-            # True se il parziale e' gia' un comando valido: la frase si puo' chiudere
-            return not isinstance(dominio.interpreta_vocale(parziale, vocabolario, attivazione),
-                                  dominio.ComandoNonValido)
+            # True se il parziale e' fatto solo di comandi validi (anche piu' di
+            # seguito): la frase si puo' chiudere. "conta acero conta" e' ancora
+            # incompleta: l'ultimo comando non e' finito.
+            comandi = dominio.interpreta_vocale_sequenza(parziale, vocabolario, attivazione)
+            return bool(comandi) and not any(
+                isinstance(c, dominio.ComandoNonValido) for _, c in comandi)
 
         self._log("Carico il riconoscimento vocale...")
         self.root.update_idletasks()
@@ -680,21 +839,28 @@ class PollineCounterGUI:
         # toccare i dati: la frase viene scartata.
         if self.root.grab_current() is not None:
             return
-        cmd = dominio.interpreta_vocale(frase, self._voce_vocabolario, self._voce_attivazione)
-        if isinstance(cmd, dominio.ComandoNonValido):
-            if cmd.messaggio:
-                self._log(f"[voce] {cmd.messaggio}")
-                if self._talkback:
-                    sintesi.parla("non capito")
-            elif self._frase_con_attivazione(frase):
-                # Aiuta a scoprire come il riconoscitore scrive i nomi che non
-                # conosce, per aggiungerli ai sinonimi.
-                self._log(f"[voce] Sentito ma non in elenco: \u00ab{frase}\u00bb")
-            return          # rumore di fondo / fuori vocabolario: silenzio
-        detto = self._esegui_comando(cmd, fonte="voce")
-        # Il totale e' una domanda: si risponde sempre; il resto solo se richiesto.
-        if detto and (self._talkback or isinstance(cmd, dominio.Totale)):
-            sintesi.parla(detto)
+        # Una frase puo' contenere piu' comandi di seguito ("conta acero conta
+        # pioppo"): ogni "conta" chiude il precedente e ne apre uno nuovo.
+        # Si eseguono nell'ordine detto; uno non valido non blocca gli altri.
+        risposte = []
+        for segmento, cmd in dominio.interpreta_vocale_sequenza(
+                frase, self._voce_vocabolario, self._voce_attivazione):
+            if isinstance(cmd, dominio.ComandoNonValido):
+                if cmd.messaggio:
+                    self._log(f"[voce] {cmd.messaggio}")
+                    risposte.append("non capito")
+                elif "[unk]" not in segmento and self._frase_con_attivazione(segmento):
+                    # Aiuta a scoprire come il riconoscitore scrive i nomi che non
+                    # conosce, per aggiungerli ai sinonimi.
+                    self._log(f"[voce] Sentito ma non in elenco: \u00ab{segmento}\u00bb")
+                continue    # rumore di fondo / fuori vocabolario: silenzio
+            detto = self._esegui_comando(cmd, fonte="voce")
+            # Il totale e' una domanda: si risponde sempre; il resto solo se richiesto.
+            if detto and (self._talkback or isinstance(cmd, dominio.Totale)):
+                risposte.append(detto)
+        # Una sola frase parlata: la sintesi dice solo l'ultima in coda.
+        if risposte and (self._talkback or any(r != "non capito" for r in risposte)):
+            sintesi.parla(", ".join(risposte))
 
     def _frase_con_attivazione(self, frase):
         """True se la frase inizia con la parola di attivazione (sempre True se
@@ -1089,6 +1255,7 @@ class PollineCounterGUI:
 
     def _torna_ad_avvio(self):
         self._voce_spegni()
+        self._salva_layout()
         self.pane.destroy()
         self.settimana = None
         self.journal = None
@@ -1199,24 +1366,29 @@ class PollineCounterGUI:
         for child in self._boll_scroll.inner.winfo_children():
             child.destroy()
 
-        larg_specie = 20
+        # Niente larghezze fisse: la colonna della specie prende piu' spazio
+        # (peso 3), i sette giorni e la media se lo dividono in parti uguali.
+        griglia = self._boll_scroll.inner
+        griglia.grid_columnconfigure(0, weight=3)
+        for c in range(1, 9):
+            griglia.grid_columnconfigure(c, weight=1, uniform="giorni")
+
         header = ["Specie", *dominio.GIORNI_ABBREV, "Media"]
         for c, testo in enumerate(header):
-            larghezza = larg_specie if c == 0 else 6
-            tk.Label(self._boll_scroll.inner, text=testo, font=(_MONO_FONT, 9, "bold"),
-                    width=larghezza, relief=tk.RIDGE, bg="#e0e0e0").grid(row=0, column=c, sticky="nsew")
+            tk.Label(griglia, text=testo, font=(_MONO_FONT, 9, "bold"),
+                    relief=tk.RIDGE, bg="#e0e0e0").grid(row=0, column=c, sticky="nsew")
 
         for r, riga in enumerate(righe, start=1):
-            tk.Label(self._boll_scroll.inner, text=riga.nome_ita, font=(_MONO_FONT, 9),
-                    width=larg_specie, anchor="w", relief=tk.RIDGE).grid(row=r, column=0, sticky="nsew")
+            tk.Label(griglia, text=riga.nome_ita, font=(_MONO_FONT, 9),
+                    anchor="w", padx=3, relief=tk.RIDGE).grid(row=r, column=0, sticky="nsew")
             for c, (val, livello) in enumerate(zip(riga.concentrazioni, riga.livelli_giorno), start=1):
                 bg, fg = dominio.LIVELLO_COLORE_GUI[livello]
                 testo = f"{val:g}" if val else "-"
-                tk.Label(self._boll_scroll.inner, text=testo, font=(_MONO_FONT, 9),
-                        width=6, bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=c, sticky="nsew")
+                tk.Label(griglia, text=testo, font=(_MONO_FONT, 9),
+                        bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=c, sticky="nsew")
             bg, fg = dominio.LIVELLO_COLORE_GUI[riga.livello_media]
-            tk.Label(self._boll_scroll.inner, text=f"{riga.media:g}", font=(_MONO_FONT, 9, "bold"),
-                    width=6, bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=8, sticky="nsew")
+            tk.Label(griglia, text=f"{riga.media:g}", font=(_MONO_FONT, 9, "bold"),
+                    bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=8, sticky="nsew")
 
         n_sp = len(righe)
         self.lbl_boll_info.config(text=f"Fattore: {self.settimana.fattore}   Specie rilevate: {n_sp}")
@@ -1244,6 +1416,7 @@ class PollineCounterGUI:
             else:
                 self.journal.elimina()
         self._voce_spegni()
+        self._salva_layout()
         self.root.destroy()
 
 

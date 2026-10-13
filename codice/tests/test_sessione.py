@@ -213,6 +213,33 @@ class TestConfig(unittest.TestCase):
         cfg.write_text(json.dumps(contenuto), encoding="utf-8")
         return cfg
 
+    def test_layout_finestra_assente_o_malformato(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sessione.leggi_layout_finestra(Path(tmp) / "nonesiste.cfg"), {})
+            self.assertEqual(sessione.leggi_layout_finestra(self._cfg(tmp, {"finestra": "x"})), {})
+
+    def test_layout_finestra_scarta_solo_i_valori_non_validi(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._cfg(tmp, {"finestra": {"larghezza": 1100, "altezza": "alta",
+                                               "divisione": 0.95}})
+            self.assertEqual(sessione.leggi_layout_finestra(cfg), {"larghezza": 1100})
+
+    def test_layout_finestra_salvato_e_riletto_senza_toccare_il_resto(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._cfg(tmp, {"2026": "/da/qualche/parte", "voce_attesa_ms": 250})
+            sessione.salva_layout_finestra(cfg, 1280, 720, 0.6)
+            self.assertEqual(sessione.leggi_layout_finestra(cfg),
+                             {"larghezza": 1280, "altezza": 720, "divisione": 0.6})
+            config = json.loads(cfg.read_text(encoding="utf-8"))
+            self.assertEqual(config["2026"], "/da/qualche/parte")
+            self.assertEqual(config["voce_attesa_ms"], 250)
+
+    def test_layout_finestra_valori_assurdi_non_vengono_salvati(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "pollencounter.cfg"
+            sessione.salva_layout_finestra(cfg, 1, 1, 0.01)      # finestra ridotta a icona
+            self.assertFalse(cfg.exists())
+
     def test_sinonimi_vocali_assenti(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(sessione.leggi_sinonimi_vocali(Path(tmp) / "nonesiste.cfg"), {})
