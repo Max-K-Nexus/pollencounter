@@ -241,6 +241,16 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(sessione.leggi_parola_attivazione(
                 self._cfg(tmp, {"parola_attivazione": ""})), "")
 
+    def test_attesa_vocale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            leggi = sessione.leggi_attesa_vocale
+            self.assertEqual(leggi(Path(tmp) / "nonesiste.cfg"), 300)
+            self.assertEqual(leggi(self._cfg(tmp, {"voce_attesa_ms": 450})), 450)
+            self.assertEqual(leggi(self._cfg(tmp, {"voce_attesa_ms": 0})), 0)      # disattivata
+            self.assertEqual(leggi(self._cfg(tmp, {"voce_attesa_ms": 99999})), 2000)
+            for non_valido in ("tanto", -5, None, True):
+                self.assertEqual(leggi(self._cfg(tmp, {"voce_attesa_ms": non_valido})), 300)
+
 
 if __name__ == "__main__":
     unittest.main()

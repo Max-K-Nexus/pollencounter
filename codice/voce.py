@@ -59,6 +59,8 @@ except ImportError:
 SAMPLE_RATE = 16000
 SOGLIA_CONFIDENZA_DEFAULT = 0.5
 CODA_MUTO_SECONDI = 0.4          # coda di silenzio dopo la sintesi (eco nella stanza)
+ATTESA_FRASE_DEFAULT = 0.3       # secondi di parziale invariato dopo i quali la frase si chiude
+BLOCCO_MICROFONO = 800           # campioni per blocco audio (50 ms a 16 kHz)
 NOME_MODELLO_PREFISSO = "vosk-model"
 
 
@@ -93,19 +95,31 @@ def frase_da_risultato(risultato_json, soglia=SOGLIA_CONFIDENZA_DEFAULT):
 class Ascoltatore:
     """Thread di ascolto: blocchi audio -> riconoscitore -> coda di frasi.
 
-    ``sorgente_audio``: iterabile (bloccante) di blocchi ``bytes``.
+    ``sorgente_audio``: iterabile (bloccante) di blocchi ``bytes`` (16 bit,
+    mono, ``SAMPLE_RATE``).
     ``riconoscitore``: oggetto con AcceptWaveform(bytes)->bool, Result()->str
-    (JSON) e Reset().
+    (JSON) e Reset(); per la chiusura anticipata anche PartialResult() e
+    FinalResult().
 
-    Mentre e' "muto" (sintesi vocale in corso) l'audio viene scartato e il
-    riconoscitore azzerato: altrimenti il PC sentirebbe se stesso dire
-    "graminacee" e registrerebbe un secondo granulo.
+    Chiusura anticipata: Vosk dichiara finita una frase solo dopo circa un
+    secondo di silenzio, troppo per chi conta pollini a ritmo serrato. Se
+    ``frase_completa`` e' dato, la frase viene chiusa non appena il risultato
+    parziale e' un comando valido (``frase_completa(parziale) -> bool``) e non
+    cambia da ``attesa`` secondi di audio. Il tempo e' misurato sull'audio
+    ricevuto, non sull'orologio. La chiusura normale di Vosk resta attiva.
+
+    Mentre e' "muto" (sintesi vocale in corso, se si usa l'anti-eco) l'audio
+    viene scartato e il riconoscitore azzerato: altrimenti il PC sentirebbe se
+    stesso dire "graminacee" e registrerebbe un secondo granulo.
     """
 
-    def __init__(self, riconoscitore, sorgente_audio, soglia=SOGLIA_CONFIDENZA_DEFAULT):
+    def __init__(self, riconoscitore, sorgente_audio, soglia=SOGLIA_CONFIDENZA_DEFAULT,
+                 frase_completa=None, attesa=ATTESA_FRASE_DEFAULT):
         self._riconoscitore = riconoscitore
         self._sorgente = sorgente_audio
         self._soglia = soglia
+        self._frase_completa = frase_completa
+        self._attesa = attesa
         self._frasi = queue.Queue()
         self._muto_fino = 0.0
         self._ferma = threading.Event()
@@ -136,18 +150,41 @@ class Ascoltatore:
         except queue.Empty:
             return None
 
+    def _metti_in_coda(self, risultato_json):
+        frase = frase_da_risultato(risultato_json, self._soglia)
+        if frase:
+            self._frasi.put(frase)
+
+    def _parziale(self):
+        try:
+            return (json.loads(self._riconoscitore.PartialResult()).get("partial") or "").strip()
+        except (TypeError, ValueError):
+            return ""
+
     def _ciclo(self):
+        campioni = 0                # audio ricevuto finora (in campioni: niente arrotondamenti)
+        attesa_campioni = round(self._attesa * SAMPLE_RATE)
+        parziale, dal = "", 0       # ultimo parziale e campione in cui e' apparso
         try:
             for blocco in self._sorgente:
                 if self._ferma.is_set():
                     break
                 if time.monotonic() < self._muto_fino:
                     self._riconoscitore.Reset()
+                    parziale = ""
                     continue
+                campioni += len(blocco) // 2
                 if self._riconoscitore.AcceptWaveform(blocco):
-                    frase = frase_da_risultato(self._riconoscitore.Result(), self._soglia)
-                    if frase:
-                        self._frasi.put(frase)
+                    parziale = ""
+                    self._metti_in_coda(self._riconoscitore.Result())
+                elif self._frase_completa is not None:
+                    attuale = self._parziale()
+                    if attuale != parziale:
+                        parziale, dal = attuale, campioni
+                    elif (attuale and campioni - dal >= attesa_campioni
+                          and self._frase_completa(attuale)):
+                        parziale = ""
+                        self._metti_in_coda(self._riconoscitore.FinalResult())
         except Exception as e:          # microfono scollegato, driver audio, ecc.
             self.errore = str(e)
 
@@ -159,7 +196,7 @@ class SorgenteMicrofono:
         self._blocchi = queue.Queue()
         self._chiuso = False
         self._stream = sounddevice.RawInputStream(
-            samplerate=SAMPLE_RATE, blocksize=4000, dtype="int16", channels=1,
+            samplerate=SAMPLE_RATE, blocksize=BLOCCO_MICROFONO, dtype="int16", channels=1,
             callback=lambda dati, _n, _t, _s: self._blocchi.put(bytes(dati)))
         self._stream.start()
 
@@ -365,9 +402,11 @@ def crea_motore_sintesi(which=shutil.which, piattaforma=None):
 class Sintesi:
     """Il PC dice a voce cio' che ha capito. Un solo thread possiede il
     motore di sintesi (richiesto da pyttsx3/COM su Windows); le frasi
-    arrivano da una coda. Prima di parlare silenzia l'ascoltatore, e lo
-    silenzia di nuovo a fine frase (la coda di eco parte da quando l'audio e'
-    davvero finito).
+    arrivano da una coda. Se c'e' un ascoltatore (anti-eco), prima di parlare
+    lo silenzia, e lo silenzia di nuovo a fine frase (la coda di eco parte da
+    quando l'audio e' davvero finito). Se le conferme si accumulano (si conta
+    piu' in fretta di quanto il PC riesca a parlare) vengono dette solo le
+    piu' recenti: la voce non resta indietro di secondi.
 
     ``motore``: oggetto con ``dici(testo)`` (bloccante); se None lo sceglie
     ``crea_motore_sintesi`` nel thread di sintesi.
@@ -405,9 +444,21 @@ class Sintesi:
             self._pronta.set()
         while True:
             testo = self._coda.get()
+            ultima = testo is None
+            while not ultima:
+                try:
+                    altro = self._coda.get_nowait()
+                except queue.Empty:
+                    break
+                if altro is None:
+                    ultima = True               # stop richiesto: dopo questa frase
+                else:
+                    testo = altro               # salta la conferma arretrata
             if testo is None:
                 break
             if motore is None:
+                if ultima:
+                    break
                 continue
             try:
                 if self._ascoltatore is not None:
@@ -417,6 +468,8 @@ class Sintesi:
                     self._ascoltatore.silenzia(0)
             except Exception as e:      # un errore di sintesi non deve fermare la conta
                 self.avviso = f"Errore della sintesi vocale: {e}"
+            if ultima:
+                break
 
 
 # ============================================================
@@ -463,11 +516,17 @@ def verifica_dipendenze():
     return ""
 
 
-def crea_voce(grammatica, soglia=SOGLIA_CONFIDENZA_DEFAULT):
+def crea_voce(grammatica, soglia=SOGLIA_CONFIDENZA_DEFAULT, frase_completa=None,
+              attesa=ATTESA_FRASE_DEFAULT, anti_eco=True):
     """Crea (Ascoltatore, Sintesi, parole_sconosciute) pronti all'uso, gia'
     avviati. ``parole_sconosciute``: parole che il modello non conosce (le
-    frasi che le contengono sono escluse dalla grammatica). Solleva VoceNonDisponibile con un messaggio chiaro se manca
-    qualcosa (librerie, modello, microfono)."""
+    frasi che le contengono sono escluse dalla grammatica).
+    ``frase_completa``/``attesa``: chiusura anticipata della frase (vedi
+    ``Ascoltatore``); ``attesa`` <= 0 la disattiva.
+    ``anti_eco``: se False il microfono resta aperto mentre il PC parla (va
+    bene solo se la voce del PC non puo' essere scambiata per un comando,
+    cioe' con la parola di attivazione). Solleva VoceNonDisponibile con un
+    messaggio chiaro se manca qualcosa (librerie, modello, microfono)."""
     manca = verifica_dipendenze()
     if manca:
         raise VoceNonDisponibile(manca)
@@ -497,7 +556,8 @@ def crea_voce(grammatica, soglia=SOGLIA_CONFIDENZA_DEFAULT):
             "Non riesco ad aprire il microfono. Controlla che sia collegato e "
             f"non usato da un altro programma.\n(dettaglio: {e})")
 
-    ascoltatore = Ascoltatore(riconoscitore, sorgente, soglia)
-    sintesi = Sintesi(ascoltatore)
+    ascoltatore = Ascoltatore(riconoscitore, sorgente, soglia,
+                              frase_completa if attesa > 0 else None, attesa)
+    sintesi = Sintesi(ascoltatore if anti_eco else None)
     ascoltatore.avvia()
     return ascoltatore, sintesi, sconosciute

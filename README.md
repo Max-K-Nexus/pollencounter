@@ -64,7 +64,7 @@ pollencounter/
 1. **Start** — Open the application and choose the work folder for the season (remembered per year in `pollencounter.cfg`). Then resume an interrupted session, reopen a saved weekly file, or start a new week from the template.
 2. **Counting** — Select the day and type one numeric code per pollen grain/spore observed (e.g. `24` = Gramineae, `48x4` = 4 Alternaria). Weekly, daily and bulletin views update live.
 3. **Saving** — Save the week as `Conta_Pollinica_DD-MM-YYYY.xlsx` (command `s`, or `q` to save and exit).
-4. **Output** — Optionally update the annual summary (`Riepilogo_Annuale_YYYY.xlsx`) and generate the Italian/English Word bulletins (see `esempio di bollettino.pdf`).
+4. **Output** — Optionally update the annual summary (`Riepilogo_Annuale_YYYY.xlsx`) and generate the Italian/English Word bulletins (see `esempio di bollettino.pdf`). In the annual summary the concentrations are Excel formulas (count × a single conversion-factor cell, top right of the concentration table), so changing the factor recalculates everything.
 
 ---
 
@@ -145,7 +145,7 @@ An optional mode to record grains by voice, inspired by [EcoCount](https://doi.o
 | `conta annulla` / `conta ripeti` | undo / repeat the last entry |
 | `conta totale` | reads the day's total aloud |
 
-The computer repeats the name it understood, so a wrong recognition can be undone straight away. Saving, closing the day and quitting are keyboard/button only. *Prova voce* tells you what it understood without recording anything. Everything runs offline.
+Phrases are registered about half a second after you stop speaking, so species can follow each other quickly. The *Ripeti a voce* button makes the computer say the name it just recorded, so a wrong recognition can be undone straight away; the microphone stays open while it speaks. Saving, closing the day and quitting are keyboard/button only. Everything runs offline.
 
 **Setup** (one-off): install `vosk sounddevice pyttsx3` (on Linux also `libportaudio2` and `espeak-ng`), then download `vosk-model-small-it-0.22` from <https://alphacephei.com/vosk/models> and unzip it into `codice/modelli/`. You need a microphone and, for the spoken confirmation, an Italian system voice. The small Vosk model does not know many Latin names; they are recognised through built-in pronunciations (e.g. `conta alternaria`, `conta betulacee`) that were tuned on a synthetic voice and checked with a real one on Linux. If a name is not understood, say the code or a common name instead (the **Codici** tab lists what each species accepts; in *Prova voce* the log also shows phrases that were heard but not matched). Activation word and extra synonyms can be customised in `pollencounter.cfg` (see `codice/pollencounter.cfg.esempio` and `ISTRUZIONI.txt`).
 

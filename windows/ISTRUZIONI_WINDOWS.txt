@@ -180,14 +180,16 @@ voce il nome che ha capito; se e' sbagliato dire "conta annulla".
   conta totale                il computer legge il totale del giorno
 
 Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante.
-"Prova voce": il computer dice cosa ha capito senza registrare nulla.
+"Ripeti a voce" spento (predefinito): si registra in silenzio, solo
+"conta totale" risponde. Il microfono resta acceso mentre il computer
+parla.
 Il modello vocale non conosce molti nomi latini (es. alternaria,
 betulacee), ma quasi tutti sono riconosciuti lo stesso grazie a pronunce
 incorporate nel programma: si dicono normalmente ("conta alternaria",
 "conta betulacee"). Con voci o accenti diversi puo' capitare di non essere
 capiti o, raramente, di essere scambiati per un'altra specie: il computer
-ripete cio' che ha capito, quindi basta dire "conta annulla". In "Prova
-voce" il log scrive anche le frasi sentite ma non riconosciute ("Sentito
+ripete cio' che ha capito (con "Ripeti a voce"), quindi basta dire "conta
+annulla". Il log scrive anche le frasi sentite ma non riconosciute ("Sentito
 ma non in elenco"): servono per aggiungere nuove varianti. In caso di
 dubbio dire il numero o il nome comune; la scheda "Codici", colonna "A
 voce", mostra cosa si puo' dire per ogni specie. Dettagli e personalizzazione (pollencounter.cfg:

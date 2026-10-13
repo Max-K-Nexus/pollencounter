@@ -159,7 +159,8 @@ COMANDI DURANTE L'INSERIMENTO
 LETTURA VOCALE (solo interfaccia grafica)
 -----------------------------------------
 Permette di registrare i granuli a voce, senza staccare gli occhi dal
-microscopio. Il computer ripete a voce cio' che ha capito.
+microscopio. Con "Ripeti a voce" il computer dice anche cio' che ha
+registrato.
 
 Installazione (una volta sola):
   pip3 install vosk sounddevice pyttsx3
@@ -187,11 +188,21 @@ I nomi e i numeri accettati per ogni specie sono nella colonna "A voce"
 della scheda Codici. Salvare, chiudere la giornata e uscire NON si
 possono fare a voce, solo da tastiera o con i pulsanti.
 
-"Prova voce": il computer dice cosa ha capito ma non registra nulla.
-Serve per provare la pronuncia dei nomi latini prima di iniziare.
+"Ripeti a voce": il pulsante accanto a "Voce" fa dire al computer il nome
+di cio' che ha appena registrato ("conta alternaria" -> "alternaria"), per
+controllare senza guardare lo schermo. Spento (predefinito) il computer
+registra in silenzio, ma "conta totale" risponde sempre. Il microfono
+resta acceso mentre il computer parla, quindi si puo' continuare a contare
+senza aspettare la conferma.
 
 Personalizzazione (file pollencounter.cfg, vedi pollencounter.cfg.esempio):
   "parola_attivazione": "conta"    cambia la parola ("" la disattiva)
+  "voce_attesa_ms": 300            pausa (millisecondi) dopo cui una frase
+                                   gia' valida viene registrata senza
+                                   aspettare il silenzio lungo del
+                                   riconoscitore; 0 = disattivata. Piu'
+                                   basso = piu' veloce ma rischia di
+                                   spezzare "per tre".
   "sinonimi_vocali": {"24": ["erba"]}   altre parole per una specie
 
 Il modello vocale non conosce molti nomi latini (es. alternaria,
@@ -297,6 +308,17 @@ un menu di operazioni aggiuntive:
     Invio = nessuna operazione aggiuntiva
 
   Scelta:
+
+Scegliendo "1" o "3" il file Riepilogo_Annuale_{anno}.xlsx viene
+aggiornato. Le concentrazioni (p/m3) sono formule Excel: conta x fattore
+di conversione, dove il fattore sta in una sola cella ("Fatt.conv", in
+alto a destra della tabella delle concentrazioni del foglio "Dati"; nei
+fogli settimanali W## accanto al titolo CONCENTRAZIONI). Cambiando quel
+valore tutte le concentrazioni si ricalcolano da sole; il foglio
+Calendario rimanda al foglio Dati. Se il riepilogo usa gia' un fattore
+diverso da quello della settimana, il programma lo segnala e mantiene
+quello del riepilogo. I file creati con versioni precedenti vengono
+convertiti alle formule al primo aggiornamento.
 
 Scegliendo "2" o "3" vengono creati due file nella stessa cartella
 del .xlsx:

@@ -66,8 +66,9 @@ Lettura vocale (pulsante "Voce"): ogni frase inizia con "conta".
   conta annulla             annulla l'ultimo inserimento
   conta ripeti              ripete l'ultimo codice
   conta totale              il computer legge il totale del giorno
-Il computer ripete a voce cio' che ha capito. Con "Prova voce" il computer
-dice cosa ha capito senza registrare nulla: utile per provare i nomi.
+Con "Ripeti a voce" attivo il computer ripete il nome di cio' che ha
+registrato (es. "conta alternaria" -> "alternaria"): utile per controllare
+senza staccare gli occhi dal microscopio. "conta totale" risponde sempre.
 Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante."""
 
 
@@ -129,7 +130,7 @@ class PollineCounterGUI:
         self._giorno_bottoni = {}
         self._voce = None            # (Ascoltatore, Sintesi) quando la voce e' attiva
         self._voce_after = None
-        self._voce_prova = False
+        self._talkback = False       # la voce ripete cio' che ha registrato
         self._voce_vocabolario = {}
         self._voce_attivazione = dominio.PAROLA_ATTIVAZIONE_DEFAULT
 
@@ -396,8 +397,9 @@ class PollineCounterGUI:
         self.btn_beep.pack(side=tk.LEFT, padx=2)
         self.btn_voce = tk.Button(barra_azioni, text="Voce: off", command=self._toggle_voce)
         self.btn_voce.pack(side=tk.LEFT, padx=2)
-        self.btn_prova = tk.Button(barra_azioni, text="Prova voce: off", command=self._toggle_prova_voce)
-        self.btn_prova.pack(side=tk.LEFT, padx=2)
+        self.btn_talkback = tk.Button(barra_azioni, text="Ripeti a voce: off",
+                                      command=self._toggle_talkback)
+        self.btn_talkback.pack(side=tk.LEFT, padx=2)
         tk.Button(barra_azioni, text="Chiudi giornata (d)", command=lambda: self._esegui_azione("d")).pack(side=tk.RIGHT, padx=2)
         tk.Button(barra_azioni, text="Salva (s)", command=lambda: self._esegui_azione("s")).pack(side=tk.RIGHT, padx=2)
         tk.Button(barra_azioni, text="Esci (q)", command=lambda: self._esegui_azione("q")).pack(side=tk.RIGHT, padx=2)
@@ -589,11 +591,23 @@ class PollineCounterGUI:
         self._voce_vocabolario, avvisi = dominio.costruisci_vocabolario_vocale(
             extra, self._voce_attivazione)
         grammatica = dominio.costruisci_grammatica(self._voce_vocabolario, self._voce_attivazione)
+        attesa_ms = sessione.leggi_attesa_vocale(percorsi.CONFIG_FILE)
+        vocabolario, attivazione = self._voce_vocabolario, self._voce_attivazione
+
+        def frase_completa(parziale):
+            # True se il parziale e' gia' un comando valido: la frase si puo' chiudere
+            return not isinstance(dominio.interpreta_vocale(parziale, vocabolario, attivazione),
+                                  dominio.ComandoNonValido)
 
         self._log("Carico il riconoscimento vocale...")
         self.root.update_idletasks()
         try:
-            asc, sintesi, sconosciute = voce.crea_voce(grammatica)
+            # Con la parola di attivazione la voce del PC non puo' essere scambiata
+            # per un comando (le conferme non iniziano mai con "conta"): il microfono
+            # resta aperto e non si perde cio' che l'operatore dice mentre il PC parla.
+            asc, sintesi, sconosciute = voce.crea_voce(
+                grammatica, frase_completa=frase_completa, attesa=attesa_ms / 1000,
+                anti_eco=not self._voce_attivazione)
         except voce.VoceNonDisponibile as e:
             self._log("Lettura vocale non disponibile.")
             messagebox.showinfo("Lettura vocale non disponibile", str(e))
@@ -620,17 +634,17 @@ class PollineCounterGUI:
         self._log(f"Voce ATTIVA. Di' ad esempio: \u00ab{inizio}ventiquattro\u00bb, "
                   f"\u00ab{inizio}graminacee per tre\u00bb, \u00ab{inizio}annulla\u00bb.")
         sintesi.parla("voce attiva")
-        self._voce_after = self.root.after(100, self._poll_voce)
+        self._voce_after = self.root.after(50, self._poll_voce)
 
-    def _toggle_prova_voce(self):
-        self._voce_prova = not self._voce_prova
-        self.btn_prova.config(text=f"Prova voce: {'ON' if self._voce_prova else 'off'}")
-        if self._voce_prova:
-            self._log("Prova voce ATTIVA: il computer dice cosa ha capito, senza registrare nulla.")
-            if self._voce is None:
-                self._toggle_voce()
+    def _toggle_talkback(self):
+        self._talkback = not self._talkback
+        self.btn_talkback.config(text=f"Ripeti a voce: {'ON' if self._talkback else 'off'}")
+        if self._talkback:
+            self._log("Ripeti a voce ATTIVO: il computer dice il nome di cio' che registra.")
         else:
-            self._log("Prova voce disattivata: ora le frasi vengono registrate.")
+            self._log("Ripeti a voce disattivato: le frasi vengono registrate in silenzio.")
+        if self._voce is None:
+            self._log("(La lettura vocale e' spenta: premi \"Voce\" per attivarla.)")
 
     def _voce_spegni(self):
         if self._voce_after is not None:
@@ -641,10 +655,8 @@ class PollineCounterGUI:
             self._voce = None
             sintesi.ferma()
             asc.ferma()
-        self._voce_prova = False
         if hasattr(self, "btn_voce") and self.btn_voce.winfo_exists():
             self.btn_voce.config(text="Voce: off")
-            self.btn_prova.config(text="Prova voce: off")
 
     def _poll_voce(self):
         """Svuota la coda delle frasi capite (nel thread di Tk: tkinter non e'
@@ -661,7 +673,7 @@ class PollineCounterGUI:
         while frase is not None:
             self._gestisci_frase_vocale(frase, sintesi)
             frase = asc.prossima_frase()
-        self._voce_after = self.root.after(100, self._poll_voce)
+        self._voce_after = self.root.after(50, self._poll_voce)
 
     def _gestisci_frase_vocale(self, frase, sintesi):
         # Con un dialogo aperto (correggi, nota, conferme...) la voce non deve
@@ -672,19 +684,16 @@ class PollineCounterGUI:
         if isinstance(cmd, dominio.ComandoNonValido):
             if cmd.messaggio:
                 self._log(f"[voce] {cmd.messaggio}")
-                sintesi.parla("non capito")
-            elif self._voce_prova and self._frase_con_attivazione(frase):
-                # Solo in prova: aiuta a scoprire come il riconoscitore scrive i
-                # nomi che non conosce, per aggiungerli ai sinonimi.
-                self._log(f"[prova] Sentito ma non in elenco: «{frase}»")
+                if self._talkback:
+                    sintesi.parla("non capito")
+            elif self._frase_con_attivazione(frase):
+                # Aiuta a scoprire come il riconoscitore scrive i nomi che non
+                # conosce, per aggiungerli ai sinonimi.
+                self._log(f"[voce] Sentito ma non in elenco: \u00ab{frase}\u00bb")
             return          # rumore di fondo / fuori vocabolario: silenzio
-        if self._voce_prova:
-            detto = self._testo_parlato_comando(cmd)
-            self._log(f"[prova] Ho capito: {detto}")
-            sintesi.parla(detto)
-            return
         detto = self._esegui_comando(cmd, fonte="voce")
-        if detto:
+        # Il totale e' una domanda: si risponde sempre; il resto solo se richiesto.
+        if detto and (self._talkback or isinstance(cmd, dominio.Totale)):
             sintesi.parla(detto)
 
     def _frase_con_attivazione(self, frase):
@@ -694,15 +703,6 @@ class PollineCounterGUI:
         if not self._voce_attivazione:
             return bool(normalizzata)
         return normalizzata.startswith(self._voce_attivazione + " ")
-
-    def _testo_parlato_comando(self, cmd):
-        if isinstance(cmd, dominio.Inserisci):
-            return self._testo_parlato_inserimento(cmd.codice, cmd.quantita)
-        if isinstance(cmd, dominio.Ripeti):
-            return "ripeti"
-        if isinstance(cmd, dominio.Totale):
-            return "totale"
-        return "annulla"
 
     # ================================================================
     # Selezione giorno
@@ -1035,7 +1035,8 @@ class PollineCounterGUI:
             top.destroy()
             if var_annuale.get():
                 percorso, n = esportatori.esporta_riepilogo_annuale(
-                    self.settimana, cartella, scegli_duplicati=self._scegli_duplicati_dialogo)
+                    self.settimana, cartella, scegli_duplicati=self._scegli_duplicati_dialogo,
+                    avvisa=self._avvisa_fattore_diverso)
                 if percorso:
                     self._log(f"[OK] Riepilogo annuale aggiornato: {percorso} ({n} giorni)")
                 else:
@@ -1057,6 +1058,10 @@ class PollineCounterGUI:
         tk.Button(riga, text="Conferma", command=_conferma).pack(side=tk.RIGHT, padx=16)
         tk.Button(riga, text="Salta", command=top.destroy).pack(side=tk.RIGHT)
         top.wait_window(top)
+
+    def _avvisa_fattore_diverso(self, messaggio):
+        self._log("Attenzione: " + messaggio.replace("\n", " "))
+        messagebox.showwarning("Fattore di conversione diverso", messaggio)
 
     def _scegli_duplicati_dialogo(self, data_str):
         top = tk.Toplevel(self.root)

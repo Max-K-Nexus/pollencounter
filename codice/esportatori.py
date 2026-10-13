@@ -153,6 +153,15 @@ _ANN_CONC_SEP = _ANN_CONC_POLL_START + len(POLLINI_CODICI)     # 111
 _ANN_CONC_SPORE_START = _ANN_CONC_SEP + 1                      # 112
 _ANN_CONC_SPORE_END = _ANN_CONC_SPORE_START + len(SPORE_CODICI) - 1  # 123
 
+# Fattore di conversione: una sola cella, nell'angolo superiore destro della
+# tabella delle concentrazioni (come Q3 nel template settimanale). Le
+# concentrazioni sono formule "conta x fattore" che puntano sempre a questa
+# cella (riferimento assoluto) e alla conta della stessa riga.
+_ANN_FATTORE_RIGA = 1
+_ANN_FATTORE_COL = _ANN_CONC_SPORE_END                        # 123 (DS)
+_FMT_CONC = "0.0;-0.0;;@"      # i valori nulli restano vuoti, come nel template
+_FMT_CONTA = "0;-0;;@"
+
 
 def _ann_col_grezzo(codice):
     n = int(codice)
@@ -172,7 +181,78 @@ def _ann_col_conc(codice):
     return None
 
 
-def crea_intestazione_annuale(ws, anno):
+def _rif_fattore():
+    """Riferimento assoluto alla cella del fattore nel foglio dati (es. $DS$1)."""
+    return f"${get_column_letter(_ANN_FATTORE_COL)}${_ANN_FATTORE_RIGA}"
+
+
+def _formula_concentrazione(col_grezzo, riga):
+    """Formula conta x fattore per la riga: vuota se non c'e' conta."""
+    ref = f"{get_column_letter(col_grezzo)}{riga}"
+    return f'=IF({ref}="","",{ref}*{_rif_fattore()})'
+
+
+def _rif_foglio(titolo):
+    return "'" + titolo.replace("'", "''") + "'"
+
+
+def _scrivi_fattore_annuale(ws, fattore):
+    etichetta = ws.cell(row=_ANN_FATTORE_RIGA, column=_ANN_FATTORE_COL - 1, value="Fatt.conv")
+    etichetta.font = FONT_BOLD
+    etichetta.alignment = Alignment(horizontal="right")
+    cella = ws.cell(row=_ANN_FATTORE_RIGA, column=_ANN_FATTORE_COL, value=fattore)
+    cella.font = FONT_BOLD
+    cella.fill = FILL_GIALLO
+    cella.border = THIN_BORDER
+    cella.alignment = ALIGN_CENTER
+    ws.column_dimensions[get_column_letter(_ANN_FATTORE_COL)].width = 5
+
+
+def _leggi_fattore_annuale(ws):
+    """Fattore scritto nel foglio dati, o None se manca (file creato prima
+    che il riepilogo annuale avesse la cella del fattore)."""
+    v = ws.cell(row=_ANN_FATTORE_RIGA, column=_ANN_FATTORE_COL).value
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+        return float(v)
+    return None
+
+
+def _deduci_fattore_file_vecchio(ws):
+    """In un file senza cella del fattore le concentrazioni erano numeri
+    fissi: il fattore usato si ricava dal primo rapporto concentrazione/conta
+    (None se non ci sono dati)."""
+    for riga in range(4, ws.max_row + 1):
+        for codice in POLLINI_CODICI + SPORE_CODICI:
+            conta = ws.cell(row=riga, column=_ann_col_grezzo(codice)).value
+            conc = ws.cell(row=riga, column=_ann_col_conc(codice)).value
+            if (isinstance(conta, (int, float)) and conta > 0
+                    and isinstance(conc, (int, float)) and conc > 0):
+                return round(conc / conta, 4)
+    return None
+
+
+def _migra_a_formule(ws, ws_cal):
+    """Converte in formule le concentrazioni di un file creato quando erano
+    numeri fissi. Nel Calendario si convertono le colonne la cui data compare
+    una sola volta nel foglio dati (con date doppie la corrispondenza non e'
+    certa e il valore resta com'e')."""
+    righe_per_data = {}
+    for riga in range(4, ws.max_row + 1):
+        data = ws.cell(row=riga, column=1).value
+        if data is None:
+            continue
+        righe_per_data.setdefault(str(data).strip(), []).append(riga)
+        for codice in POLLINI_CODICI + SPORE_CODICI:
+            ws.cell(row=riga, column=_ann_col_conc(codice)).value = \
+                _formula_concentrazione(_ann_col_grezzo(codice), riga)
+    for col in range(_CAL_COL_DATE_START, ws_cal.max_column + 1):
+        data = ws_cal.cell(row=_CAL_HEADER_ROW, column=col).value
+        righe = righe_per_data.get(str(data).strip()) if data else None
+        if righe and len(righe) == 1:
+            _scrivi_formule_calendario(ws_cal, col, ws.title, righe[0])
+
+
+def crea_intestazione_annuale(ws, anno, fattore=dominio.FATTORE_DEFAULT):
     cell = ws.cell(row=1, column=1, value=f"RIEPILOGO ANNUALE {anno}")
     cell.font = FONT_BOLD_BIG
     cell.alignment = ALIGN_CENTER
@@ -257,6 +337,7 @@ def crea_intestazione_annuale(ws, anno):
     ws.row_dimensions[3].height = 80
     ws.freeze_panes = "B4"
     ws.auto_filter.ref = f"A3:{get_column_letter(_ANN_CONC_SPORE_END)}3"
+    _scrivi_fattore_annuale(ws, fattore)
 
 
 def trova_riga_per_data(ws, data_str):
@@ -274,8 +355,10 @@ def _prossima_riga_annuale(ws):
     return ws.max_row + 1
 
 
-def scrivi_riga_annuale(ws, riga, data_str, dati, fattore, modo):
-    """modo: 'nuovo'/'sovrascrivi' = scrive i valori; 'somma' = aggiunge agli esistenti."""
+def scrivi_riga_annuale(ws, riga, data_str, dati, modo):
+    """modo: 'nuovo'/'sovrascrivi' = scrive i valori; 'somma' = aggiunge agli
+    esistenti. Le concentrazioni sono formule (conta x cella del fattore):
+    si riscrivono sempre, quindi 'somma' agisce solo sulla conta."""
     cell = ws.cell(row=riga, column=1, value=data_str)
     cell.border = THIN_BORDER
 
@@ -305,12 +388,11 @@ def scrivi_riga_annuale(ws, riga, data_str, dati, fattore, modo):
         if codice in dominio.ANNUALE_BOLD_CODICI:
             cell_g.font = FONT_BOLD
 
-        conc = dominio.concentrazione(val_nuovo, fattore)
         cell_c = ws.cell(row=riga, column=col_conc)
-        cell_c.value = conc
+        cell_c.value = _formula_concentrazione(col_grezzo, riga)
         cell_c.border = THIN_BORDER
         cell_c.alignment = ALIGN_CENTER
-        cell_c.number_format = "0.0"
+        cell_c.number_format = _FMT_CONC
         if codice in dominio.ANNUALE_VERDE_CODICI:
             cell_c.fill = FILL_VERDE
         elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
@@ -322,6 +404,7 @@ def scrivi_riga_annuale(ws, riga, data_str, dati, fattore, modo):
         cell = ws.cell(row=riga, column=sep_col, value="||")
         cell.border = THIN_BORDER
         cell.alignment = ALIGN_CENTER
+    return riga
 
 
 def _nome_foglio_settimana(lunedi):
@@ -374,7 +457,11 @@ def crea_foglio_settimana_annuale(wb_ann, conteggi, lunedi, fattore):
         c = ws_s.cell(row=riga, column=9, value=label_ultima)
         c.font = font_hdr; c.fill = fill_hdr; c.border = THIN_BORDER; c.alignment = ALIGN_CENTER
 
-    def _scrivi_specie(riga, codice, vals, valore_finale, fmt="0"):
+    def _scrivi_specie(riga, codice, vals, valore_finale, fmt="0", evidenzia=None):
+        """``vals``: numeri o formule; ``evidenzia``: per ogni giorno, se la
+        cella va in grassetto (di norma quando c'e' un valore)."""
+        if evidenzia is None:
+            evidenzia = [bool(v) for v in vals]
         specie = dominio.CODICI_SPECIE[codice]
         c = ws_s.cell(row=riga, column=1, value=specie)
         c.border = THIN_BORDER
@@ -387,10 +474,10 @@ def crea_foglio_settimana_annuale(wb_ann, conteggi, lunedi, fattore):
             c.border = THIN_BORDER; c.alignment = ALIGN_CENTER; c.number_format = fmt
             if codice in dominio.ANNUALE_VERDE_CODICI:
                 c.fill = FILL_VERDE
-                if v: c.font = FONT_BOLD
+                if evidenzia[g]: c.font = FONT_BOLD
             elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
                 c.fill = FILL_VERDE_CHIARO
-                if v: c.font = FONT_BOLD
+                if evidenzia[g]: c.font = FONT_BOLD
         c = ws_s.cell(row=riga, column=9, value=(valore_finale if valore_finale else None))
         c.border = THIN_BORDER; c.alignment = ALIGN_CENTER; c.number_format = fmt
 
@@ -434,6 +521,14 @@ def crea_foglio_settimana_annuale(wb_ann, conteggi, lunedi, fattore):
     c = ws_s.cell(row=r, column=1, value="CONCENTRAZIONI (p/m3)")
     c.font = FONT_BIANCO_BOLD; c.fill = FILL_BLU; c.alignment = ALIGN_CENTER
     ws_s.merge_cells(start_row=r, start_column=1, end_row=r, end_column=9)
+    # Fattore di conversione di questa settimana, accanto al titolo: le
+    # concentrazioni sotto sono formule "conta x fattore" che puntano a questa
+    # cella (stesso schema del template settimanale).
+    c = ws_s.cell(row=r, column=11, value="Fatt.conv")
+    c.font = FONT_BOLD; c.alignment = Alignment(horizontal="right")
+    c = ws_s.cell(row=r, column=12, value=fattore)
+    c.font = FONT_BOLD; c.fill = FILL_GIALLO; c.border = THIN_BORDER; c.alignment = ALIGN_CENTER
+    rif_fattore = f"$L${r}"
 
     r += 1
     _scrivi_header(r, "Media sett.", FILL_BLU, FONT_BIANCO_BOLD)
@@ -441,24 +536,32 @@ def crea_foglio_settimana_annuale(wb_ann, conteggi, lunedi, fattore):
     _scrivi_doy(r, FILL_BLU, FONT_BIANCO_BOLD)
 
     r += 1
-    for codice in POLLINI_CODICI:
+    scarto = r - 5          # riga delle concentrazioni = riga della conta + scarto
+
+    def _scrivi_concentrazioni(codice):
         vals_raw = conteggi.get(codice, [0] * 7)
-        conc = [dominio.concentrazione(v, fattore) or 0.0 for v in vals_raw]
-        media = round(sum(conc) / 7.0, 1)
-        _scrivi_specie(r, codice, conc, media, fmt="0.0")
+        riga_conta = r - scarto
+        formule = []
+        for g in range(7):
+            ref = f"{get_column_letter(2 + g)}{riga_conta}"
+            formule.append(f'=IF({ref}="","",{ref}*{rif_fattore})')
+        _scrivi_specie(r, codice, formule, f"=SUM(B{r}:H{r})/7", fmt=_FMT_CONC,
+                       evidenzia=[bool(v) for v in vals_raw])
+
+    for codice in POLLINI_CODICI:
+        _scrivi_concentrazioni(codice)
         r += 1
     _scrivi_separatore(r); r += 1
     for codice in SPORE_CODICI:
-        vals_raw = conteggi.get(codice, [0] * 7)
-        conc = [dominio.concentrazione(v, fattore) or 0.0 for v in vals_raw]
-        media = round(sum(conc) / 7.0, 1)
-        _scrivi_specie(r, codice, conc, media, fmt="0.0")
+        _scrivi_concentrazioni(codice)
         r += 1
 
     ws_s.column_dimensions["A"].width = 28
     for g in range(7):
         ws_s.column_dimensions[get_column_letter(2 + g)].width = 8
     ws_s.column_dimensions[get_column_letter(9)].width = 9
+    ws_s.column_dimensions["K"].width = 10
+    ws_s.column_dimensions["L"].width = 7
     ws_s.row_dimensions[3].height = 32
 
     return ws_s
@@ -548,7 +651,31 @@ def _prossima_colonna_calendario(ws):
     return ws.max_column + 1
 
 
-def scrivi_colonna_calendario(ws, col, data_str, dati, fattore, modo):
+def _scrivi_formule_calendario(ws, col, titolo_dati, riga_dati):
+    """Ogni cella del calendario rimanda alla concentrazione del foglio dati
+    (stessa data, stessa specie): una sola fonte di calcolo."""
+    foglio = _rif_foglio(titolo_dati)
+    for codice in POLLINI_CODICI + SPORE_CODICI:
+        row = _cal_row_for_codice(codice)
+        if row is None:
+            continue
+        sorgente = f"{foglio}!{get_column_letter(_ann_col_conc(codice))}{riga_dati}"
+        cell = ws.cell(row=row, column=col)
+        cell.value = f"={sorgente}"
+        cell.border = THIN_BORDER
+        cell.alignment = ALIGN_CENTER
+        cell.number_format = _FMT_CONC
+        if codice in dominio.ANNUALE_VERDE_CODICI:
+            cell.fill = FILL_VERDE
+        elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
+            cell.fill = FILL_VERDE_CHIARO
+        if codice in dominio.ANNUALE_BOLD_CODICI:
+            cell.font = FONT_BOLD
+
+
+def scrivi_colonna_calendario(ws, col, data_str, titolo_dati, riga_dati):
+    """Colonna del calendario per ``data_str``: le concentrazioni sono
+    riferimenti alla riga ``riga_dati`` del foglio ``titolo_dati``."""
     align_rotated = Alignment(horizontal="center", text_rotation=90)
 
     cell = ws.cell(row=_CAL_HEADER_ROW, column=col, value=data_str)
@@ -573,32 +700,7 @@ def scrivi_colonna_calendario(ws, col, data_str, dati, fattore, modo):
     cell.border = THIN_BORDER
     cell.alignment = ALIGN_CENTER
 
-    for codice in POLLINI_CODICI + SPORE_CODICI:
-        val_nuovo = dati.get(codice, 0)
-        row = _cal_row_for_codice(codice)
-        if row is None:
-            continue
-
-        if modo == "somma" and val_nuovo > 0:
-            conc_esistente = ws.cell(row=row, column=col).value
-            if isinstance(conc_esistente, (int, float)):
-                conc = round(conc_esistente + val_nuovo * fattore, 1)
-            else:
-                conc = dominio.concentrazione(val_nuovo, fattore)
-        else:
-            conc = dominio.concentrazione(val_nuovo, fattore)
-
-        cell = ws.cell(row=row, column=col)
-        cell.value = conc
-        cell.border = THIN_BORDER
-        cell.alignment = ALIGN_CENTER
-        cell.number_format = "0.0"
-        if codice in dominio.ANNUALE_VERDE_CODICI:
-            cell.fill = FILL_VERDE
-        elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
-            cell.fill = FILL_VERDE_CHIARO
-        if codice in dominio.ANNUALE_BOLD_CODICI and conc:
-            cell.font = FONT_BOLD
+    _scrivi_formule_calendario(ws, col, titolo_dati, riga_dati)
 
 
 def raccogli_dati_giornalieri(conteggi):
@@ -612,13 +714,16 @@ def raccogli_dati_giornalieri(conteggi):
     return risultato
 
 
-def esporta_riepilogo_annuale(settimana, cartella, scegli_duplicati=None):
+def esporta_riepilogo_annuale(settimana, cartella, scegli_duplicati=None, avvisa=None):
     """Esporta i dati settimanali nel file riepilogo annuale.
 
     scegli_duplicati: callback(data_str) -> 'a' (sovrascrivi) / 'b' (nuova riga)
     / 'c' (somma) / 'annulla' (lascia il giorno invariato, non lo esporta),
     chiamata solo se il giorno e' gia' presente. Se None e c'e' un duplicato,
     si sovrascrive senza chiedere.
+    avvisa: callback(messaggio) chiamata se il file annuale usa gia' un
+    fattore di conversione diverso da quello della settimana (il file tiene il
+    proprio: l'unica cella del fattore vale per tutto il foglio).
     Ritorna (percorso, n_giorni_esportati) o (None, 0) se non c'e' nulla da esportare.
     """
     fattore = settimana.fattore
@@ -630,20 +735,41 @@ def esporta_riepilogo_annuale(settimana, cartella, scegli_duplicati=None):
     if not dati_settimana:
         return None, 0
 
+    migra = False
     if percorso.exists():
         wb_ann = openpyxl.load_workbook(percorso)
         ws = wb_ann.active
+        fattore_file = _leggi_fattore_annuale(ws)
+        if fattore_file is None:        # file creato prima della cella del fattore
+            fattore_file = _deduci_fattore_file_vecchio(ws) or fattore
+            _scrivi_fattore_annuale(ws, fattore_file)
+            migra = True
     else:
         wb_ann = openpyxl.Workbook()
         ws = wb_ann.active
         ws.title = f"Dati {anno}"
-        crea_intestazione_annuale(ws, anno)
+        fattore_file = fattore
+        crea_intestazione_annuale(ws, anno, fattore)
 
     if "Calendario" in wb_ann.sheetnames:
         ws_cal = wb_ann["Calendario"]
     else:
         ws_cal = wb_ann.create_sheet("Calendario")
         crea_intestazione_calendario(ws_cal, anno)
+
+    if migra:
+        _migra_a_formule(ws, ws_cal)
+
+    if avvisa and abs(fattore_file - fattore) > 1e-9:
+        avvisa(
+            f"Il riepilogo annuale usa gia' il fattore di conversione {fattore_file:g}, "
+            f"mentre questa settimana usa {fattore:g}.\n"
+            f"Per coerenza con i giorni gia' presenti, le concentrazioni del riepilogo annuale "
+            f"(fogli '{ws.title}' e 'Calendario') usano {fattore_file:g}: possono quindi "
+            f"differire da quelle del bollettino di questa settimana.\n"
+            f"Per cambiare il fattore di tutto il riepilogo basta modificare la cella "
+            f"{_rif_fattore().replace('$', '')} del foglio '{ws.title}' (in alto a destra della "
+            f"tabella delle concentrazioni): tutte le concentrazioni si aggiornano da sole.")
 
     scelta_duplicati = None
     giorni_scritti = 0
@@ -660,30 +786,28 @@ def esporta_riepilogo_annuale(settimana, cartella, scegli_duplicati=None):
             if scelta_duplicati == "annulla":
                 continue  # giorno gia' presente, l'utente ha annullato: non lo tocca
             if scelta_duplicati == "a":
-                scrivi_riga_annuale(ws, riga_esistente, data_str, dati, fattore, "sovrascrivi")
+                riga_dati = scrivi_riga_annuale(ws, riga_esistente, data_str, dati, "sovrascrivi")
             elif scelta_duplicati == "b":
-                scrivi_riga_annuale(ws, _prossima_riga_annuale(ws), data_str, dati, fattore, "nuovo")
+                riga_dati = scrivi_riga_annuale(ws, _prossima_riga_annuale(ws), data_str, dati, "nuovo")
             else:
-                scrivi_riga_annuale(ws, riga_esistente, data_str, dati, fattore, "somma")
+                riga_dati = scrivi_riga_annuale(ws, riga_esistente, data_str, dati, "somma")
         else:
-            scrivi_riga_annuale(ws, _prossima_riga_annuale(ws), data_str, dati, fattore, "nuovo")
+            riga_dati = scrivi_riga_annuale(ws, _prossima_riga_annuale(ws), data_str, dati, "nuovo")
 
         col_esistente = trova_colonna_per_data_calendario(ws_cal, data_str)
-        if col_esistente:
-            modo_cal = {"a": "sovrascrivi", "b": "nuovo", "c": "somma"}.get(scelta_duplicati, "sovrascrivi")
-            if scelta_duplicati == "b":
-                scrivi_colonna_calendario(ws_cal, _prossima_colonna_calendario(ws_cal),
-                                          data_str, dati, fattore, "nuovo")
-            else:
-                scrivi_colonna_calendario(ws_cal, col_esistente, data_str, dati, fattore, modo_cal)
+        if col_esistente and scelta_duplicati != "b":
+            col_cal = col_esistente
         else:
-            scrivi_colonna_calendario(ws_cal, _prossima_colonna_calendario(ws_cal),
-                                      data_str, dati, fattore, "nuovo")
+            col_cal = _prossima_colonna_calendario(ws_cal)
+        scrivi_colonna_calendario(ws_cal, col_cal, data_str, ws.title, riga_dati)
 
         giorni_scritti += 1
 
     crea_foglio_settimana_annuale(wb_ann, settimana.conteggi, settimana.lunedi, fattore)
 
+    # openpyxl non salva i risultati delle formule: Excel/LibreOffice li
+    # calcolano all'apertura.
+    wb_ann.calculation.fullCalcOnLoad = True
     wb_ann.save(percorso)
     wb_ann.close()
     return percorso, giorni_scritti

@@ -576,7 +576,8 @@ def main():
         risp_extra = input("\n  Scelta: ").strip()
         if risp_extra in ("1", "3"):
             percorso, n = esportatori.esporta_riepilogo_annuale(
-                settimana, cartella_salvata, scegli_duplicati=_scegli_duplicati_interattivo)
+                settimana, cartella_salvata, scegli_duplicati=_scegli_duplicati_interattivo,
+                avvisa=lambda messaggio: print("\n  ATTENZIONE: " + messaggio.replace("\n", "\n  ")))
             if percorso:
                 print(f"\n  [OK] Riepilogo annuale aggiornato: {percorso}")
                 print(f"       {n} giorni esportati, fattore={settimana.fattore}")

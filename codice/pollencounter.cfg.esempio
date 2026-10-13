@@ -1,6 +1,7 @@
 {
   "2026": "C:\\percorso\\alla\\cartella\\di\\lavoro",
   "parola_attivazione": "conta",
+  "voce_attesa_ms": 300,
   "sinonimi_vocali": {
     "24": ["erba"],
     "35": ["ulivo"]

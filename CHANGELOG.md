@@ -4,6 +4,91 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-10-13
+
+### Riepilogo annuale: fattore di conversione e concentrazioni come formule
+
+**Problema:** il riepilogo annuale conteneva le concentrazioni come numeri
+fissi e non indicava il fattore di conversione usato: impossibile verificarle
+o correggerle (ad es. cambiando il fattore) senza rifare l'esportazione.
+
+**Causa:** `scrivi_riga_annuale` e `scrivi_colonna_calendario` scrivevano
+`round(conta * fattore, 1)` calcolato in Python; i fogli `Wnn` idem.
+
+**Correzione:** (`codice/esportatori.py`)
+- Foglio "Dati": cella unica del fattore `DS1` (etichetta "Fatt.conv" in `DR1`,
+  angolo superiore destro della tabella concentrazioni, come `$Q$3` del
+  template settimanale); concentrazioni `=IF(B4="","",B4*$DS$1)` (denominatore
+  sempre bloccato, la conta cambia con la riga/colonna).
+- Foglio "Calendario": ogni cella rimanda alla riga del foglio Dati
+  (`='Dati 2026'!BL4`); eliminata la lettura del valore esistente per la
+  modalita' "somma" (basta sommare la conta, le formule seguono).
+- Fogli `Wnn`: fattore della settimana accanto al titolo CONCENTRAZIONI
+  (`K`/`L`), concentrazioni a formula, media `=SUM(..)/7`.
+- Se il file annuale ha gia' un fattore diverso da quello della settimana, non
+  viene sovrascritto e un nuovo callback `avvisa(messaggio)` lo segnala (GUI:
+  finestra + log; CLI: testo ASCII).
+- I file creati prima (senza cella del fattore) sono migrati alle formule al
+  primo aggiornamento; il fattore si ricava dai dati gia' presenti.
+- `fullCalcOnLoad`: Excel/LibreOffice ricalcolano all'apertura (openpyxl non
+  salva i valori calcolati).
+- `polline_counter_gui.py` / `polline_counter.py`: passano `avvisa`.
+- Test: `TestFattoreEFormuleAnnuale` (10 test). Verificato anche ricalcolando
+  con LibreOffice: valori uguali a `dominio.concentrazione`, cambiando `DS1`
+  si aggiornano Dati, Calendario e totali; migrazione di un file prodotto dal
+  codice precedente corretta.
+
+### Lettura vocale piu' veloce (chiusura anticipata della frase)
+
+**Problema:** nel primo test su Windows il riconoscimento era lento: dopo
+"conta specie" c'era una latenza notevole, ma in una conta vera le specie si
+susseguono anche a meno di un secondo l'una dall'altra.
+
+**Causa:** (misurata con Vosk reale su audio sintetico) Vosk dichiara finita
+una frase solo dopo ~1,0-1,2 s di silenzio; con pause piu' corte fonde piu'
+specie in un'unica frase (con 0,4 s di pausa un'intera sequenza di 8 specie
+usciva come una sola frase, quindi non veniva registrato nulla). La CPU non
+c'entra (~12 ms per blocco). In piu', con la conferma parlata il microfono era
+spento mentre il PC parlava (+0,4 s di coda): le specie dette in quel momento
+andavano perse.
+
+**Correzione:**
+- `codice/voce.py`: `Ascoltatore(frase_completa, attesa)` legge il risultato
+  parziale a ogni blocco e, quando e' un comando valido invariato da `attesa`
+  secondi (conteggio in campioni audio), chiude la frase con `FinalResult()`
+  (stesso filtro di confidenza/`[unk]`). Latenza ~0,4 s invece di ~1,1 s;
+  con 8 specie a 0,4 s di pausa: 8/8 corrette. Blocchi del microfono da 250 a
+  50 ms (`BLOCCO_MICROFONO`).
+- `crea_voce(..., anti_eco)`: con la parola di attivazione il microfono resta
+  aperto mentre il PC parla (la sua voce non inizia mai con "conta"; test in
+  `test_dominio.py`). Senza parola di attivazione l'anti-eco resta.
+- `Sintesi`: se le conferme si accumulano dice solo la piu' recente; `ferma()`
+  non perde piu' l'ultima frase in coda.
+- `codice/sessione.py`: `leggi_attesa_vocale`, chiave `voce_attesa_ms` di
+  `pollencounter.cfg` (default 300, 0 = disattivata, max 2000);
+  `pollencounter.cfg.esempio` aggiornato.
+- `codice/polline_counter_gui.py`: passa il criterio `frase_completa`
+  (`interpreta_vocale`) e l'attesa; polling della coda ogni 50 ms.
+- Test: `TestChiusuraAnticipata`, nuovi test di `Sintesi`, `test_attesa_vocale`.
+- **Da verificare sul PC Windows** (microfono e SAPI5 reali): con voce e
+  rumore veri 0,3 s potrebbe non essere il valore migliore; si regola con
+  `voce_attesa_ms` (0,2 s o meno tronca "betulacee" e "per tre" nelle prove).
+
+### "Prova voce" diventa "Ripeti a voce"
+
+**Problema:** "Prova voce" era ridondante (se il computer non sente, non
+registra nulla) e non serviva durante la conta.
+
+**Correzione:** (`codice/polline_counter_gui.py`) il pulsante ora si chiama
+"Ripeti a voce": la voce registra sempre, il pulsante attiva/disattiva la
+ripetizione parlata del nome registrato ("conta alternaria" -> "alternaria").
+"conta totale" risponde sempre; "non capito" solo con la ripetizione attiva. Il
+log scrive sempre le frasi sentite ma non in elenco. Rimossi `_voce_prova`,
+`_toggle_prova_voce`, `_testo_parlato_comando`. Aggiornati aiuto in-app, le
+quattro guide, README e CLAUDE.md.
+
+---
+
 ## 2026-10-12
 
 ### Audio udibile su Linux: ripetizione vocale e beep

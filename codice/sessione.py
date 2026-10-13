@@ -473,3 +473,17 @@ def leggi_parola_attivazione(config_file):
     if not isinstance(valore, str):
         return dominio.PAROLA_ATTIVAZIONE_DEFAULT
     return dominio.normalizza_parlato(valore)
+
+
+ATTESA_VOCALE_DEFAULT_MS = 300
+
+
+def leggi_attesa_vocale(config_file):
+    """Millisecondi di pausa dopo i quali una frase vocale gia' valida viene
+    chiusa senza aspettare il silenzio lungo del riconoscitore (chiave
+    'voce_attesa_ms' di pollencounter.cfg). Assente o non valida -> 300;
+    0 -> chiusura anticipata disattivata; limitata a 2000."""
+    valore = _leggi_config(config_file).get("voce_attesa_ms")
+    if isinstance(valore, bool) or not isinstance(valore, (int, float)) or valore < 0:
+        return ATTESA_VOCALE_DEFAULT_MS
+    return int(min(valore, 2000))

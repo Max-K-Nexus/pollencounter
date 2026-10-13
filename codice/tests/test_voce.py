@@ -4,6 +4,7 @@ CHANGELOG)."""
 
 import json
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -34,6 +35,53 @@ class RiconoscitoreFinto:
 
     def Reset(self):
         self.reset += 1
+
+
+class RiconoscitoreConParziali:
+    """Un blocco audio = un parziale (stringa) oppure un risultato finale
+    (dict con 'finale': JSON restituito da Result())."""
+
+    def __init__(self, passi, finale_alla_chiusura=None):
+        self._passi = list(passi)
+        self._ultimo = None
+        self._parziale = ""
+        self._finale = finale_alla_chiusura
+        self.final_result_chiamate = 0
+
+    def AcceptWaveform(self, _blocco):
+        self._ultimo = self._passi.pop(0)
+        if isinstance(self._ultimo, dict):
+            return True
+        self._parziale = self._ultimo
+        return False
+
+    def Result(self):
+        return self._ultimo["finale"]
+
+    def PartialResult(self):
+        return json.dumps({"partial": self._parziale})
+
+    def FinalResult(self):
+        self.final_result_chiamate += 1
+        return self._finale
+
+    def Reset(self):
+        pass
+
+
+BLOCCO_100MS = b"\0" * 3200          # 100 ms di audio a 16 kHz, 16 bit, mono
+
+
+def esegui_con_parziali(passi, finale, attesa=0.3, valida=lambda p: p.startswith("conta ")):
+    riconoscitore = RiconoscitoreConParziali(passi, finale)
+    asc = voce.Ascoltatore(riconoscitore, [BLOCCO_100MS] * len(passi), 0.5,
+                           frase_completa=valida, attesa=attesa)
+    asc.avvia()
+    asc._thread.join(timeout=2)
+    frasi = []
+    while (f := asc.prossima_frase()) is not None:
+        frasi.append(f)
+    return frasi, riconoscitore
 
 
 def esegui(risultati, muto_secondi=0.0, soglia=0.5):
@@ -112,6 +160,73 @@ class TestAscoltatore(unittest.TestCase):
         asc._thread.join(timeout=2)
         self.assertEqual(asc.prossima_frase(), "conta uno")
         self.assertIn("microfono scollegato", asc.errore)
+
+
+class TestChiusuraAnticipata(unittest.TestCase):
+    """La frase si chiude quando il parziale e' un comando valido e resta
+    invariato per 'attesa' secondi di audio, senza aspettare il silenzio lungo
+    di Vosk."""
+
+    def test_chiude_dopo_l_attesa(self):
+        # "conta acero" compare al blocco 2 (0,2 s) e resta uguale: dopo 0,3 s di
+        # audio (blocco 5) la frase esce
+        passi = ["", "conta", "conta acero", "conta acero", "conta acero", "conta acero"]
+        frasi, riconoscitore = esegui_con_parziali(passi, risultato("conta acero"))
+        self.assertEqual(frasi, ["conta acero"])
+        self.assertEqual(riconoscitore.final_result_chiamate, 1)
+
+    def test_non_chiude_prima_dell_attesa(self):
+        passi = ["conta acero", "conta acero", "conta acero"]
+        frasi, riconoscitore = esegui_con_parziali(passi, risultato("conta acero"))
+        self.assertEqual(frasi, [])
+        self.assertEqual(riconoscitore.final_result_chiamate, 0)
+
+    def test_parziale_che_cambia_riparte_da_capo(self):
+        # "conta ontano" ferma solo 0,2 s, poi arriva "per tre": una sola frase, intera
+        passi = ["conta ontano", "conta ontano", "conta ontano per", "conta ontano per",
+                 "conta ontano per tre", "conta ontano per tre", "conta ontano per tre",
+                 "conta ontano per tre"]
+        frasi, _ = esegui_con_parziali(passi, risultato("conta ontano per tre"))
+        self.assertEqual(frasi, ["conta ontano per tre"])
+
+    def test_parziale_non_valido_non_chiude(self):
+        # "conta" da solo non e' un comando: aspetta la parola successiva
+        passi = ["conta"] * 6
+        frasi, riconoscitore = esegui_con_parziali(passi, risultato("conta"),
+                                                   valida=lambda p: p != "conta")
+        self.assertEqual(frasi, [])
+        self.assertEqual(riconoscitore.final_result_chiamate, 0)
+
+    def test_filtro_di_confidenza_vale_anche_per_la_chiusura_anticipata(self):
+        passi = ["conta acero"] * 6
+        frasi, _ = esegui_con_parziali(passi, risultato("conta acero", conf=0.2))
+        self.assertEqual(frasi, [])
+
+    def test_frase_gia_chiusa_da_vosk_non_viene_duplicata(self):
+        passi = ["conta acero", "conta acero", {"finale": risultato("conta acero")},
+                 "", "", "", ""]
+        frasi, riconoscitore = esegui_con_parziali(passi, risultato("conta acero"))
+        self.assertEqual(frasi, ["conta acero"])
+        self.assertEqual(riconoscitore.final_result_chiamate, 0)
+
+    def test_due_frasi_ravvicinate(self):
+        passi = ["conta acero"] * 5 + ["conta tre"] * 5
+        riconoscitore = RiconoscitoreConParziali(passi)
+        finali = iter([risultato("conta acero"), risultato("conta tre")])
+        riconoscitore.FinalResult = lambda: next(finali)
+        asc = voce.Ascoltatore(riconoscitore, [BLOCCO_100MS] * len(passi), 0.5,
+                               frase_completa=lambda p: True, attesa=0.3)
+        asc.avvia()
+        asc._thread.join(timeout=2)
+        frasi = []
+        while (f := asc.prossima_frase()) is not None:
+            frasi.append(f)
+        self.assertEqual(frasi, ["conta acero", "conta tre"])
+
+    def test_senza_frase_completa_non_si_chiede_il_parziale(self):
+        # comportamento di prima: solo la chiusura di Vosk (il finto non ha PartialResult)
+        frasi, _, _ = esegui([None, risultato("conta uno")])
+        self.assertEqual(frasi, ["conta uno"])
 
 
 class TestVocabolarioModello(unittest.TestCase):
@@ -284,10 +399,50 @@ class TestSintesi(unittest.TestCase):
         motore = MotoreFinto(errore_alla="uno")
         sintesi = voce.Sintesi(None, motore=motore)
         sintesi.parla("uno")
+        scadenza = time.monotonic() + 2
+        while not sintesi.avviso and time.monotonic() < scadenza:
+            time.sleep(0.01)                    # "uno" deve essere stata tentata
         sintesi.parla("due")
         self._attendi(sintesi)
         self.assertEqual(motore.detto, ["due"])
         self.assertIn("audio guasto", sintesi.avviso)
+
+    def test_senza_ascoltatore_nessun_silenzio(self):
+        # anti-eco disattivato: il microfono resta aperto
+        motore = MotoreFinto()
+        sintesi = voce.Sintesi(None, motore=motore)
+        sintesi.parla("graminacee")
+        self._attendi(sintesi)
+        self.assertEqual(motore.detto, ["graminacee"])
+
+    def test_conferme_arretrate_si_saltano_ma_l_ultima_si_dice(self):
+        class MotoreLento(MotoreFinto):
+            def __init__(self):
+                super().__init__()
+                self.via = threading.Event()
+
+            def dici(self, testo):
+                self.via.wait(2)                # tiene occupata la sintesi
+                super().dici(testo)
+
+        motore = MotoreLento()
+        sintesi = voce.Sintesi(None, motore=motore)
+        sintesi.parla("uno")                    # in corso, bloccata nel motore
+        time.sleep(0.1)
+        sintesi.parla("due")
+        sintesi.parla("tre")
+        sintesi.parla("quattro")
+        motore.via.set()
+        self._attendi(sintesi)
+        self.assertEqual(motore.detto, ["uno", "quattro"])
+
+    def test_ferma_non_perde_l_ultima_frase(self):
+        motore = MotoreFinto()
+        sintesi = voce.Sintesi(None, motore=motore)
+        sintesi.parla("ultima")
+        sintesi.ferma()
+        sintesi._thread.join(timeout=2)
+        self.assertEqual(motore.detto, ["ultima"])
 
     def test_motore_non_avviabile_da_un_avviso(self):
         with mock.patch.object(voce, "crea_motore_sintesi", side_effect=RuntimeError("no driver")):

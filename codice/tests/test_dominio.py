@@ -317,6 +317,30 @@ class TestVocale(unittest.TestCase):
         self.assertEqual(len(avvisi), 1)
 
 
+class TestConfermeNonSembranoComandi(unittest.TestCase):
+    """Con il microfono sempre aperto mentre il PC parla (anti-eco spento), la
+    voce del PC non deve poter essere scambiata per un comando: nessuna
+    conferma parlata puo' iniziare con la parola di attivazione."""
+
+    def test_nomi_delle_specie(self):
+        for codice, nome in d.CODICI_SPECIE.items():
+            parlato = d.normalizza_parlato(nome)
+            self.assertFalse(parlato.startswith(d.PAROLA_ATTIVAZIONE_DEFAULT),
+                             f"{codice}: {parlato}")
+            self.assertNotIn(" " + d.PAROLA_ATTIVAZIONE_DEFAULT + " ", " " + parlato + " ")
+
+    def test_frasi_fisse(self):
+        for frase in ("annullato", "totale 12", "non capito", "niente da ripetere", "voce attiva"):
+            self.assertFalse(frase.startswith(d.PAROLA_ATTIVAZIONE_DEFAULT))
+
+    def test_una_conferma_non_viene_interpretata_come_comando(self):
+        vocabolario, _ = d.costruisci_vocabolario_vocale({}, d.PAROLA_ATTIVAZIONE_DEFAULT)
+        for codice in d.CODICI_SPECIE:
+            conferma = d.normalizza_parlato(d.CODICI_SPECIE[codice])
+            cmd = d.interpreta_vocale(conferma, vocabolario, d.PAROLA_ATTIVAZIONE_DEFAULT)
+            self.assertIsInstance(cmd, d.ComandoNonValido, conferma)
+
+
 class TestPronunceVocali(unittest.TestCase):
     def setUp(self):
         self.voc, self.avvisi = d.costruisci_vocabolario_vocale()
