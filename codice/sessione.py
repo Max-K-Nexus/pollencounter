@@ -304,6 +304,18 @@ def recupera_sessioni(cartella):
     return risultati
 
 
+def rimuovi_sessioni(paths):
+    """Cancella i journal indicati. Ritorna [(path, errore), ...] per quelli
+    che non si sono potuti rimuovere (lista vuota se e' andato tutto bene)."""
+    falliti = []
+    for p in paths:
+        try:
+            Path(p).unlink(missing_ok=True)
+        except OSError as e:
+            falliti.append((Path(p), e))
+    return falliti
+
+
 def _leggi_intestazione_journal(path):
     try:
         with open(path, "r", encoding="utf-8") as fh:

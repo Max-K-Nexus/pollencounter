@@ -6,6 +6,33 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ## 2026-10-15
 
+### Rimozione dei lavori interrotti dalla schermata iniziale
+
+**Problema:** un `~sessione_*.jsonl` che non serviva piu' (prove, settimane
+abbandonate) non si poteva eliminare dal programma: restava per sempre e il
+riquadro giallo di "lavoro non salvato" compariva a ogni avvio. Il riquadro
+inoltre proponeva solo la sessione piu' recente.
+
+**Causa:** la schermata iniziale sapeva solo riprendere i journal, non
+rimuoverli.
+
+**Correzione:**
+- `sessione.py`: `rimuovi_sessioni(paths)` cancella i journal e ritorna quelli
+  non rimovibili (un file gia' sparito non e' un errore).
+- `polline_counter_gui.py`: il riquadro giallo ha "Riprendi" (il piu' recente) e
+  "Scegli o rimuovi..." (`_dialog_sessioni_interrotte`: selezione multipla,
+  Riprendi / Rimuovi selezionate / Rimuovi tutte); nuovo pulsante "Rimuovi non
+  salvato" nell'elenco principale (solo righe "Non salvato", mai gli `.xlsx`).
+  Un solo percorso, `_rimuovi_sessioni_interrotte`: conferma (default "No") con
+  numero di operazioni che andranno perse, cancellazione definitiva, errore
+  chiaro se un file non si rimuove. `_aggiorna_pulsanti_avvio` abilita i pulsanti.
+- `tests/test_sessione.py`: `test_rimuovi_sessioni`.
+- Guide (Linux, Mac, Windows, `ISTRUZIONI.txt`), guida F1 e `CLAUDE.md` aggiornati.
+- Provato sotto Xvfb con e senza `sv_ttk` (3 journal finti: rimozione di due,
+  poi di tutti, riquadro giallo che scompare, ripresa dal dialogo). 201 test ok.
+  La CLI e' invariata. Exe Windows ricompilato con la voce (Wine, ~81 MB): contiene
+  `rimuovi_sessioni` e il nuovo dialogo, si avvia sotto Wine (non provato su Windows vero).
+
 ### Inserimenti sempre piu' lenti al crescere delle specie contate
 
 **Problema:** a ogni inserimento l'aggiornamento della GUI era un po' piu'

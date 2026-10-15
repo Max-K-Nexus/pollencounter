@@ -108,6 +108,9 @@ Continuare un lavoro: scegli la riga nell'elenco e premi "Riprendi
 selezionato" (oppure doppio clic).
   Non salvato  = il programma si e' chiuso prima del salvataggio: i dati sono
                  al sicuro e si possono riprendere da dove eri rimasto.
+                 Se non servono piu' (prove, settimane abbandonate) usa
+                 "Scegli o rimuovi..." nel riquadro giallo, o "Rimuovi non
+                 salvato": la rimozione e' definitiva e chiede conferma.
   File salvato = un file Excel gia' salvato, a cui aggiungere altri dati.
 
 I file stanno nella cartella di lavoro indicata in basso ("Cambia..." per
@@ -629,6 +632,9 @@ class PollineCounterGUI:
         self.btn_riprendi = ttk.Button(riga_bottoni, text="Riprendi selezionato", style="Accent.TButton",
                                        command=self._avvio_riprendi_selezionata, state=tk.DISABLED)
         self.btn_riprendi.pack(side=tk.LEFT)
+        self.btn_rimuovi = ttk.Button(riga_bottoni, text="Rimuovi non salvato",
+                                      command=self._avvio_rimuovi_selezionata, state=tk.DISABLED)
+        self.btn_rimuovi.pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(riga_bottoni, text="Apri un file da un'altra cartella…",
                    command=self._avvio_importa).pack(side=tk.LEFT, padx=8)
         self.lbl_elenco_info = ttk.Label(riprendi, text="", foreground=_COLORI["grigio"])
@@ -650,8 +656,7 @@ class PollineCounterGUI:
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_avvio.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.tree_avvio.bind("<Double-1>", lambda e: self._avvio_riprendi_selezionata())
-        self.tree_avvio.bind("<<TreeviewSelect>>", lambda e: self.btn_riprendi.config(
-            state=(tk.NORMAL if self.tree_avvio.selection() else tk.DISABLED)))
+        self.tree_avvio.bind("<<TreeviewSelect>>", lambda e: self._aggiorna_pulsanti_avvio())
 
         self._aggiorna_lista_sessioni()
         self.entry_settimana.focus_set()
@@ -696,56 +701,188 @@ class PollineCounterGUI:
 
         interrotte = sessione.recupera_sessioni(self.output_dir)
         for path, info in interrotte:
-            try:
-                settimana = dominio.descrivi_settimana(datetime.strptime(info["lunedi"], "%Y-%m-%d"))
-            except ValueError:
-                settimana = f"settimana del {info['lunedi']}"
             self.tree_avvio.insert("", tk.END, values=(
-                "Non salvato", settimana.capitalize(), quando(path),
+                "Non salvato", self._descrivi_journal(info).capitalize(), quando(path),
                 f"{info['n_operazioni']} operazioni da recuperare",
             ))
-            self._righe_avvio.append(("journal", path))
+            self._righe_avvio.append(("journal", path, info))
 
         for f in sessione.cerca_file_ripresa(self.output_dir, esportatori.TEMPLATE_FILE.name):
             self.tree_avvio.insert("", tk.END, values=(
                 "File salvato", f.name, quando(f), sessione.conta_righe_log(f),
             ))
-            self._righe_avvio.append(("xlsx", f))
+            self._righe_avvio.append(("xlsx", f, None))
 
-        self.btn_riprendi.config(state=tk.DISABLED)
+        self._aggiorna_pulsanti_avvio()
         self.lbl_elenco_info.config(
             text=("Doppio clic su una riga per aprirla." if self._righe_avvio else
                   "Nessun lavoro precedente in questa cartella: inizia una nuova settimana qui sopra."))
         if interrotte:
-            self._mostra_avviso_interrotte(*interrotte[0], altre=len(interrotte) - 1)
+            self._mostra_avviso_interrotte(interrotte)
 
-    def _mostra_avviso_interrotte(self, path, info, altre):
-        """Riquadro giallo in cima: dopo un blackout o una chiusura improvvisa e'
-        la prima cosa che l'operatore deve vedere."""
+    @staticmethod
+    def _descrivi_journal(info):
         try:
-            settimana = dominio.descrivi_settimana(datetime.strptime(info["lunedi"], "%Y-%m-%d"))
+            return dominio.descrivi_settimana(datetime.strptime(info["lunedi"], "%Y-%m-%d"))
         except ValueError:
-            settimana = f"settimana del {info['lunedi']}"
-        testo = (f"C'è un lavoro non salvato: {settimana} ({info['n_operazioni']} operazioni). "
-                 "I dati sono al sicuro e si possono riprendere.")
-        if altre > 0:
-            testo += f"  (Altri {altre} nell'elenco.)"
+            return f"settimana del {info['lunedi']}"
+
+    def _aggiorna_pulsanti_avvio(self):
+        """Riprendi: una riga qualsiasi. Rimuovi: solo righe 'Non salvato' (mai i
+        file .xlsx salvati)."""
+        sel = self.tree_avvio.selection()
+        self.btn_riprendi.config(state=(tk.NORMAL if sel else tk.DISABLED))
+        solo_journal = bool(sel) and all(
+            self._righe_avvio[self.tree_avvio.index(i)][0] == "journal" for i in sel)
+        self.btn_rimuovi.config(state=(tk.NORMAL if solo_journal else tk.DISABLED))
+
+    def _mostra_avviso_interrotte(self, interrotte):
+        """Riquadro giallo in cima: dopo un blackout o una chiusura improvvisa e'
+        la prima cosa che l'operatore deve vedere. 'interrotte' e' l'elenco di
+        sessione.recupera_sessioni (la piu' recente per prima)."""
+        path, info = interrotte[0]
+        settimana = self._descrivi_journal(info)
+        if len(interrotte) == 1:
+            testo = (f"C'è un lavoro non salvato della settimana {settimana} ({info['n_operazioni']} operazioni). "
+                     "I dati sono al sicuro e si possono riprendere, oppure rimuovere "
+                     "se non servono più.")
+        else:
+            testo = (f"Ci sono {len(interrotte)} lavori non salvati; il più recente è della settimana {settimana} "
+                     f"({info['n_operazioni']} operazioni). I dati sono al sicuro: si può riprendere "
+                     "il più recente, sceglierne un altro oppure rimuovere quelli che non servono più.")
         riquadro = tk.Frame(self.box_avviso, bg=_COLORI["riquadro_avviso"],
                             highlightbackground="#E8D38A", highlightthickness=1)
         riquadro.pack(fill=tk.X, pady=(0, 8))
-        ttk.Button(riquadro, text="Riprendi", style="Accent.TButton",
-                   command=lambda: self._avvia_da_journal(path)).pack(side=tk.RIGHT, padx=10, pady=8)
+        bottoni = tk.Frame(riquadro, bg=_COLORI["riquadro_avviso"])
+        bottoni.pack(side=tk.RIGHT, padx=10, pady=8)
+        ttk.Button(bottoni, text="Riprendi" + (" il più recente" if len(interrotte) > 1 else ""),
+                   style="Accent.TButton",
+                   command=lambda: self._avvia_da_journal(path)).pack(side=tk.TOP, fill=tk.X)
+        ttk.Button(bottoni, text="Scegli o rimuovi…",
+                   command=self._dialog_sessioni_interrotte).pack(side=tk.TOP, fill=tk.X, pady=(6, 0))
         tk.Label(riquadro, text="⚠  " + testo, bg=_COLORI["riquadro_avviso"], fg="#1B1B1B",
-                 font=(_UI_FONT, 10), justify=tk.LEFT, anchor="w", wraplength=620,
+                 font=(_UI_FONT, 10), justify=tk.LEFT, anchor="w", wraplength=520,
                  padx=12, pady=8).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+    def _dialog_sessioni_interrotte(self):
+        """Elenco dei soli lavori non salvati: riprenderne uno, rimuoverne alcuni
+        (selezione multipla) o tutti."""
+        top = tk.Toplevel(self.root)
+        top.title("Lavori non salvati")
+        top.minsize(560, 300)
+
+        ttk.Label(top, text="Seleziona una o più righe (Ctrl o Maiusc + clic).",
+                  foreground=_COLORI["grigio"]).pack(side=tk.TOP, anchor="w", padx=14, pady=(12, 6))
+        riga_bottoni = ttk.Frame(top)
+        riga_bottoni.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=12)
+        elenco = ttk.Frame(top)
+        elenco.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=14)
+        cols = ("nome", "quando", "info")
+        tree = ttk.Treeview(elenco, columns=cols, show="headings", height=6,
+                            style="Elenco.Treeview", selectmode="extended")
+        for col, titolo, larg, elastica in (("nome", "Settimana", 260, True),
+                                            ("quando", "Ultima modifica", 120, False),
+                                            ("info", "Operazioni", 100, False)):
+            tree.heading(col, text=titolo, anchor=tk.W)
+            tree.column(col, width=larg, minwidth=80, stretch=elastica, anchor=tk.W)
+        scroll = ttk.Scrollbar(elenco, command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        voci = []   # [(path, info)] nello stesso ordine delle righe
+
+        def ricarica():
+            voci[:] = sessione.recupera_sessioni(self.output_dir)
+            for item in tree.get_children():
+                tree.delete(item)
+            adesso = datetime.now()
+            for path, info in voci:
+                try:
+                    q = dominio.descrivi_quando(datetime.fromtimestamp(path.stat().st_mtime), adesso)
+                except OSError:
+                    q = ""
+                tree.insert("", tk.END, values=(self._descrivi_journal(info).capitalize(),
+                                                q, info["n_operazioni"]))
+            aggiorna_pulsanti()
+
+        def selezionate():
+            return [voci[tree.index(i)] for i in tree.selection()]
+
+        def aggiorna_pulsanti(*_):
+            n = len(tree.selection())
+            btn_riprendi.config(state=(tk.NORMAL if n == 1 else tk.DISABLED))
+            btn_sel.config(state=(tk.NORMAL if n >= 1 else tk.DISABLED))
+            btn_tutte.config(state=(tk.NORMAL if voci else tk.DISABLED))
+
+        def riprendi(*_):
+            scelte = selezionate()
+            if len(scelte) != 1:
+                return
+            top.destroy()
+            self._avvia_da_journal(scelte[0][0])
+
+        def rimuovi(da_rimuovere):
+            if da_rimuovere and self._rimuovi_sessioni_interrotte(da_rimuovere, parent=top):
+                ricarica()
+                if not voci:
+                    top.destroy()
+
+        btn_riprendi = ttk.Button(riga_bottoni, text="Riprendi", style="Accent.TButton", command=riprendi)
+        btn_riprendi.pack(side=tk.LEFT)
+        btn_sel = ttk.Button(riga_bottoni, text="Rimuovi selezionate",
+                             command=lambda: rimuovi(selezionate()))
+        btn_sel.pack(side=tk.LEFT, padx=8)
+        btn_tutte = ttk.Button(riga_bottoni, text="Rimuovi tutte", command=lambda: rimuovi(list(voci)))
+        btn_tutte.pack(side=tk.LEFT)
+        ttk.Button(riga_bottoni, text="Chiudi", command=top.destroy).pack(side=tk.RIGHT)
+        tree.bind("<<TreeviewSelect>>", aggiorna_pulsanti)
+        tree.bind("<Double-1>", riprendi)
+        ricarica()
+        self._prepara_dialogo(top)
+
+    def _rimuovi_sessioni_interrotte(self, voci, parent=None):
+        """Cancella definitivamente i journal di 'voci' [(path, info)] dopo conferma.
+        Un solo percorso per dialogo ed elenco. Ritorna True se ha rimosso qualcosa."""
+        parent = parent or self.root
+        n_op = sum(info["n_operazioni"] for _, info in voci)
+        if len(voci) == 1:
+            domanda = (f"Rimuovere il lavoro non salvato della settimana {self._descrivi_journal(voci[0][1])} "
+                       f"({n_op} operazioni)?")
+        else:
+            domanda = f"Rimuovere {len(voci)} lavori non salvati ({n_op} operazioni in tutto)?"
+        if not messagebox.askyesno(
+                "Rimuovere lavoro non salvato",
+                domanda + "\n\nI conteggi non salvati andranno persi definitivamente: "
+                          "non si può tornare indietro.",
+                icon="warning", default="no", parent=parent):
+            return False
+        falliti = sessione.rimuovi_sessioni([p for p, _ in voci])
+        if falliti:
+            elenco = "\n".join(f"  {p.name}" for p, _ in falliti)
+            messagebox.showerror(
+                "Rimozione non riuscita",
+                f"Non è stato possibile rimuovere:\n{elenco}\n\n"
+                "Controlla che il file non sia aperto in un altro programma e riprova.",
+                parent=parent)
+        self._aggiorna_lista_sessioni()
+        return len(falliti) < len(voci)
+
+    def _avvio_rimuovi_selezionata(self):
+        voci = []
+        for item in self.tree_avvio.selection():
+            tipo, path, info = self._righe_avvio[self.tree_avvio.index(item)]
+            if tipo == "journal":
+                voci.append((path, info))
+        if voci:
+            self._rimuovi_sessioni_interrotte(voci)
 
     def _avvio_riprendi_selezionata(self):
         sel = self.tree_avvio.selection()
         if not sel:
             messagebox.showwarning("Nessuna selezione", "Seleziona una sessione o un file dall'elenco.")
             return
-        idx = self.tree_avvio.index(sel[0])
-        tipo, path = self._righe_avvio[idx]
+        tipo, path, _ = self._righe_avvio[self.tree_avvio.index(sel[0])]
         if tipo == "journal":
             self._avvia_da_journal(path)
         else:

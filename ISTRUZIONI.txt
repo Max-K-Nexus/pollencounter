@@ -108,7 +108,12 @@ MENU, SCORCIATOIE E SCHERMATA INIZIALE
 ---------------------------------------
 Schermata iniziale: in alto, se c'e' un lavoro interrotto (chiusura
 improvvisa, mancanza di corrente) compare un riquadro giallo con il
-pulsante "Riprendi": i dati non sono persi. Poi "Nuova settimana" (le
+pulsante "Riprendi": i dati non sono persi. Con piu' lavori interrotti
+"Scegli o rimuovi..." apre l'elenco dei soli lavori non salvati: si puo'
+riprenderne uno, rimuoverne alcuni (Ctrl o Maiusc + clic) o tutti. La
+rimozione e' definitiva e chiede conferma; "Rimuovi non salvato" fa lo
+stesso dall'elenco in basso e non tocca mai i file .xlsx salvati.
+Poi "Nuova settimana" (le
 frecce passano alla settimana precedente o successiva; sotto la data
 compare il periodo, es. "da lunedi 12/10 a domenica 18/10/2026") e
 l'elenco "Riprendi un lavoro" con la data dell'ultima modifica. In

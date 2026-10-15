@@ -1,7 +1,7 @@
 import json
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -207,6 +207,26 @@ class TestJournal(unittest.TestCase):
             path, info = risultati[0]
             self.assertEqual(info["lunedi"], "2026-02-09")
             self.assertEqual(info["n_operazioni"], 2)
+
+    def test_rimuovi_sessioni(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            altro_lunedi = LUNEDI + timedelta(days=7)
+            for lunedi in (LUNEDI, altro_lunedi):
+                j = sessione.Journal(tmp / sessione.nome_journal(lunedi))
+                j.avvia(sessione.Settimana(lunedi))
+                j.chiudi()
+            self.assertEqual(len(sessione.recupera_sessioni(tmp)), 2)
+
+            # un file gia' sparito non e' un errore
+            falliti = sessione.rimuovi_sessioni(
+                [tmp / sessione.nome_journal(LUNEDI), tmp / "~sessione_inesistente.jsonl"])
+            self.assertEqual(falliti, [])
+            rimaste = sessione.recupera_sessioni(tmp)
+            self.assertEqual(len(rimaste), 1)
+            self.assertEqual(rimaste[0][0].name, sessione.nome_journal(altro_lunedi))
+
+            self.assertEqual(sessione.rimuovi_sessioni([]), [])
 
 
 class TestConfig(unittest.TestCase):
