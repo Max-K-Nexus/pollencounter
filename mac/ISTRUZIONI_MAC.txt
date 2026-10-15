@@ -263,6 +263,7 @@ Si digitano nella casella di inserimento, esattamente come nella CLI.
   l           Ultimi 10 inserimenti (storico)
   c           Apre la finestra "Correggi un giorno"
   n           Chiede una nota testuale per la giornata corrente
+  f           Cambia il fattore di conversione (default 0,4) della settimana
   b           Attiva/disattiva il beep sonoro
   h           Mostra l'elenco dei comandi
   d           Chiude la giornata (bisogna sceglierne un'altra)

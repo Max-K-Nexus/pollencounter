@@ -139,6 +139,29 @@ class TestJournal(unittest.TestCase):
             self.assertEqual(ripristinata.conteggi, s.conteggi)
             self.assertEqual(len(ripristinata.log), len(s.log))
 
+    def test_imposta_fattore_notifica_e_ritorna_il_vecchio(self):
+        s = sessione.Settimana(LUNEDI)
+        chiamate = []
+        s.on_change(chiamate.append)
+        self.assertEqual(s.imposta_fattore(0.5), 0.4)
+        self.assertEqual(s.fattore, 0.5)
+        self.assertEqual(len(chiamate), 1)
+        with self.assertRaises(ValueError):
+            s.imposta_fattore(0)
+        self.assertEqual(s.fattore, 0.5)
+
+    def test_replay_ripristina_il_fattore_cambiato(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "~sessione_09-02-2026.jsonl"
+            s = sessione.Settimana(LUNEDI)
+            j = sessione.Journal(path)
+            j.avvia(s)
+            s.attiva_giorno(1, journal=j)
+            s.inserisci(1, "05", 3, journal=j)
+            s.imposta_fattore(0.55, journal=j)
+            j.chiudi()
+            self.assertEqual(sessione.ripristina_da_journal(path).fattore, 0.55)
+
     def test_riprendi_non_riscrive_lo_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "~sessione_09-02-2026.jsonl"

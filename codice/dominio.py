@@ -7,6 +7,7 @@ Nessuna funzione di questo modulo fa I/O (file, stdin, Excel, Word):
 per questo e' interamente coperto da test (vedi tests/test_dominio.py).
 """
 
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -300,6 +301,24 @@ def concentrazione(conta, fattore):
     return round(conta * fattore, 1)
 
 
+FATTORE_MAX = 100
+
+
+def interpreta_fattore(testo):
+    """Legge il fattore di conversione scritto dall'utente ('0,4' o '0.4').
+    Ritorna un float > 0; solleva ValueError con un messaggio chiaro altrimenti."""
+    pulito = str(testo).strip().replace(",", ".")
+    try:
+        valore = float(pulito)
+    except ValueError:
+        raise ValueError(f"'{str(testo).strip()}' non e' un numero. "
+                         "Scrivi ad esempio 0,4.") from None
+    if not math.isfinite(valore) or valore <= 0 or valore > FATTORE_MAX:
+        raise ValueError(f"Il fattore deve essere un numero maggiore di 0 "
+                         f"e non oltre {FATTORE_MAX}.")
+    return valore
+
+
 def parse_soglia_max(testo):
     """Estrae il valore massimo da un range come '0 - 0,5', '< 1', '> 50'.
     Ritorna un float."""
@@ -421,7 +440,7 @@ class Ripeti:
 
 @dataclass
 class Azione:
-    """Comando a singola lettera: h, r, w, l, b, c, n, s, u, d, q."""
+    """Comando a singola lettera: h, r, w, l, b, c, n, f, s, u, d, q."""
     lettera: str
 
 
@@ -431,7 +450,7 @@ class ComandoNonValido:
 
 
 _RE_QUANTITA = re.compile(r"^(\d{1,2})[xX*](\d+)$")
-_LETTERE_AZIONE = set("hrwlbcnsudq")
+_LETTERE_AZIONE = set("hrwlbcnfsudq")
 
 
 def interpreta_comando(testo):

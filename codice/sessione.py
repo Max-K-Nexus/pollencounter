@@ -170,6 +170,18 @@ class Settimana:
             journal.registra("nota", giorno=giorno_num, testo=testo)
         self._notifica()
 
+    def imposta_fattore(self, fattore, journal=None):
+        """Cambia il fattore di conversione conta -> concentrazione.
+        Ritorna il valore precedente."""
+        if not fattore > 0:
+            raise ValueError("Il fattore deve essere maggiore di 0.")
+        vecchio = self.fattore
+        self.fattore = fattore
+        if journal:
+            journal.registra("fattore", valore=fattore)
+        self._notifica()
+        return vecchio
+
 
 # ============================================================
 # Journal: persistenza incrementale su disco (JSONL)
@@ -275,6 +287,8 @@ def ripristina_da_journal(path):
             settimana.correggi(riga["giorno"], riga["codice"], riga["valore"], ora=ora)
         elif tipo == "nota":
             settimana.aggiungi_nota(riga["giorno"], riga["testo"], ora=ora)
+        elif tipo == "fattore":
+            settimana.imposta_fattore(riga["valore"])
     return settimana
 
 

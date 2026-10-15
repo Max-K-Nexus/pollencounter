@@ -6,6 +6,30 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ## 2026-10-15
 
+### Fattore di conversione modificabile dall'utente
+
+**Problema:** la tab Bollettino mostrava "Fattore: 0.4" ma il valore non era
+modificabile: chi lavora con un fattore diverso doveva correggere a mano le
+celle nei file Excel.
+
+**Causa:** `Settimana.fattore` esisteva (usato da anteprima GUI, `.xlsx` e Word)
+ma non c'era alcun modo di cambiarlo, ne' di registrarne il cambio nel journal.
+
+**Correzione:**
+- `dominio.py`: `interpreta_fattore()` (accetta "0,4" e "0.4", rifiuta valori non
+  numerici, <= 0 o > 100 con messaggio chiaro); la lettera `f` diventa un'`Azione`.
+- `sessione.py`: `Settimana.imposta_fattore()` (notifica la GUI e scrive l'evento
+  `"fattore"` nel journal); `ripristina_da_journal` lo rigioca dopo un crash.
+- `polline_counter_gui.py`: pulsante "Cambia fattore..." nella tab Bollettino, voce
+  Modifica > "Fattore di conversione...", comando `f`; tutti passano da
+  `_esegui_azione("f")` -> `_dialog_fattore`. Il ridisegno arriva dal callback
+  `on_change`. L'etichetta mostra `{fattore:g}`.
+- `polline_counter.py`: comando `f` anche nella CLI (`cambia_fattore`).
+- Il fattore vale per la settimana aperta (resta nella cella Q3 del `.xlsx` e viene
+  riletto alla riapertura); il Riepilogo Annuale mantiene il proprio fattore unico e
+  mostra l'avviso gia' esistente se e' diverso. Non e' comandabile a voce.
+- Guide (`ISTRUZIONI.txt`, mac, windows) aggiornate; test aggiunti (200 ok).
+
 ### GUI: stile Windows 11, menu, schermata iniziale piu' ricca, pulsante Esci
 
 **Problema:** per utenti non informatici la GUI sembrava "da tecnici": pulsanti `tk`

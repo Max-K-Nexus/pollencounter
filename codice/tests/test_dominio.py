@@ -87,6 +87,31 @@ class TestConcentrazione(unittest.TestCase):
         self.assertEqual(d.concentrazione(3, 0.4), 1.2)
 
 
+class TestInterpretaFattore(unittest.TestCase):
+    def test_virgola_e_punto(self):
+        self.assertEqual(d.interpreta_fattore("0,5"), 0.5)
+        self.assertEqual(d.interpreta_fattore("0.5"), 0.5)
+        self.assertEqual(d.interpreta_fattore(" 1 "), 1.0)
+
+    def test_valori_non_validi(self):
+        for testo in ("0", "-1", "abc", "", "1000", "nan", "inf"):
+            with self.subTest(testo=testo):
+                with self.assertRaises(ValueError):
+                    d.interpreta_fattore(testo)
+
+    def test_messaggio_in_italiano_comprensibile(self):
+        with self.assertRaises(ValueError) as ctx:
+            d.interpreta_fattore("abc")
+        self.assertIn("non e' un numero", str(ctx.exception))
+
+    def test_lettera_f_e_un_comando(self):
+        self.assertEqual(d.interpreta_comando("f"), d.Azione("f"))
+
+    def test_il_fattore_non_e_comandabile_a_voce(self):
+        azioni = {c.lettera for c in d.COMANDI_VOCALI.values() if isinstance(c, d.Azione)}
+        self.assertNotIn("f", azioni)
+
+
 class TestSoglie(unittest.TestCase):
     def test_parse_soglia_max_range(self):
         self.assertEqual(d.parse_soglia_max("0 - 0,5"), 0.5)

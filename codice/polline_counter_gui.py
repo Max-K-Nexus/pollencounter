@@ -73,6 +73,7 @@ Comandi (lettera + Invio nella casella di inserimento):
   l   ultimi inserimenti
   c   correggi un giorno precedente
   n   aggiungi una nota per la giornata
+  f   cambia il fattore di conversione (scheda Bollettino: pulsante "Cambia fattore")
   u   annulla ultimo inserimento
   b   attiva/disattiva il beep sonoro
   s   salva il file (senza uscire)
@@ -473,6 +474,7 @@ class PollineCounterGUI:
             m.add_command(label="Annulla l'ultimo inserimento", accelerator="Ctrl+Z", command=azione("u"))
             m.add_command(label="Correggi un giorno…", command=azione("c"))
             m.add_command(label="Aggiungi una nota…", command=azione("n"))
+            m.add_command(label="Fattore di conversione…", command=azione("f"))
             m.add_separator()
             m.add_command(label="Ultimi inserimenti", command=azione("l"))
 
@@ -1113,11 +1115,15 @@ class PollineCounterGUI:
 
         info_frame = ttk.Frame(tab, padding=(0, 6))
         info_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        riga_info = ttk.Frame(info_frame)
+        riga_info.pack(fill=tk.X, padx=10)
+        ttk.Button(riga_info, text="Cambia fattore…",
+                   command=lambda: self._esegui_azione("f")).pack(side=tk.RIGHT)
         self.lbl_boll_info = ttk.Label(
-            info_frame, text="Fattore: -   Specie rilevate: -",
+            riga_info, text="Fattore: -   Specie rilevate: -",
             font=(_UI_FONT, 10), anchor=tk.W,
         )
-        self.lbl_boll_info.pack(fill=tk.X, padx=10)
+        self.lbl_boll_info.pack(side=tk.LEFT, fill=tk.X, expand=True)
         if not self.soglie:
             ttk.Label(info_frame,
                       text=f"ATTENZIONE: '{esportatori.SOGLIE_FILE_NOME}' non trovato, uso soglie di riserva.",
@@ -1452,6 +1458,8 @@ class PollineCounterGUI:
             self._dialog_correggi()
         elif lettera == "n":
             self._dialog_nota()
+        elif lettera == "f":
+            self._dialog_fattore()
         elif lettera == "s":
             self._salva()
         elif lettera == "u":
@@ -1599,6 +1607,29 @@ class PollineCounterGUI:
         self.settimana.aggiungi_nota(giorno_num, testo, journal=self.journal)
         self._modificato = True
         self._log(f"Nota registrata: {testo}")
+
+    def _dialog_fattore(self):
+        if self.settimana is None:
+            return
+        attuale = self.settimana.fattore
+        testo = simpledialog.askstring(
+            "Fattore di conversione",
+            "Fattore per trasformare la conta in concentrazione (granuli/m³).\n"
+            "Vale per il bollettino e per il file salvato di questa settimana.\n\n"
+            "Nuovo fattore:",
+            initialvalue=f"{attuale:g}", parent=self.root)
+        if testo is None or not testo.strip():
+            return
+        try:
+            nuovo = dominio.interpreta_fattore(testo)
+        except ValueError as e:
+            messagebox.showerror("Valore non valido", str(e), parent=self.root)
+            return
+        if abs(nuovo - attuale) < 1e-12:
+            return
+        self.settimana.imposta_fattore(nuovo, journal=self.journal)
+        self._modificato = True
+        self._log(f"Fattore di conversione: {attuale:g} -> {nuovo:g}")
 
     # ================================================================
     # Salvataggio
@@ -1865,7 +1896,7 @@ class PollineCounterGUI:
                     bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=8, sticky="nsew")
 
         n_sp = len(righe)
-        self.lbl_boll_info.config(text=f"Fattore: {self.settimana.fattore}   Specie rilevate: {n_sp}")
+        self.lbl_boll_info.config(text=f"Fattore: {self.settimana.fattore:g}   Specie rilevate: {n_sp}")
 
     # ================================================================
     # Chiusura applicazione

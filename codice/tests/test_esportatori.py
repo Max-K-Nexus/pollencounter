@@ -40,6 +40,21 @@ class TestEsportaXlsx(unittest.TestCase):
             self.assertEqual(ws["M3"].value, 2026)
             wb.close()
 
+    def test_fattore_modificato_va_nel_file_e_nel_bollettino(self):
+        s = _settimana_di_prova()
+        s.imposta_fattore(0.5)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "prova.xlsx"
+            esportatori.esporta_xlsx(s, path)
+            wb = openpyxl.load_workbook(path)
+            self.assertEqual(wb["riepilogo_settimana"]["Q3"].value, 0.5)
+            wb.close()
+            self.assertEqual(sessione.carica_da_xlsx(path).fattore, 0.5)
+        r04 = dominio.righe_bollettino(s.conteggi, s.fattore, {})
+        r04_default = dominio.righe_bollettino(s.conteggi, 0.4, {})
+        self.assertNotEqual([r.concentrazioni for r in r04],
+                            [r.concentrazioni for r in r04_default])
+
     def test_scrive_il_log(self):
         s = _settimana_di_prova()
         with tempfile.TemporaryDirectory() as tmp:

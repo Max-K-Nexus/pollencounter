@@ -53,6 +53,7 @@ def display_menu():
     print("  l       Ultimi inserimenti (storico)")
     print("  c       Correggi un giorno precedente")
     print("  n       Aggiungi una nota per la giornata")
+    print("  f       Cambia il fattore di conversione (concentrazioni)")
     print("  u       Annulla ultimo inserimento")
     print("  b       Attiva/disattiva beep sonoro")
     print("  h       Mostra questo menu")
@@ -311,6 +312,24 @@ def correggi_giorno(settimana, journal):
     print(f"  Corretto: [{codice}] {specie}: {val_attuale} -> {nuovo_val}")
 
 
+def cambia_fattore(settimana, journal):
+    print(f"\n  Fattore di conversione attuale: {settimana.fattore:g}")
+    testo = input("  Nuovo fattore (invio per lasciarlo invariato): ").strip()
+    if not testo:
+        return
+    try:
+        nuovo = dominio.interpreta_fattore(testo)
+    except ValueError as e:
+        print(f"  {e}")
+        return
+    if abs(nuovo - settimana.fattore) < 1e-12:
+        print("  Il fattore non e' cambiato.")
+        return
+    vecchio = settimana.imposta_fattore(nuovo, journal=journal)
+    print(f"  Fattore: {vecchio:g} -> {nuovo:g} "
+          f"(vale per il bollettino e per il file salvato di questa settimana)")
+
+
 def aggiungi_nota(settimana, giorno_num, journal):
     nota = input("  Nota: ").strip()
     if not nota:
@@ -440,6 +459,8 @@ def sessione_giorno(settimana, journal, giorno_num, stato):
                 correggi_giorno(settimana, journal)
             elif lettera == "n":
                 aggiungi_nota(settimana, giorno_num, journal)
+            elif lettera == "f":
+                cambia_fattore(settimana, journal)
             elif lettera == "s":
                 percorso = stato.get("percorso_salvato") or chiedi_percorso_salvataggio(
                     settimana.nome_file_default())
