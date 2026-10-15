@@ -29,7 +29,6 @@ TEMPLATE_PRINCIPALE = BASE_DIR / TEMPLATE_NAME
 # ---------------------------------------------------------------------------
 
 VERDE = PatternFill(fill_type="solid", fgColor="C5E0B4")
-NESSUN_FILL = PatternFill(fill_type=None)
 
 # Colori formattazione condizionale bollettino
 CF_VERDE   = PatternFill(fill_type="solid", fgColor="00B050")  # assente
@@ -41,7 +40,6 @@ thin = Side(border_style="thin", color="000000")
 BORDO_THIN = Border(left=thin, right=thin, top=thin, bottom=thin)
 
 FONT_BOLD = Font(bold=True)
-FONT_NORMALE = Font(bold=False)
 
 ALIGN_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=False)
 
@@ -55,10 +53,6 @@ ALTEZZA_RIGHE = 15
 
 # Colonne dati grezzi nel foglio riepilogo_settimana (lun→dom)
 _RIEP_GIORNI = ['G', 'H', 'I', 'J', 'K', 'L', 'M']
-
-# Colonne nel bollettino: E=lun, F=mar, ..., K=dom (col 5-11), L=media (col 12)
-_BOLL_GIORNI_COLS = range(5, 12)   # colonne E-K
-_BOLL_MEDIA_COL   = 12             # colonna L
 
 # (riga_bollettino, righe_riepilogo_da_sommare, assente_max, bassa_max, media_max)
 # Solo righe famiglia: contiene la logica di aggregazione delle sottospecie
@@ -131,13 +125,8 @@ def aggiorna_bollettino(ws) -> None:
     (Q-X, col 17-24). Entrambi vengono aggiornati.
     """
 
-    # Colonne lato sinistro: E-K giorni (5-11), L media (12)
-    _LX_GIORNI = range(5, 12)
-    _LX_MEDIA  = 12
-
-    # Colonne lato destro: Q-W giorni (17-23), X media (24)
-    _DX_GIORNI = range(17, 24)
-    _DX_MEDIA  = 24
+    # (colonne dei giorni, colonna della media): sinistra E-K / L, destra Q-W / X
+    lati = ((range(5, 12), 12), (range(17, 24), 24))
 
     # Sostituisce l'intera lista CF con una nuova (clear() su _cf_rules non è
     # sufficiente: openpyxl salva anche le regole da una struttura separata)
@@ -153,25 +142,15 @@ def aggiorna_bollettino(ws) -> None:
             }
             sums_settimana = "+".join(f"SUM(G{r}:M{r})" for r in riep_rows)
 
-            # Lato sinistro
-            for boll_col, riep_col in zip(_LX_GIORNI, _RIEP_GIORNI):
-                somma = somma_giorni[riep_col]
-                ws.cell(row=boll_row, column=boll_col).value = (
-                    f"=IF(({somma})>0,ROUND(({somma})*$Q$3,1),0)"
+            for giorni_cols, media_col in lati:
+                for boll_col, riep_col in zip(giorni_cols, _RIEP_GIORNI):
+                    somma = somma_giorni[riep_col]
+                    ws.cell(row=boll_row, column=boll_col).value = (
+                        f"=IF(({somma})>0,ROUND(({somma})*$Q$3,1),0)"
+                    )
+                ws.cell(row=boll_row, column=media_col).value = (
+                    f"=ROUND(({sums_settimana})*$Q$3/7,1)"
                 )
-            ws.cell(row=boll_row, column=_LX_MEDIA).value = (
-                f"=ROUND(({sums_settimana})*$Q$3/7,1)"
-            )
-
-            # Lato destro
-            for boll_col, riep_col in zip(_DX_GIORNI, _RIEP_GIORNI):
-                somma = somma_giorni[riep_col]
-                ws.cell(row=boll_row, column=boll_col).value = (
-                    f"=IF(({somma})>0,ROUND(({somma})*$Q$3,1),0)"
-                )
-            ws.cell(row=boll_row, column=_DX_MEDIA).value = (
-                f"=ROUND(({sums_settimana})*$Q$3/7,1)"
-            )
 
     # --- Formattazione condizionale su tutte le righe (famiglie + sottospecie) ---
     for boll_row, assente_max, bassa_max, media_max in BOLL_CF_RIGHE:

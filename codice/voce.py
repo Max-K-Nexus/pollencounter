@@ -390,6 +390,7 @@ def crea_motore_sintesi(which=shutil.which, piattaforma=None):
     """Sceglie il motore di sintesi: espeak-ng + lettore WAV su Linux se ci
     sono entrambi, altrimenti pyttsx3. Ritorna (motore, avviso)."""
     piattaforma = piattaforma or sys.platform
+    avviso = ""
     if piattaforma.startswith("linux"):
         lettore = trova_lettore_audio(which, piattaforma)
         eseguibile = which("espeak-ng") or which("espeak")
@@ -399,12 +400,8 @@ def crea_motore_sintesi(which=shutil.which, piattaforma=None):
             avviso = ("Non trovo un programma per riprodurre l'audio: la voce restera' muta. "
                       "Installa 'pulseaudio-utils' o 'alsa-utils' "
                       "(es. sudo zypper install alsa-utils).")
-        else:
-            avviso = ""
-        motore = MotorePyttsx3()
-        return motore, avviso or motore.avviso
     motore = MotorePyttsx3()
-    return motore, motore.avviso
+    return motore, avviso or motore.avviso
 
 
 class Sintesi:

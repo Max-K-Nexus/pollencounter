@@ -106,15 +106,18 @@ BOLLETTINO_RIGHE = (
 FAMIGLIE_SOMMA = {righe[2][0]: righe[2] for righe in BOLLETTINO_RIGHE if len(righe[2]) > 1}
 
 
+def somma_codici(conteggi, codici):
+    """Somma, giorno per giorno, i conteggi dei ``codici``: lista di 7 interi.
+    ``conteggi``: {codice: [7 interi]} (i codici assenti contano 0)."""
+    return [sum(giorni) for giorni in zip(*(conteggi.get(c, [0] * 7) for c in codici))]
+
+
 def totali_famiglia(conteggi):
     """{codice_famiglia: [7 interi]} con la somma di dubbi e specie, solo per
     le famiglie con almeno un granulo. ``conteggi``: {codice: [7 interi]}."""
     totali = {}
     for famiglia, codici in FAMIGLIE_SOMMA.items():
-        somma = [0] * 7
-        for codice in codici:
-            for i, v in enumerate(conteggi.get(codice, [0] * 7)):
-                somma[i] += v
+        somma = somma_codici(conteggi, codici)
         if any(somma):
             totali[famiglia] = somma
     return totali
@@ -168,18 +171,35 @@ def codice_valido(codice):
     return codice in CODICI_SPECIE
 
 
+def descrivi_inserimento(codice, quantita):
+    """'[24] GRAMINACEAE' o '[24] GRAMINACEAE x3' (solo ASCII: CLI e GUI)."""
+    testo = f"[{codice}] {CODICI_SPECIE[codice]}"
+    return f"{testo} x{quantita}" if quantita > 1 else testo
+
+
+def annullo_richiede_conferma(annulli_di_fila):
+    """True ogni 5 annulli consecutivi oltre i primi 5 (dal sesto in poi)."""
+    return annulli_di_fila > 5 and (annulli_di_fila - 1) % 5 == 0
+
+
 # ============================================================
 # Layout del foglio Excel 'riepilogo_settimana' (fisso, non modificare:
 # vedi CLAUDE.md — pollini in righe 6-52, spore in 58-69)
 # ============================================================
-def codice_to_row(codice):
-    """Codice specie -> riga nel foglio riepilogo_settimana."""
+def posizione_codice(codice, inizio_pollini, inizio_spore):
+    """Posizione (riga o colonna) di un codice in un foglio che elenca prima i
+    47 pollini (da ``inizio_pollini``) e poi le 12 spore (da ``inizio_spore``)."""
     n = int(codice)
     if 1 <= n <= 47:          # Pollini
-        return n + 5
+        return inizio_pollini + n - 1
     if 48 <= n <= 59:         # Spore
-        return n + 10
+        return inizio_spore + n - 48
     return None
+
+
+def codice_to_row(codice):
+    """Codice specie -> riga nel foglio riepilogo_settimana."""
+    return posizione_codice(codice, 6, 58)
 
 
 def giorno_to_col(giorno_num):
@@ -339,16 +359,12 @@ def righe_bollettino(conteggi, fattore, soglie):
 
     Ogni giorno e' colorato secondo la propria concentrazione (non secondo
     la media settimanale): e' l'unico punto di calcolo del colore, usato sia
-    dall'anteprima GUI sia dal bollettino Word, cosi' i due non possono piu'
-    divergere (difetto #3 della revisione).
+    dall'anteprima GUI sia dal bollettino Word, cosi' i due non possono
+    divergere.
     """
     righe = []
     for nome_ita, nome_eng, codici, famiglia in BOLLETTINO_RIGHE:
-        totali_giorno = [0] * 7
-        for codice in codici:
-            vals = conteggi.get(codice, [0] * 7)
-            for i in range(7):
-                totali_giorno[i] += vals[i]
+        totali_giorno = somma_codici(conteggi, codici)
         if not any(v > 0 for v in totali_giorno):
             continue
         conc = [concentrazione(v, fattore) or 0.0 for v in totali_giorno]
@@ -402,7 +418,7 @@ def interpreta_comando(testo):
     cmd = testo.lower()
     if cmd == ".":
         return Ripeti()
-    if cmd in _LETTERE_AZIONE and len(cmd) == 1:
+    if cmd in _LETTERE_AZIONE:
         return Azione(cmd)
 
     quantita = 1
@@ -412,7 +428,7 @@ def interpreta_comando(testo):
         codice = match.group(1)
         quantita = int(match.group(2))
         if quantita < 1 or quantita > 100:
-            return ComandoNonValido(f"Quantita' non valida (1-100).")
+            return ComandoNonValido("Quantita' non valida (1-100).")
 
     codice = normalizza_codice(codice)
     if not codice_valido(codice):
@@ -612,7 +628,7 @@ def costruisci_vocabolario_vocale(extra=None, attivazione=PAROLA_ATTIVAZIONE_DEF
     for codice, nome in CODICI_SPECIE.items():
         aggiungi(numero_in_parole(int(codice)), codice, "numero")
         aggiungi(nome, codice, "nome")
-    for sorgente, origine in ((SINONIMI_VOCALI_DEFAULT, "sinonimo"), (extra or {}, "sinonimo personale")):
+    def aggiungi_sinonimi(sorgente, origine):
         for codice, forme in sorgente.items():
             codice = normalizza_codice(str(codice))
             if not codice_valido(codice):
@@ -620,10 +636,12 @@ def costruisci_vocabolario_vocale(extra=None, attivazione=PAROLA_ATTIVAZIONE_DEF
                 continue
             for forma in forme:
                 aggiungi(forma, codice, origine)
-        if sorgente is SINONIMI_VOCALI_DEFAULT:
-            for codice, trascrizioni in PRONUNCE_VOCALI.values():
-                for trascrizione in trascrizioni:
-                    aggiungi(trascrizione, codice, "pronuncia")
+
+    aggiungi_sinonimi(SINONIMI_VOCALI_DEFAULT, "sinonimo")
+    for codice, trascrizioni in PRONUNCE_VOCALI.values():
+        for trascrizione in trascrizioni:
+            aggiungi(trascrizione, codice, "pronuncia")
+    aggiungi_sinonimi(extra or {}, "sinonimo personale")
     return vocabolario, avvisi
 
 

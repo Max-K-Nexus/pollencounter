@@ -2,17 +2,17 @@
 """
 Modello di sessione (Settimana) e persistenza incrementale (Journal).
 
-Sostituisce il vecchio schema "autosave periodico dell'intero workbook +
-rilettura da file": qui lo stato vive in memoria in un oggetto Settimana,
-e ogni operazione (inserimento, annullo, correzione, nota) viene scritta
-subito come una riga in un journal JSONL append-only. Il salvataggio su
-.xlsx avviene solo quando l'utente lo chiede esplicitamente (comando 's'/'q'
-o pulsante Salva), tramite esportatori.esporta_xlsx().
+Lo stato vive in memoria in un oggetto Settimana, e ogni operazione
+(inserimento, annullo, correzione, nota) viene scritta subito come una riga
+in un journal JSONL append-only. Il salvataggio su .xlsx avviene solo quando
+l'utente lo chiede esplicitamente (comando 's'/'q' o pulsante Salva), tramite
+esportatori.esporta_xlsx().
 
 Nessuna interazione con l'utente (input/print/dialoghi): quella resta a
 carico di polline_counter.py (CLI) e polline_counter_gui.py (GUI).
 """
 
+import functools
 import json
 import os
 from datetime import datetime, timedelta
@@ -60,12 +60,13 @@ class Settimana:
     def data_str_giorno(self, giorno_num):
         return self.data_giorno(giorno_num).strftime("%d-%m-%Y")
 
+    def nome_file_default(self):
+        """Nome proposto per il file .xlsx: quello di origine, o uno nuovo dal lunedi'."""
+        return self.nome_origine or f"Conta_Pollinica_{self.data_str_giorno(1)}.xlsx"
+
     def totale_giorno(self, giorno_num):
         idx = giorno_num - 1
         return sum(v[idx] for v in self.conteggi.values())
-
-    def totale_settimana(self):
-        return sum(sum(v) for v in self.conteggi.values())
 
     def righe_specie(self, giorno_num=None):
         """Ritorna [(codice, specie, valore_o_lista)] per le specie con dati > 0.
@@ -84,6 +85,13 @@ class Settimana:
         return righe
 
     # ── operazioni mutanti ──
+    def _registra_log(self, giorno_num, codice, specie, ora, nota):
+        """Aggiunge una riga a ``log`` (ora = adesso se non data). Ritorna il suo indice."""
+        self.log.append({"data": self.data_str_giorno(giorno_num), "codice": codice,
+                         "specie": specie, "ora": ora or datetime.now().strftime("%H:%M:%S"),
+                         "nota": nota})
+        return len(self.log) - 1
+
     def attiva_giorno(self, giorno_num, journal=None):
         """Rende 'giorno_num' il giorno corrente: azzera lo storico di annullo
         (identico al comportamento originale: 'u' funziona solo nella sessione
@@ -101,11 +109,8 @@ class Settimana:
         ora = ora or datetime.now().strftime("%H:%M:%S")
 
         self.conteggi[codice][idx] += quantita
-        indici = []
-        for _ in range(quantita):
-            self.log.append({"data": data_str, "codice": codice, "specie": specie,
-                              "ora": ora, "nota": None})
-            indici.append(len(self.log) - 1)
+        indici = [self._registra_log(giorno_num, codice, specie, ora, None)
+                  for _ in range(quantita)]
         self.storico.append((data_str, codice, specie, quantita, ora))
         if self.giorno_attivo == giorno_num:
             self._undo_stack.append({"codice": codice, "quantita": quantita, "log_indici": indici})
@@ -117,8 +122,8 @@ class Settimana:
         return self.conteggi[codice][idx]
 
     def annulla(self, giorno_num, journal=None, ora=None):
-        """Annulla l'ultimo inserimento del giorno attivo (difetto #7 risolto:
-        rimuove anche la voce dallo storico, non solo dal conteggio).
+        """Annulla l'ultimo inserimento del giorno attivo (rimuove anche la voce
+        dallo storico, non solo dal conteggio).
         Ritorna (codice, quantita, nuovo_totale) o None se non c'e' nulla da annullare."""
         if self.giorno_attivo != giorno_num or not self._undo_stack:
             return None
@@ -136,11 +141,8 @@ class Settimana:
                     and ultimo[0] == self.data_str_giorno(giorno_num)):
                 self.storico.pop()
 
-        specie = dominio.CODICI_SPECIE[codice]
-        data_str = self.data_str_giorno(giorno_num)
-        ora = ora or datetime.now().strftime("%H:%M:%S")
-        self.log.append({"data": data_str, "codice": codice, "specie": specie,
-                          "ora": ora, "nota": f"ANNULLATO x{quantita}"})
+        self._registra_log(giorno_num, codice, dominio.CODICI_SPECIE[codice], ora,
+                           f"ANNULLATO x{quantita}")
 
         if journal:
             journal.registra("undo", giorno=giorno_num)
@@ -154,11 +156,8 @@ class Settimana:
         vecchio = self.conteggi[codice][idx]
         self.conteggi[codice][idx] = nuovo_valore
 
-        specie = dominio.CODICI_SPECIE[codice]
-        data_str = self.data_str_giorno(giorno_num)
-        ora = ora or datetime.now().strftime("%H:%M:%S")
-        self.log.append({"data": data_str, "codice": codice, "specie": specie, "ora": ora,
-                          "nota": f"CORREZIONE {vecchio}->{nuovo_valore}"})
+        self._registra_log(giorno_num, codice, dominio.CODICI_SPECIE[codice], ora,
+                           f"CORREZIONE {vecchio}->{nuovo_valore}")
 
         if journal:
             journal.registra("correggi", giorno=giorno_num, codice=codice, valore=nuovo_valore)
@@ -166,10 +165,7 @@ class Settimana:
         return vecchio
 
     def aggiungi_nota(self, giorno_num, testo, journal=None, ora=None):
-        data_str = self.data_str_giorno(giorno_num)
-        ora = ora or datetime.now().strftime("%H:%M:%S")
-        self.log.append({"data": data_str, "codice": "--", "specie": "NOTA",
-                          "ora": ora, "nota": testo})
+        self._registra_log(giorno_num, "--", "NOTA", ora, testo)
         if journal:
             journal.registra("nota", giorno=giorno_num, testo=testo)
         self._notifica()
@@ -318,9 +314,8 @@ def _leggi_intestazione_journal(path):
 def carica_da_xlsx(path):
     """Legge un file .xlsx esistente e ricostruisce una Settimana.
 
-    Solleva ValueError se il file non ha la struttura attesa: risolve il
-    difetto #2 (crash su file senza 'riepilogo_settimana', es. i riepiloghi
-    annuali proposti per errore nel menu di ripresa)."""
+    Solleva ValueError se il file non ha la struttura attesa (es. un riepilogo
+    annuale senza il foglio 'riepilogo_settimana')."""
     if openpyxl is None:
         raise RuntimeError("openpyxl non installato.")
 
@@ -381,8 +376,8 @@ def carica_da_xlsx(path):
 
 def cerca_file_ripresa(cartella, template_name):
     """Cerca file .xlsx validi per la ripresa: esclude il template e i
-    riepiloghi annuali, e verifica che abbiano il foglio 'riepilogo_settimana'
-    (difetto #2). Ritorna una lista di Path, piu' recenti prima."""
+    riepiloghi annuali, e verifica che abbiano il foglio 'riepilogo_settimana'.
+    Ritorna una lista di Path, piu' recenti prima."""
     cartella = Path(cartella)
     candidati = [
         f for f in cartella.glob("*.xlsx")
@@ -407,7 +402,18 @@ def _ha_foglio_riepilogo(path):
 
 
 def conta_righe_log(path):
-    """Stringa '(N righe log)' per un file .xlsx, o '' se non leggibile."""
+    """Stringa '(N righe log)' per un file .xlsx, o '' se non leggibile. Aprire
+    il file costa ~0,25 s: il risultato si ricorda finche' il file non cambia
+    (la schermata iniziale lo richiede a ogni rientro)."""
+    try:
+        stato = Path(path).stat()
+    except OSError:
+        return ""
+    return _conta_righe_log(str(path), stato.st_mtime_ns, stato.st_size)
+
+
+@functools.lru_cache(maxsize=64)
+def _conta_righe_log(path, _mtime_ns, _dimensione):
     if openpyxl is None:
         return ""
     try:
@@ -427,13 +433,15 @@ def conta_righe_log(path):
 # Configurazione cartella di lavoro (pollencounter.cfg)
 # ============================================================
 def _leggi_config(config_file):
-    config_file = Path(config_file)
-    if config_file.exists():
-        try:
-            return json.loads(config_file.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
+    try:
+        return json.loads(Path(config_file).read_text(encoding="utf-8"))
+    except Exception:       # file assente o illeggibile: configurazione vuota
+        return {}
+
+
+def _scrivi_config(config_file, config):
+    Path(config_file).write_text(json.dumps(config, ensure_ascii=False, indent=2),
+                                 encoding="utf-8")
 
 
 def leggi_cartella_anno(config_file, anno):
@@ -448,10 +456,9 @@ def leggi_cartella_anno(config_file, anno):
 
 
 def salva_cartella_anno(config_file, anno, cartella):
-    config_file = Path(config_file)
     config = _leggi_config(config_file)
     config[str(anno)] = str(cartella)
-    config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    _scrivi_config(config_file, config)
 
 
 def leggi_sinonimi_vocali(config_file):
@@ -502,7 +509,6 @@ def leggi_layout_finestra(config_file):
 def salva_layout_finestra(config_file, larghezza, altezza, divisione):
     """Salva le dimensioni della finestra senza toccare le altre chiavi. Valori
     non sensati (finestra ridotta a icona, divisione fuori limiti) si ignorano."""
-    config_file = Path(config_file)
     config = _leggi_config(config_file)
     layout = {}
     if 300 <= larghezza <= 10000 and 300 <= altezza <= 10000:
@@ -512,7 +518,7 @@ def salva_layout_finestra(config_file, larghezza, altezza, divisione):
     if not layout:
         return
     config["finestra"] = layout
-    config_file.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    _scrivi_config(config_file, config)
 
 
 ATTESA_VOCALE_DEFAULT_MS = 300

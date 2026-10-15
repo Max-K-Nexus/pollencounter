@@ -4,6 +4,85 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-10-15
+
+### Pulizia di tutti i moduli (`/simplify`): helper condivisi, codice morto, cache
+
+**Problema:** logica ripetuta fra CLI, GUI e moduli (riga di log in `Settimana`
+copiata 4 volte, "[cod] specie xQ" in 6 punti, regola di conferma degli annulli
+in due copie, fill/grassetto delle specie in 6 punti di `esportatori.py`, somma
+dei codici su 7 giorni in due funzioni), piu' codice morto e commenti su
+architetture rimosse. La schermata iniziale riapriva ogni `.xlsx` (~0,25 s a
+file) per contare le righe di log a ogni rientro.
+
+**Correzione:** nessun cambiamento di comportamento (output `.xlsx`/`.docx`
+confrontati cella per cella con quelli della versione precedente: identici).
+- `dominio.py`: `somma_codici`, `posizione_codice` (da cui `codice_to_row` e le
+  colonne/righe di `esportatori.py`), `descrivi_inserimento`,
+  `annullo_richiede_conferma`; vocabolario vocale senza il test `is` sulla
+  costante; tolti un controllo ridondante e una f-string senza segnaposto.
+- `sessione.py`: `Settimana._registra_log`, `Settimana.nome_file_default`,
+  `_scrivi_config`; `_leggi_config` ridotta a un `try`; `conta_righe_log`
+  ricordata per file+data di modifica (`lru_cache`); tolta `totale_settimana`
+  (mai usata).
+- `esportatori.py`: `_fill_specie` / `_evidenzia_specie`; usa
+  `GIORNI_ABBREV` e `Settimana.data_giorno`.
+- `polline_counter.py` / `polline_counter_gui.py`: usano gli helper di
+  `dominio`/`sessione`; eliminato lo stato `nome_ripreso` (era sempre
+  uguale a `settimana.nome_origine`), il flag `uscita_richiesta` (mai letto), il valore
+  di ritorno inutilizzato di `menu_uscita_salvataggio`; elenco dei giorni
+  stampato da un'unica funzione.
+- `voce.py`: `crea_motore_sintesi` senza il ramo duplicato.
+- `script_aiuto/applica_formattazione.py`: tolte 4 costanti inutilizzate, i
+  blocchi lato sinistro/destro uniti in un ciclo (risultato identico su una
+  copia del template).
+- Commenti sulla storia dei "difetti" e sull'architettura precedente tolti dai
+  sorgenti (restano in questo file).
+
+**Non applicato (da valutare):** `Settimana` che possiede il journal, classe
+`SessioneLavoro` per avvio/salvataggio/uscita, soglie dello script del template
+derivate da `dominio` (cambierebbe Cladosporium 100 -> 99,9), import pigri di
+vosk/sounddevice (~0,3 s di avvio), cache del modello Vosk, ridisegno del solo
+Bollettino visibile, setup dei test condiviso.
+
+---
+
+## 2026-10-15
+
+### GUI: salvataggio in uscita, conferma degli annulli, ridisegno delle schede
+
+**Problema:** (1) se un file era gia' stato salvato una volta e poi si
+modificava, "Esci -> Salva" o la chiusura della finestra scrivevano "File
+salvato" ed eliminavano il journal senza riscrivere l'`.xlsx`: le modifiche
+successive al primo salvataggio andavano perse. (2) La conferma dopo 5 annulli
+di fila non compariva mai, e dopo ogni modifica il cursore tornava alla casella
+di inserimento anche se si stava scrivendo nel dialogo Correggi. (3) Una frase
+vocale con piu' comandi ridisegnava le schede una volta per comando. (4) Nel
+Giornaliero la larghezza minima delle colonne (60 px) non veniva rispettata.
+
+**Causa:** (`codice/polline_counter_gui.py`) `_esci_sessione` e `on_closing`
+usavano `percorso_salvato or _salva_come()` ed esportavano solo se il percorso
+era nuovo; `_on_settimana_change` richiamava `_imposta_giorno_ui`, che azzera
+`_undo_consecutivi` e riprende il focus; `_colonne_tabella` usava
+`max(100, minimo)`.
+
+**Correzione:**
+- Un solo `_salva()` (chiede il percorso solo la prima volta, poi esporta
+  sempre) usato da pulsante Salva, Esci e chiusura finestra; eliminati
+  `_salva_rapido` e `_salva_come`.
+- `_on_settimana_change` aggiorna solo l'etichetta del giorno
+  (`_aggiorna_etichetta_giorno`); il resto resta in `_imposta_giorno_ui`, chiamata
+  alla scelta del giorno.
+- Le schede si ridisegnano con `after_idle` una volta per raffica di modifiche;
+  le colonne della griglia del Bollettino si configurano una volta sola.
+- Pulizia: un solo ciclo sui codici per Settimanale e Giornaliero,
+  `_crea_tabella` per i tre `Treeview`, `_descrivi` per il testo "[cod] specie xQ",
+  vocabolario vocale costruito una volta (`_costruisci_vocabolario_vocale`),
+  rimossa `_frase_con_attivazione` (sempre vera sui segmenti di
+  `dividi_comandi_vocali`), import di `datetime` in testa.
+
+---
+
 ## 2026-10-13
 
 ### Finestra che si adatta da sola (dimensioni, pulsanti, schede)

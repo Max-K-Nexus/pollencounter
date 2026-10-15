@@ -3,16 +3,15 @@
 Conta Pollinica — interfaccia grafica.
 
 Processo unico: la GUI chiama direttamente sessione.py/dominio.py/esportatori.py,
-lo stesso dominio usato dalla CLI. Non lancia piu' polline_counter.py come
-sottoprocesso: niente pty/pipe, niente marker __GUI_*__, niente rilettura
-periodica di un autosave. Ogni inserimento aggiorna il modello in memoria e
-notifica le tab con una chiamata diretta (nessun polling, nessuna corsa dati).
+lo stesso dominio usato dalla CLI. Ogni inserimento aggiorna il modello in
+memoria e notifica le tab con una chiamata diretta (nessun polling, nessuna
+corsa dati).
 """
 
 import re
 import sys
 import tkinter as tk
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter import font as tkfont
@@ -184,13 +183,13 @@ class PollineCounterGUI:
         self.output_dir = percorsi.EXE_DIR
         self.settimana = None
         self.journal = None
-        self.nome_ripreso = None
         self.percorso_salvato = None
         self.soglie = {}
         self._modificato = False
         self._undo_consecutivi = 0
+        self._refresh_in_attesa = False
         self._giorno_bottoni = {}
-        self._voce = None            # (Ascoltatore, Sintesi) quando la voce e' attiva
+        self._voce = None          # (Ascoltatore, Sintesi) quando la voce e' attiva
         self._voce_after = None
         self._talkback = False       # la voce ripete cio' che ha registrato
         self._voce_vocabolario = {}
@@ -230,8 +229,7 @@ class PollineCounterGUI:
     # Configurazione cartella di lavoro
     # ================================================================
     def _carica_config_iniziale(self):
-        import datetime as _dt
-        anno = _dt.datetime.now().year
+        anno = datetime.now().year
         cartella = sessione.leggi_cartella_anno(percorsi.CONFIG_FILE, anno)
         if cartella:
             self.output_dir = cartella
@@ -254,8 +252,7 @@ class PollineCounterGUI:
         if not scelta:
             return
         self.output_dir = Path(scelta)
-        import datetime as _dt
-        sessione.salva_cartella_anno(percorsi.CONFIG_FILE, _dt.datetime.now().year, self.output_dir)
+        sessione.salva_cartella_anno(percorsi.CONFIG_FILE, datetime.now().year, self.output_dir)
         self._aggiorna_lista_sessioni()
 
     # ================================================================
@@ -284,8 +281,7 @@ class PollineCounterGUI:
         riga_data.pack(side=tk.TOP, fill=tk.X)
         tk.Button(riga_data, text="Nuovo file dal template", command=self._avvio_nuovo_file).pack(side=tk.RIGHT)
         tk.Label(riga_data, text="Nuovo file \u2014 settimana:", font=(_MONO_FONT, 10, "bold")).pack(side=tk.LEFT)
-        import datetime as _dt
-        lun_corrente = dominio.lunedi_di(_dt.datetime.now())
+        lun_corrente = dominio.lunedi_di(datetime.now())
         self.entry_settimana = tk.Entry(riga_data, width=16, font=(_MONO_FONT, 10))
         self.entry_settimana.insert(0, lun_corrente.strftime("%d-%m-%Y"))
         self.entry_settimana.pack(side=tk.LEFT, padx=8)
@@ -362,13 +358,11 @@ class PollineCounterGUI:
             messagebox.showerror("Data non valida",
                                  "Non riconosco questa data. Prova con: 9-2-2026, 9/2/2026, 9 feb 2026.")
             return
-        import datetime as _dt
-        lunedi = dominio.lunedi_di(dt) if dt else dominio.lunedi_di(_dt.datetime.now())
+        lunedi = dominio.lunedi_di(dt or datetime.now())
 
         self.settimana = sessione.Settimana(lunedi)
         self.journal = sessione.Journal(self.output_dir / sessione.nome_journal(lunedi))
         self.journal.avvia(self.settimana)
-        self.nome_ripreso = None
         self.percorso_salvato = None
         self._entra_in_lavoro()
 
@@ -379,7 +373,6 @@ class PollineCounterGUI:
             messagebox.showerror("Sessione danneggiata", str(e))
             return
         self.journal = sessione.Journal.riprendi(path)
-        self.nome_ripreso = self.settimana.nome_origine
         self.percorso_salvato = None
         self._entra_in_lavoro()
 
@@ -404,7 +397,6 @@ class PollineCounterGUI:
                 return
             self.settimana.lunedi = nuova
 
-        self.nome_ripreso = self.settimana.nome_origine
         self.percorso_salvato = None
         self.journal = sessione.Journal(self.output_dir / sessione.nome_journal(self.settimana.lunedi))
         self.journal.avvia(self.settimana)
@@ -561,6 +553,23 @@ class PollineCounterGUI:
         except tk.TclError:
             pass
 
+    def _crea_tabella(self, tab, intestazioni):
+        """Treeview con scrollbar per una scheda. ``intestazioni`` e'
+        {colonna: titolo}; le colonne di testo ("specie", "voce") sono a
+        sinistra, le altre centrate. Il tag "famiglia" evidenzia i totali."""
+        tree = ttk.Treeview(tab, columns=tuple(intestazioni), show="headings",
+                            style="Summary.Treeview", height=4)
+        for col, titolo in intestazioni.items():
+            tree.heading(col, text=titolo)
+            tree.column(col, anchor=tk.W if col in ("specie", "voce") else tk.CENTER)
+        tree.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
+                           background="#E6E6E6", foreground="#000000")
+        scroll = tk.Scrollbar(tab, command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        return tree
+
     def _colonne_tabella(self, tree, misure, elastiche, margine=18, minimo=90):
         """Colonne che seguono la scheda: quelle in ``misure`` ({colonna: testo
         piu' largo}) restano strette quanto serve, quelle in ``elastiche``
@@ -569,7 +578,7 @@ class PollineCounterGUI:
             larghezza = self._font_tab.measure(testo) + margine
             tree.column(col, width=larghezza, minwidth=larghezza, stretch=False)
         for col in elastiche:
-            tree.column(col, width=max(100, minimo), minwidth=minimo, stretch=True)
+            tree.column(col, width=minimo, minwidth=minimo, stretch=True)
 
     def _build_tab_settimanale(self):
         tab = tk.Frame(self.notebook)
@@ -586,21 +595,9 @@ class PollineCounterGUI:
         self.lbl_s_totale = tk.Label(totals, text="TOTALE: 0", font=(_MONO_FONT, 12, "bold"), anchor=tk.W)
         self.lbl_s_totale.pack(fill=tk.X, padx=10)
 
-        columns = ("codice", "specie", "conteggio")
-        self.tree_sett = ttk.Treeview(tab, columns=columns, show="headings",
-                                      style="Summary.Treeview", height=4)
-        self.tree_sett.heading("codice", text="Cod.")
-        self.tree_sett.heading("specie", text="Specie")
-        self.tree_sett.heading("conteggio", text="Tot.")
-        self.tree_sett.column("codice", anchor=tk.CENTER)
-        self.tree_sett.column("conteggio", anchor=tk.CENTER)
+        self.tree_sett = self._crea_tabella(
+            tab, {"codice": "Cod.", "specie": "Specie", "conteggio": "Tot."})
         self._colonne_tabella(self.tree_sett, {"codice": "00000", "conteggio": "000000"}, ["specie"])
-        scroll = tk.Scrollbar(tab, command=self.tree_sett.yview)
-        self.tree_sett.configure(yscrollcommand=scroll.set)
-        self.tree_sett.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
-                                     background="#E6E6E6", foreground="#000000")
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.tree_sett.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
     def _build_tab_giornaliero(self):
         tab = tk.Frame(self.notebook)
@@ -616,26 +613,12 @@ class PollineCounterGUI:
         self.lbl_g_totale = tk.Label(totals, text="TOTALE: -", font=(_MONO_FONT, 11, "bold"), anchor=tk.W)
         self.lbl_g_totale.pack(fill=tk.X, padx=10)
 
-        columns = ("codice", "specie", *[g.lower() for g in dominio.GIORNI_ABBREV])
-        self.tree_giorn = ttk.Treeview(tab, columns=columns, show="headings",
-                                       style="Summary.Treeview", height=4)
-        self.tree_giorn.heading("codice", text="Cod.")
-        self.tree_giorn.heading("specie", text="Specie")
-        self.tree_giorn.column("codice", anchor=tk.CENTER)
-        misure = {"codice": "000"}
-        for g in dominio.GIORNI_ABBREV:
-            col_id = g.lower()
-            self.tree_giorn.heading(col_id, text=g)
-            self.tree_giorn.column(col_id, anchor=tk.CENTER)
-            misure[col_id] = "000"
+        giorni = {g.lower(): g for g in dominio.GIORNI_ABBREV}
+        self.tree_giorn = self._crea_tabella(
+            tab, {"codice": "Cod.", "specie": "Specie", **giorni})
         # nove colonne: margini stretti, cosi' alla finestra minima ci stanno tutte
-        self._colonne_tabella(self.tree_giorn, misure, ["specie"], margine=12, minimo=60)
-        scroll = tk.Scrollbar(tab, command=self.tree_giorn.yview)
-        self.tree_giorn.configure(yscrollcommand=scroll.set)
-        self.tree_giorn.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
-                                      background="#E6E6E6", foreground="#000000")
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.tree_giorn.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self._colonne_tabella(self.tree_giorn, dict.fromkeys(["codice", *giorni], "000"),
+                              ["specie"], margine=12, minimo=60)
 
     def _build_tab_bollettino(self):
         tab = tk.Frame(self.notebook)
@@ -656,6 +639,12 @@ class PollineCounterGUI:
 
         self._boll_scroll = _ScrollableFrame(tab)
         self._boll_scroll.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        # Niente larghezze fisse: la colonna della specie prende piu' spazio
+        # (peso 3), i sette giorni e la media se lo dividono in parti uguali.
+        griglia = self._boll_scroll.inner
+        griglia.grid_columnconfigure(0, weight=3)
+        for c in range(1, 9):
+            griglia.grid_columnconfigure(c, weight=1, uniform="giorni")
 
     def _build_tab_codici(self):
         tab = tk.Frame(self.notebook)
@@ -673,31 +662,27 @@ class PollineCounterGUI:
         tk.Button(azioni_frame, text="Stampa elenco (Word)",
                  command=self._stampa_cheatsheet_codici).pack(side=tk.LEFT, padx=10)
 
-        columns = ("codice", "specie", "voce")
-        self.tree_codici = ttk.Treeview(tab, columns=columns, show="headings",
-                                        style="Summary.Treeview", height=4)
-        self.tree_codici.heading("codice", text="Cod.")
-        self.tree_codici.heading("specie", text="Specie")
-        self.tree_codici.heading("voce", text="A voce")
-        self.tree_codici.column("codice", anchor=tk.CENTER)
+        self.tree_codici = self._crea_tabella(
+            tab, {"codice": "Cod.", "specie": "Specie", "voce": "A voce"})
         self._colonne_tabella(self.tree_codici, {"codice": "00000"}, ["specie", "voce"])
         self._parole_sconosciute = set()     # parole che il modello vocale non conosce
-        self._forme_vocali = self._calcola_forme_vocali()
-        scroll = tk.Scrollbar(tab, command=self.tree_codici.yview)
-        self.tree_codici.configure(yscrollcommand=scroll.set)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        self.tree_codici.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        vocabolario, _ = self._costruisci_vocabolario_vocale()
+        self._forme_vocali = self._calcola_forme_vocali(vocabolario)
 
         self._popola_tab_codici()
 
-    def _calcola_forme_vocali(self):
+    def _costruisci_vocabolario_vocale(self):
+        """Legge la configurazione e ritorna (vocabolario, avvisi); aggiorna la
+        parola di attivazione in uso."""
+        extra = sessione.leggi_sinonimi_vocali(percorsi.CONFIG_FILE)
+        self._voce_attivazione = sessione.leggi_parola_attivazione(percorsi.CONFIG_FILE)
+        return dominio.costruisci_vocabolario_vocale(extra, self._voce_attivazione)
+
+    def _calcola_forme_vocali(self, vocabolario):
         """{codice: 'ventiquattro, graminacee'}: cosa si puo' dire per ogni
         specie (il nome stesso della specie e' gia' nella colonna accanto).
         Dopo la prima attivazione della voce restano solo le forme che il
         modello vocale conosce davvero."""
-        extra = sessione.leggi_sinonimi_vocali(percorsi.CONFIG_FILE)
-        attivazione = sessione.leggi_parola_attivazione(percorsi.CONFIG_FILE)
-        vocabolario, _ = dominio.costruisci_vocabolario_vocale(extra, attivazione)
         forme = {c: set() for c in dominio.TUTTI_CODICI}
         for frase, codice in vocabolario.items():
             if self._parole_sconosciute.intersection(frase.split()):
@@ -742,10 +727,7 @@ class PollineCounterGUI:
             self._log("Voce disattivata.")
             return
 
-        extra = sessione.leggi_sinonimi_vocali(percorsi.CONFIG_FILE)
-        self._voce_attivazione = sessione.leggi_parola_attivazione(percorsi.CONFIG_FILE)
-        self._voce_vocabolario, avvisi = dominio.costruisci_vocabolario_vocale(
-            extra, self._voce_attivazione)
+        self._voce_vocabolario, avvisi = self._costruisci_vocabolario_vocale()
         grammatica = dominio.costruisci_grammatica(self._voce_vocabolario, self._voce_attivazione)
         attesa_ms = sessione.leggi_attesa_vocale(percorsi.CONFIG_FILE)
         vocabolario, attivazione = self._voce_vocabolario, self._voce_attivazione
@@ -780,7 +762,7 @@ class PollineCounterGUI:
             self._log(f"[voce] Attenzione: {avviso}")
         if sconosciute:
             self._parole_sconosciute = set(sconosciute)
-            self._forme_vocali = self._calcola_forme_vocali()
+            self._forme_vocali = self._calcola_forme_vocali(vocabolario)
             self._popola_tab_codici(self.entry_cerca_codici.get())
             # le parole con una trascrizione (dominio.PRONUNCE_VOCALI) si capiscono lo stesso
             non_capite = [p for p in sconosciute if p not in dominio.PAROLE_CON_PRONUNCIA]
@@ -849,7 +831,7 @@ class PollineCounterGUI:
                 if cmd.messaggio:
                     self._log(f"[voce] {cmd.messaggio}")
                     risposte.append("non capito")
-                elif "[unk]" not in segmento and self._frase_con_attivazione(segmento):
+                elif "[unk]" not in segmento:
                     # Aiuta a scoprire come il riconoscitore scrive i nomi che non
                     # conosce, per aggiungerli ai sinonimi.
                     self._log(f"[voce] Sentito ma non in elenco: \u00ab{segmento}\u00bb")
@@ -861,14 +843,6 @@ class PollineCounterGUI:
         # Una sola frase parlata: la sintesi dice solo l'ultima in coda.
         if risposte and (self._talkback or any(r != "non capito" for r in risposte)):
             sintesi.parla(", ".join(risposte))
-
-    def _frase_con_attivazione(self, frase):
-        """True se la frase inizia con la parola di attivazione (sempre True se
-        la parola di attivazione e' disattivata)."""
-        normalizzata = dominio.normalizza_parlato(frase)
-        if not self._voce_attivazione:
-            return bool(normalizzata)
-        return normalizzata.startswith(self._voce_attivazione + " ")
 
     # ================================================================
     # Selezione giorno
@@ -887,13 +861,16 @@ class PollineCounterGUI:
     def _imposta_giorno_ui(self, giorno_num):
         for g, btn in self._giorno_bottoni.items():
             btn.config(relief=(tk.SUNKEN if g == giorno_num else tk.RAISED))
+        self._aggiorna_etichetta_giorno(giorno_num)
+        self._undo_consecutivi = 0
+        self._imposta_entry_abilitata(True)
+        self.entry.focus_set()
+
+    def _aggiorna_etichetta_giorno(self, giorno_num):
         nome_giorno = dominio.GIORNI_NOMI[giorno_num].upper()
         data_str = self.settimana.data_str_giorno(giorno_num)
         totale = self.settimana.totale_giorno(giorno_num)
         self.lbl_giorno.config(text=f"{nome_giorno}  {data_str}  —  totale: {totale}")
-        self._undo_consecutivi = 0
-        self._imposta_entry_abilitata(True)
-        self.entry.focus_set()
 
     def _imposta_entry_abilitata(self, abilitata):
         self.entry.config(state=(tk.NORMAL if abilitata else tk.DISABLED))
@@ -942,13 +919,9 @@ class PollineCounterGUI:
             self._log(cmd.messaggio or "Comando non riconosciuto.")
             return "non capito" if fonte else None
 
-        specie = dominio.CODICI_SPECIE[codice]
         nuovo_val = self.settimana.inserisci(giorno_num, codice, quantita, journal=self.journal)
         self._modificato = True
-        if quantita > 1:
-            self._log(f"-> {prefisso}[{codice}] {specie} x{quantita}  (totale giorno: {nuovo_val})")
-        else:
-            self._log(f"-> {prefisso}[{codice}] {specie}  (totale giorno: {nuovo_val})")
+        self._log(f"-> {prefisso}{dominio.descrivi_inserimento(codice, quantita)}  (totale giorno: {nuovo_val})")
         if self.settimana.beep:
             voce.beep()
         return self._testo_parlato_inserimento(codice, quantita)
@@ -987,7 +960,8 @@ class PollineCounterGUI:
         elif lettera == "n":
             self._dialog_nota()
         elif lettera == "s":
-            self._salva_rapido()
+            if self._salva() is None:
+                self._log("Salvataggio annullato.")
         elif lettera == "u":
             self._annulla(giorno_num)
         elif lettera == "d":
@@ -1000,15 +974,12 @@ class PollineCounterGUI:
             self._log("(nessun inserimento in questa sessione)")
             return
         self._log("Ultimi inserimenti:")
-        for data, codice, specie, quantita, ora in self.settimana.storico[-10:]:
-            if quantita > 1:
-                self._log(f"  {ora}  [{codice}] {specie} x{quantita}  ({data})")
-            else:
-                self._log(f"  {ora}  [{codice}] {specie}  ({data})")
+        for data, codice, _specie, quantita, ora in self.settimana.storico[-10:]:
+            self._log(f"  {ora}  {dominio.descrivi_inserimento(codice, quantita)}  ({data})")
 
     def _annulla(self, giorno_num):
         self._undo_consecutivi += 1
-        if self._undo_consecutivi > 5 and (self._undo_consecutivi - 1) % 5 == 0:
+        if dominio.annullo_richiede_conferma(self._undo_consecutivi):
             if not messagebox.askyesno(
                     "Conferma",
                     f"Hai annullato {self._undo_consecutivi - 1} inserimenti di fila. Continuare?"):
@@ -1019,12 +990,8 @@ class PollineCounterGUI:
             self._log("Nessun inserimento da annullare.")
             return "niente da annullare"
         codice, qty, _ = ris
-        specie = dominio.CODICI_SPECIE[codice]
         self._modificato = True
-        if qty > 1:
-            self._log(f"<- Annullato: [{codice}] {specie} x{qty}")
-        else:
-            self._log(f"<- Annullato: [{codice}] {specie}")
+        self._log(f"<- Annullato: {dominio.descrivi_inserimento(codice, qty)}")
         return "annullato " + self._testo_parlato_inserimento(codice, qty)
 
     def _chiudi_giornata(self):
@@ -1121,38 +1088,23 @@ class PollineCounterGUI:
     # ================================================================
     # Salvataggio
     # ================================================================
-    def _nome_default(self):
-        return self.nome_ripreso or f"Conta_Pollinica_{self.settimana.lunedi.strftime('%d-%m-%Y')}.xlsx"
-
-    def _salva_rapido(self):
+    def _salva(self):
+        """Esporta in .xlsx, chiedendo dove solo la prima volta. Ritorna il
+        percorso, o None se l'utente annulla la scelta."""
         percorso = self.percorso_salvato
         if percorso is None:
-            percorso = filedialog.asksaveasfilename(
+            scelta = filedialog.asksaveasfilename(
                 title="Salva file conta pollinica", initialdir=str(self.output_dir),
-                initialfile=self._nome_default(), defaultextension=".xlsx",
+                initialfile=self.settimana.nome_file_default(), defaultextension=".xlsx",
                 filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
             )
-            if not percorso:
-                self._log("Salvataggio annullato.")
-                return
-            percorso = Path(percorso)
+            if not scelta:
+                return None
+            percorso = Path(scelta)
         esportatori.esporta_xlsx(self.settimana, percorso)
         self.percorso_salvato = percorso
         self._modificato = False
         self._log(f"[OK] File salvato: {percorso}")
-
-    def _salva_come(self):
-        percorso = filedialog.asksaveasfilename(
-            title="Salva file conta pollinica", initialdir=str(self.output_dir),
-            initialfile=self._nome_default(), defaultextension=".xlsx",
-            filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
-        )
-        if not percorso:
-            return None
-        percorso = Path(percorso)
-        esportatori.esporta_xlsx(self.settimana, percorso)
-        self.percorso_salvato = percorso
-        self._modificato = False
         return percorso
 
     # ================================================================
@@ -1163,15 +1115,10 @@ class PollineCounterGUI:
         if risp is None:
             return  # annulla, resta in sessione
         if risp:
-            percorso = self.percorso_salvato or self._salva_come()
+            percorso = self._salva()
             if percorso is None:
                 return  # ha annullato la scelta del percorso
-            if self.percorso_salvato is None:
-                esportatori.esporta_xlsx(self.settimana, percorso)
-                self.percorso_salvato = percorso
-            self._log(f"[OK] File salvato: {percorso}")
             self.journal.elimina()
-            self._modificato = False
             self._menu_operazioni_aggiuntive(percorso.parent)
             self._torna_ad_avvio()
         else:
@@ -1259,7 +1206,6 @@ class PollineCounterGUI:
         self.pane.destroy()
         self.settimana = None
         self.journal = None
-        self.nome_ripreso = None
         self.percorso_salvato = None
         self._modificato = False
         self._giorno_bottoni = {}
@@ -1282,9 +1228,13 @@ class PollineCounterGUI:
     # nessun polling, nessuna rilettura di file, nessuna corsa fra thread)
     # ================================================================
     def _on_settimana_change(self, settimana):
-        self._refresh_tabs()
         if settimana.giorno_attivo:
-            self._imposta_giorno_ui(settimana.giorno_attivo)
+            self._aggiorna_etichetta_giorno(settimana.giorno_attivo)
+        # Una frase vocale con piu' comandi notifica piu' volte di seguito: le
+        # tab si ridisegnano una volta sola, appena Tk e' libero.
+        if not self._refresh_in_attesa:
+            self._refresh_in_attesa = True
+            self.root.after_idle(self._refresh_tabs)
 
     @staticmethod
     def _nome_famiglia(codice):
@@ -1300,55 +1250,43 @@ class PollineCounterGUI:
         return codice in dominio.FAMIGLIE_SOMMA and any(
             sum(conteggi[c]) > 0 for c in dominio.FAMIGLIE_SOMMA[codice] if c != codice)
 
+    @staticmethod
+    def _celle_giorni(vals):
+        return ["-" if v == 0 else str(v) for v in vals]
+
     def _refresh_tabs(self):
+        self._refresh_in_attesa = False
         s = self.settimana
         if s is None:
             return
 
-        # Tab Settimanale
+        # Tab Settimanale e Giornaliero: un solo giro sui codici
         self.tree_sett.delete(*self.tree_sett.get_children())
-        tot_p, tot_s = 0, 0
-        famiglie = dominio.totali_famiglia(s.conteggi)
-        for codice in dominio.TUTTI_CODICI:
-            val = sum(s.conteggi[codice])
-            specie = dominio.CODICI_SPECIE[codice]
-            if self._mostra_totale_famiglia(codice, s.conteggi):
-                nome = self._nome_famiglia(codice)
-                self.tree_sett.insert("", tk.END, tags=("famiglia",),
-                                      values=("\u03a3", f"{nome} (totale)", sum(famiglie[codice])))
-                specie = f"{nome} (dubbi)"
-            if val > 0:
-                self.tree_sett.insert("", tk.END, values=(codice, specie, val))
-                if codice in dominio.POLLINI_CODICI:
-                    tot_p += val
-                else:
-                    tot_s += val
-        self.lbl_s_pollini.config(text=f"Pollini: {tot_p}")
-        self.lbl_s_spore.config(text=f"Spore: {tot_s}")
-        self.lbl_s_totale.config(text=f"TOTALE: {tot_p + tot_s}")
-
-        # Tab Giornaliero
         self.tree_giorn.delete(*self.tree_giorn.get_children())
         gp, gs = [0] * 7, [0] * 7
+        famiglie = dominio.totali_famiglia(s.conteggi)
         for codice in dominio.TUTTI_CODICI:
             vals = s.conteggi[codice]
             specie = dominio.CODICI_SPECIE[codice]
             if self._mostra_totale_famiglia(codice, s.conteggi):
                 nome = self._nome_famiglia(codice)
                 somma = famiglie[codice]
+                self.tree_sett.insert("", tk.END, tags=("famiglia",),
+                                      values=("\u03a3", f"{nome} (totale)", sum(somma)))
                 self.tree_giorn.insert("", tk.END, tags=("famiglia",),
-                                       values=("\u03a3", f"{nome} (totale)",
-                                               *[str(v) if v > 0 else "-" for v in somma]))
+                                       values=("\u03a3", f"{nome} (totale)", *self._celle_giorni(somma)))
                 specie = f"{nome} (dubbi)"
-            if not any(v > 0 for v in vals):
+            val = sum(vals)
+            if val == 0:
                 continue
-            display = [str(v) if v > 0 else "-" for v in vals]
-            self.tree_giorn.insert("", tk.END, values=(codice, specie, *display))
-            for i in range(7):
-                if codice in dominio.POLLINI_CODICI:
-                    gp[i] += vals[i]
-                else:
-                    gs[i] += vals[i]
+            self.tree_sett.insert("", tk.END, values=(codice, specie, val))
+            self.tree_giorn.insert("", tk.END, values=(codice, specie, *self._celle_giorni(vals)))
+            somme = gp if codice in dominio.POLLINI_CODICI else gs
+            for i, v in enumerate(vals):
+                somme[i] += v
+        self.lbl_s_pollini.config(text=f"Pollini: {sum(gp)}")
+        self.lbl_s_spore.config(text=f"Spore: {sum(gs)}")
+        self.lbl_s_totale.config(text=f"TOTALE: {sum(gp) + sum(gs)}")
 
         def _fmt(vals):
             return "  ".join(f"{g}:{v}" for g, v in zip(dominio.GIORNI_ABBREV, vals) if v > 0)
@@ -1366,13 +1304,7 @@ class PollineCounterGUI:
         for child in self._boll_scroll.inner.winfo_children():
             child.destroy()
 
-        # Niente larghezze fisse: la colonna della specie prende piu' spazio
-        # (peso 3), i sette giorni e la media se lo dividono in parti uguali.
         griglia = self._boll_scroll.inner
-        griglia.grid_columnconfigure(0, weight=3)
-        for c in range(1, 9):
-            griglia.grid_columnconfigure(c, weight=1, uniform="giorni")
-
         header = ["Specie", *dominio.GIORNI_ABBREV, "Media"]
         for c, testo in enumerate(header):
             tk.Label(griglia, text=testo, font=(_MONO_FONT, 9, "bold"),
@@ -1406,10 +1338,8 @@ class PollineCounterGUI:
                 if risp is None:
                     return
                 if risp:
-                    percorso = self.percorso_salvato or self._salva_come()
-                    if percorso is None:
+                    if self._salva() is None:
                         return
-                    self._log(f"[OK] File salvato: {percorso}")
                     self.journal.elimina()
                 else:
                     self.journal.chiudi()

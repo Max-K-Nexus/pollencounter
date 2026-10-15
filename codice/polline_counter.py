@@ -8,7 +8,7 @@ la GUI dipende (vedi CLAUDE.md / CHANGELOG per il contesto della riscrittura).
 """
 
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 try:
@@ -74,8 +74,7 @@ def _beep():
 # ============================================================
 def carica_o_crea_config():
     global OUTPUT_DIR
-    import datetime as _dt
-    anno = _dt.datetime.now().year
+    anno = datetime.now().year
 
     cartella = sessione.leggi_cartella_anno(percorsi.CONFIG_FILE, anno)
     if cartella:
@@ -109,8 +108,7 @@ def carica_o_crea_config():
 # ============================================================
 def chiedi_settimana(settimana_esistente=None):
     """Chiede l'intervallo settimanale. Ritorna la data del lunedi' (datetime)."""
-    import datetime as _dt
-    oggi = _dt.datetime.now()
+    oggi = datetime.now()
     lun_corrente = dominio.lunedi_di(oggi)
     dom_corrente = lun_corrente + timedelta(days=6)
 
@@ -145,14 +143,21 @@ def chiedi_settimana(settimana_esistente=None):
         return lunedi
 
 
-def chiedi_giorno(lunedi):
-    print("\nSeleziona il giorno di lavoro:")
+GIORNI_VALIDI = tuple(str(n) for n in dominio.GIORNI_NOMI)
+
+
+def _stampa_giorni(lunedi):
     for num, nome in dominio.GIORNI_NOMI.items():
         data_giorno = lunedi + timedelta(days=num - 1)
         print(f"  {num}) {nome.upper():<12} {data_giorno.strftime('%d-%m-%Y')}")
+
+
+def chiedi_giorno(lunedi):
+    print("\nSeleziona il giorno di lavoro:")
+    _stampa_giorni(lunedi)
     while True:
         scelta = input("Scegli (1-7): ").strip()
-        if scelta in [str(x) for x in range(1, 8)]:
+        if scelta in GIORNI_VALIDI:
             return int(scelta)
         print("Scelta non valida, riprova.")
 
@@ -234,7 +239,6 @@ def mostra_riepilogo_settimana(settimana):
     print("  " + "-" * 63)
 
     def _stampa_sezione(codici, etichetta_totale):
-        totali = [0] * 7
         has_data = False
         for codice in codici:
             vals = settimana.conteggi[codice]
@@ -243,11 +247,9 @@ def mostra_riepilogo_settimana(settimana):
                 sp = dominio.CODICI_SPECIE[codice][:22]
                 vs = "".join(f"{v:5}" if v > 0 else "    -" for v in vals)
                 print(f"  [{codice}] {sp:<24} {vs}")
-                for i in range(7):
-                    totali[i] += vals[i]
         if not has_data:
             print("  (nessun dato)")
-        ts = "".join(f"{v:5}" for v in totali)
+        ts = "".join(f"{v:5}" for v in dominio.somma_codici(settimana.conteggi, codici))
         print(f"  {etichetta_totale:<28} {ts}")
 
     _stampa_sezione(dominio.POLLINI_CODICI, "--- Totale pollini")
@@ -261,22 +263,17 @@ def mostra_storico(storico):
         print("\n  (nessun inserimento in questa sessione)\n")
         return
     print("\n  Ultimi inserimenti:")
-    for data, codice, specie, quantita, ora in storico[-10:]:
-        if quantita > 1:
-            print(f"    {ora}  [{codice}] {specie} x{quantita}  ({data})")
-        else:
-            print(f"    {ora}  [{codice}] {specie}  ({data})")
+    for data, codice, _specie, quantita, ora in storico[-10:]:
+        print(f"    {ora}  {dominio.descrivi_inserimento(codice, quantita)}  ({data})")
     print()
 
 
 def correggi_giorno(settimana, journal):
     print("\nQuale giorno vuoi correggere?")
-    for num, nome in dominio.GIORNI_NOMI.items():
-        data_giorno = settimana.data_giorno(num)
-        print(f"  {num}) {nome.upper():<12} {data_giorno.strftime('%d-%m-%Y')}")
+    _stampa_giorni(settimana.lunedi)
 
     scelta = input("Scegli (1-7, invio per annullare): ").strip()
-    if not scelta or scelta not in [str(x) for x in range(1, 8)]:
+    if scelta not in GIORNI_VALIDI:
         return
     giorno_num = int(scelta)
     nome_giorno = dominio.GIORNI_NOMI[giorno_num].upper()
@@ -339,12 +336,9 @@ def chiedi_percorso_salvataggio(nome_default):
     return p
 
 
-def _nome_default(settimana, nome_ripreso):
-    return nome_ripreso or f"Conta_Pollinica_{settimana.lunedi.strftime('%d-%m-%Y')}.xlsx"
-
-
-def menu_uscita_salvataggio(settimana, journal, nome_ripreso, percorso_salvato):
-    """Chiede se salvare e dove. Ritorna (True, cartella, percorso) o (False, None, None)."""
+def menu_uscita_salvataggio(settimana, journal, percorso_salvato):
+    """Chiede se salvare e dove. Ritorna il percorso del file salvato, o None
+    se si esce senza salvare."""
     print("\n" + "=" * 60)
     while True:
         risp = input("\nSalvare e uscire? (s/n): ").strip().lower()
@@ -355,8 +349,7 @@ def menu_uscita_salvataggio(settimana, journal, nome_ripreso, percorso_salvato):
                 if risp_rapido == "s":
                     percorso = percorso_salvato
             if percorso is None:
-                nome_default = _nome_default(settimana, nome_ripreso)
-                percorso = chiedi_percorso_salvataggio(nome_default)
+                percorso = chiedi_percorso_salvataggio(settimana.nome_file_default())
                 if percorso.exists():
                     risp2 = input(f"  '{percorso.name}' esiste gia'. Sovrascrivere? (s/n): ").strip().lower()
                     if risp2 != "s":
@@ -365,7 +358,7 @@ def menu_uscita_salvataggio(settimana, journal, nome_ripreso, percorso_salvato):
             esportatori.esporta_xlsx(settimana, percorso)
             print(f"\n  [OK] File salvato: {percorso}")
             journal.elimina()
-            return True, percorso.parent, percorso
+            return percorso
         elif risp == "n":
             risp2 = input("Uscire senza salvare? I dati non salvati andranno persi. (s/n): ").strip().lower()
             if risp2 == "s":
@@ -377,7 +370,7 @@ def menu_uscita_salvataggio(settimana, journal, nome_ripreso, percorso_salvato):
                 else:
                     journal.elimina()
                 print("\n  [OK] Uscita senza salvataggio.")
-                return False, None, None
+                return None
 
 
 def _scegli_duplicati_interattivo(data_str):
@@ -399,7 +392,7 @@ def _scegli_duplicati_interattivo(data_str):
 def sessione_giorno(settimana, journal, giorno_num, stato):
     """Ritorna 'continue' (chiudi giornata) o 'quit' (uscire dal programma)."""
     nome_giorno = dominio.GIORNI_NOMI[giorno_num].upper()
-    abbrev = dominio.GIORNI_NOMI[giorno_num][:3].upper()
+    abbrev = dominio.GIORNI_ABBREV[giorno_num - 1]
 
     print(f"\n  Giorno:   {nome_giorno}")
     print(f"  Data:     {settimana.data_str_giorno(giorno_num)}")
@@ -426,7 +419,6 @@ def sessione_giorno(settimana, journal, giorno_num, stato):
             lettera = cmd.lettera
             if lettera == "q":
                 print(f"\n  Chiusura {nome_giorno}: {settimana.totale_giorno(giorno_num)} osservazioni.")
-                stato["uscita_richiesta"] = True
                 return "quit"
             if lettera == "d":
                 print(f"\n  Chiusura {nome_giorno}: {settimana.totale_giorno(giorno_num)} osservazioni.")
@@ -449,14 +441,14 @@ def sessione_giorno(settimana, journal, giorno_num, stato):
             elif lettera == "n":
                 aggiungi_nota(settimana, giorno_num, journal)
             elif lettera == "s":
-                nome_default = _nome_default(settimana, stato["nome_ripreso"])
-                percorso = stato.get("percorso_salvato") or chiedi_percorso_salvataggio(nome_default)
+                percorso = stato.get("percorso_salvato") or chiedi_percorso_salvataggio(
+                    settimana.nome_file_default())
                 esportatori.esporta_xlsx(settimana, percorso)
                 stato["percorso_salvato"] = percorso
                 print(f"  [OK] File salvato: {percorso}")
             elif lettera == "u":
                 undo_consecutivi += 1
-                if undo_consecutivi > 5 and (undo_consecutivi - 1) % 5 == 0:
+                if dominio.annullo_richiede_conferma(undo_consecutivi):
                     risp = input(f"  Hai annullato {undo_consecutivi - 1} inserimenti di fila. "
                                  f"Continuare? (s/n): ").strip().lower()
                     if risp != "s":
@@ -467,11 +459,7 @@ def sessione_giorno(settimana, journal, giorno_num, stato):
                     print("  Nessun inserimento da annullare.")
                 else:
                     codice, qty, _ = ris
-                    specie = dominio.CODICI_SPECIE[codice]
-                    if qty > 1:
-                        print(f"  <- Annullato: [{codice}] {specie} x{qty}")
-                    else:
-                        print(f"  <- Annullato: [{codice}] {specie}")
+                    print(f"  <- Annullato: {dominio.descrivi_inserimento(codice, qty)}")
             continue
 
         undo_consecutivi = 0
@@ -487,12 +475,8 @@ def sessione_giorno(settimana, journal, giorno_num, stato):
             print(f"  {cmd.messaggio}" if cmd.messaggio else "  Comando non riconosciuto.")
             continue
 
-        specie = dominio.CODICI_SPECIE[codice]
         nuovo_val = settimana.inserisci(giorno_num, codice, quantita, journal=journal)
-        if quantita > 1:
-            print(f"  -> [{codice}] {specie} x{quantita}  (totale giorno: {nuovo_val})")
-        else:
-            print(f"  -> [{codice}] {specie}  (totale giorno: {nuovo_val})")
+        print(f"  -> {dominio.descrivi_inserimento(codice, quantita)}  (totale giorno: {nuovo_val})")
         if settimana.beep:
             _beep()
 
@@ -513,11 +497,9 @@ def main():
 
     tipo, path = chiedi_ripresa_o_nuovo(OUTPUT_DIR)
 
-    nome_ripreso = None
     if tipo == "journal":
         settimana = sessione.ripristina_da_journal(path)
         journal = sessione.Journal.riprendi(path)
-        nome_ripreso = settimana.nome_origine
         print(f"\n  Sessione ripristinata: settimana del {settimana.lunedi.strftime('%d-%m-%Y')}")
         display_menu()
         lunedi = settimana.lunedi
@@ -527,7 +509,6 @@ def main():
         except ValueError as e:
             print(f"  ERRORE: {e}")
             sys.exit(1)
-        nome_ripreso = settimana.nome_origine
         print(f"\n  Ripreso: {path}")
         display_menu()
         lunedi = chiedi_settimana(settimana.lunedi)
@@ -541,7 +522,7 @@ def main():
         journal = sessione.Journal(OUTPUT_DIR / sessione.nome_journal(lunedi))
         journal.avvia(settimana)
 
-    stato = {"nome_ripreso": nome_ripreso, "percorso_salvato": None, "uscita_richiesta": False}
+    stato = {"percorso_salvato": None}
 
     while True:
         giorno_num = chiedi_giorno(lunedi)
@@ -563,11 +544,10 @@ def main():
         if risposta != "s":
             break
 
-    salvataggio_ok, cartella_salvata, percorso_finale = menu_uscita_salvataggio(
-        settimana, journal, stato["nome_ripreso"], stato["percorso_salvato"]
-    )
+    percorso_finale = menu_uscita_salvataggio(settimana, journal, stato["percorso_salvato"])
 
-    if salvataggio_ok and cartella_salvata:
+    if percorso_finale:
+        cartella_salvata = percorso_finale.parent
         print("\n  Operazioni aggiuntive:")
         print("    1. Aggiorna riepilogo annuale")
         print("    2. Genera bollettini Word (ITA/ENG)")

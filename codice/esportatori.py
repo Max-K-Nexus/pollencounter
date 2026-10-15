@@ -3,11 +3,6 @@
 Esportatori: producono i file di consegna (.xlsx settimanale, riepilogo
 annuale, bollettini Word) a partire da un oggetto sessione.Settimana.
 
-Il codice di generazione qui dentro e' portato pressoche' identico dalla
-versione precedente dello script (e' la parte di valore da conservare,
-come indicato dalla revisione): l'unica differenza e' che legge i dati dal
-modello in memoria invece che dalle celle del foglio.
-
 Non modificare la struttura dei fogli 'riepilogo_settimana' e 'dati_grezzi'
 (vedi CLAUDE.md): le righe sono fisse (pollini 6-52, spore 58-69).
 """
@@ -55,8 +50,7 @@ ALIGN_CENTER_WRAP = Alignment(horizontal="center", wrap_text=True) if openpyxl e
 # ============================================================
 def carica_soglie(output_dir=None):
     """Carica le soglie di concentrazione dal file esterno
-    concentrazioni_polliniche.xlsx (unica fonte: risolve il difetto delle
-    quattro fonti divergenti). Cerca in output_dir, poi accanto allo script,
+    concentrazioni_polliniche.xlsx (unica fonte). Cerca in output_dir, poi accanto allo script,
     poi nel bundle. Ritorna dict {famiglia: (max_assente, max_bassa, max_media)}
     o None se il file non e' stato trovato."""
     candidati = []
@@ -164,21 +158,29 @@ _FMT_CONTA = "0;-0;;@"
 
 
 def _ann_col_grezzo(codice):
-    n = int(codice)
-    if 1 <= n <= 47:
-        return _ANN_POLL_START + (n - 1)
-    if 48 <= n <= 59:
-        return _ANN_SPORE_START + (n - 48)
-    return None
+    return dominio.posizione_codice(codice, _ANN_POLL_START, _ANN_SPORE_START)
 
 
 def _ann_col_conc(codice):
-    n = int(codice)
-    if 1 <= n <= 47:
-        return _ANN_CONC_POLL_START + (n - 1)
-    if 48 <= n <= 59:
-        return _ANN_CONC_SPORE_START + (n - 48)
+    return dominio.posizione_codice(codice, _ANN_CONC_POLL_START, _ANN_CONC_SPORE_START)
+
+
+def _fill_specie(codice):
+    """Riempimento delle specie di interesse nei riepiloghi (None per le altre)."""
+    if codice in dominio.ANNUALE_VERDE_CODICI:
+        return FILL_VERDE
+    if codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
+        return FILL_VERDE_CHIARO
     return None
+
+
+def _evidenzia_specie(cell, codice, grassetto=True):
+    """Riempimento (ed eventuale grassetto) di una cella di una specie di interesse."""
+    fill = _fill_specie(codice)
+    if fill is not None:
+        cell.fill = fill
+        if grassetto:
+            cell.font = FONT_BOLD
 
 
 def _rif_fattore():
@@ -279,12 +281,8 @@ def crea_intestazione_annuale(ws, anno, fattore=dominio.FATTORE_DEFAULT):
         cell.font = FONT_BOLD if codice in dominio.ANNUALE_BOLD_CODICI else Font()
         cell.border = THIN_BORDER
         cell.alignment = align_rotated
-        if codice in dominio.ANNUALE_VERDE_CODICI:
-            cell.fill = FILL_VERDE
-        elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
-            cell.fill = FILL_VERDE_CHIARO
-        else:
-            cell.fill = FILL_GIALLO
+        fill = _fill_specie(codice)
+        cell.fill = fill if fill is not None else FILL_GIALLO
 
     cell = ws.cell(row=3, column=1, value="Data")
     cell.font = FONT_BOLD
@@ -381,24 +379,14 @@ def scrivi_riga_annuale(ws, riga, data_str, dati, modo):
         cell_g.value = val_nuovo if val_nuovo > 0 else None
         cell_g.border = THIN_BORDER
         cell_g.alignment = ALIGN_CENTER
-        if codice in dominio.ANNUALE_VERDE_CODICI:
-            cell_g.fill = FILL_VERDE
-        elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
-            cell_g.fill = FILL_VERDE_CHIARO
-        if codice in dominio.ANNUALE_BOLD_CODICI:
-            cell_g.font = FONT_BOLD
+        _evidenzia_specie(cell_g, codice)
 
         cell_c = ws.cell(row=riga, column=col_conc)
         cell_c.value = _formula_concentrazione(col_grezzo, riga)
         cell_c.border = THIN_BORDER
         cell_c.alignment = ALIGN_CENTER
         cell_c.number_format = _FMT_CONC
-        if codice in dominio.ANNUALE_VERDE_CODICI:
-            cell_c.fill = FILL_VERDE
-        elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
-            cell_c.fill = FILL_VERDE_CHIARO
-        if codice in dominio.ANNUALE_BOLD_CODICI:
-            cell_c.font = FONT_BOLD
+        _evidenzia_specie(cell_c, codice)
 
     for sep_col in (_ANN_SEP1, _ANN_CONC_SEP):
         cell = ws.cell(row=riga, column=sep_col, value="||")
@@ -445,7 +433,7 @@ def crea_foglio_settimana_annuale(wb_ann, conteggi, lunedi, fattore):
     giorni_hdr = []
     for g in range(7):
         dt = lunedi + timedelta(days=g)
-        giorni_hdr.append(f"{dominio.GIORNI_NOMI[g + 1][:3].upper()}\n{dt.strftime('%d/%m')}")
+        giorni_hdr.append(f"{dominio.GIORNI_ABBREV[g]}\n{dt.strftime('%d/%m')}")
 
     def _scrivi_header(riga, label_ultima, fill_hdr, font_hdr):
         c = ws_s.cell(row=riga, column=1, value="Specie")
@@ -465,19 +453,11 @@ def crea_foglio_settimana_annuale(wb_ann, conteggi, lunedi, fattore):
         specie = dominio.CODICI_SPECIE[codice]
         c = ws_s.cell(row=riga, column=1, value=specie)
         c.border = THIN_BORDER
-        if codice in dominio.ANNUALE_VERDE_CODICI:
-            c.fill = FILL_VERDE; c.font = FONT_BOLD
-        elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
-            c.fill = FILL_VERDE_CHIARO; c.font = FONT_BOLD
+        _evidenzia_specie(c, codice)
         for g, v in enumerate(vals):
             c = ws_s.cell(row=riga, column=2 + g, value=(v if v else None))
             c.border = THIN_BORDER; c.alignment = ALIGN_CENTER; c.number_format = fmt
-            if codice in dominio.ANNUALE_VERDE_CODICI:
-                c.fill = FILL_VERDE
-                if evidenzia[g]: c.font = FONT_BOLD
-            elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
-                c.fill = FILL_VERDE_CHIARO
-                if evidenzia[g]: c.font = FONT_BOLD
+            _evidenzia_specie(c, codice, grassetto=evidenzia[g])
         c = ws_s.cell(row=riga, column=9, value=(valore_finale if valore_finale else None))
         c.border = THIN_BORDER; c.alignment = ALIGN_CENTER; c.number_format = fmt
 
@@ -578,12 +558,7 @@ _CAL_SEP_ROW = _CAL_DATA_START_ROW + len(POLLINI_CODICI)  # 52
 
 
 def _cal_row_for_codice(codice):
-    n = int(codice)
-    if 1 <= n <= 47:
-        return _CAL_DATA_START_ROW + (n - 1)
-    if 48 <= n <= 59:
-        return _CAL_SEP_ROW + 1 + (n - 48)
-    return None
+    return dominio.posizione_codice(codice, _CAL_DATA_START_ROW, _CAL_SEP_ROW + 1)
 
 
 def crea_intestazione_calendario(ws, anno):
@@ -613,10 +588,9 @@ def crea_intestazione_calendario(ws, anno):
         cell = ws.cell(row=row, column=1, value=dominio.CODICI_SPECIE[codice])
         cell.font = FONT_BOLD if codice in dominio.ANNUALE_BOLD_CODICI else Font()
         cell.border = THIN_BORDER
-        if codice in dominio.ANNUALE_VERDE_CODICI:
-            cell.fill = FILL_VERDE
-        elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
-            cell.fill = FILL_VERDE_CHIARO
+        fill = _fill_specie(codice)
+        if fill is not None:
+            cell.fill = fill
 
     cell = ws.cell(row=_CAL_SEP_ROW, column=1, value="||")
     cell.border = THIN_BORDER
@@ -627,8 +601,9 @@ def crea_intestazione_calendario(ws, anno):
         cell = ws.cell(row=row, column=1, value=dominio.CODICI_SPECIE[codice])
         cell.font = FONT_BOLD if codice in dominio.ANNUALE_BOLD_CODICI else Font()
         cell.border = THIN_BORDER
-        if codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
-            cell.fill = FILL_VERDE_CHIARO
+        fill = _fill_specie(codice)
+        if fill is not None:
+            cell.fill = fill
 
     ws.column_dimensions["A"].width = 26
     ws.row_dimensions[_CAL_HEADER_ROW].height = 60
@@ -665,12 +640,7 @@ def _scrivi_formule_calendario(ws, col, titolo_dati, riga_dati):
         cell.border = THIN_BORDER
         cell.alignment = ALIGN_CENTER
         cell.number_format = _FMT_CONC
-        if codice in dominio.ANNUALE_VERDE_CODICI:
-            cell.fill = FILL_VERDE
-        elif codice in dominio.ANNUALE_VERDE_CHIARO_CODICI:
-            cell.fill = FILL_VERDE_CHIARO
-        if codice in dominio.ANNUALE_BOLD_CODICI:
-            cell.font = FONT_BOLD
+        _evidenzia_specie(cell, codice)
 
 
 def scrivi_colonna_calendario(ws, col, data_str, titolo_dati, riga_dati):
@@ -775,8 +745,7 @@ def esporta_riepilogo_annuale(settimana, cartella, scegli_duplicati=None, avvisa
     giorni_scritti = 0
 
     for giorno_num in sorted(dati_settimana.keys()):
-        dt = settimana.lunedi + timedelta(days=giorno_num - 1)
-        data_str = dt.strftime("%d/%m/%Y")
+        data_str = settimana.data_giorno(giorno_num).strftime("%d/%m/%Y")
         dati = dati_settimana[giorno_num]
 
         riga_esistente = trova_riga_per_data(ws, data_str)
