@@ -897,7 +897,9 @@ class PollineCounterGUI:
 
         if isinstance(cmd, dominio.Azione):
             if cmd.lettera == "u":
-                return self._annulla(giorno_num)
+                # Da voce niente dialogo: bloccherebbe chi conta a mani libere e
+                # le frasi dette nel frattempo verrebbero eseguite alla chiusura.
+                return self._annulla(giorno_num, conferma=not fonte)
             self._esegui_azione(cmd.lettera)
             return None
 
@@ -960,8 +962,7 @@ class PollineCounterGUI:
         elif lettera == "n":
             self._dialog_nota()
         elif lettera == "s":
-            if self._salva() is None:
-                self._log("Salvataggio annullato.")
+            self._salva()
         elif lettera == "u":
             self._annulla(giorno_num)
         elif lettera == "d":
@@ -977,14 +978,15 @@ class PollineCounterGUI:
         for data, codice, _specie, quantita, ora in self.settimana.storico[-10:]:
             self._log(f"  {ora}  {dominio.descrivi_inserimento(codice, quantita)}  ({data})")
 
-    def _annulla(self, giorno_num):
-        self._undo_consecutivi += 1
-        if dominio.annullo_richiede_conferma(self._undo_consecutivi):
-            if not messagebox.askyesno(
-                    "Conferma",
-                    f"Hai annullato {self._undo_consecutivi - 1} inserimenti di fila. Continuare?"):
-                self._undo_consecutivi = 0
-                return None
+    def _annulla(self, giorno_num, conferma=True):
+        if conferma:
+            self._undo_consecutivi += 1
+            if dominio.annullo_richiede_conferma(self._undo_consecutivi):
+                if not messagebox.askyesno(
+                        "Conferma",
+                        f"Hai annullato {self._undo_consecutivi - 1} inserimenti di fila. Continuare?"):
+                    self._undo_consecutivi = 0
+                    return None
         ris = self.settimana.annulla(giorno_num, journal=self.journal)
         if ris is None:
             self._log("Nessun inserimento da annullare.")
@@ -1099,9 +1101,20 @@ class PollineCounterGUI:
                 filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
             )
             if not scelta:
+                self._log("Salvataggio annullato.")
                 return None
             percorso = Path(scelta)
-        esportatori.esporta_xlsx(self.settimana, percorso)
+        try:
+            esportatori.esporta_xlsx(self.settimana, percorso)
+        except OSError as e:
+            # Tipico su Windows: il file e' aperto in Excel e non si puo' riscrivere.
+            self._log(f"ERRORE: non riesco a salvare {percorso}: {e}")
+            messagebox.showerror(
+                "Salvataggio non riuscito",
+                f"Non riesco a salvare il file:\n{percorso}\n\n"
+                "Se e' aperto in Excel o in un altro programma, chiudilo e riprova.\n"
+                "I dati non sono persi: restano nella sessione.")
+            return None
         self.percorso_salvato = percorso
         self._modificato = False
         self._log(f"[OK] File salvato: {percorso}")

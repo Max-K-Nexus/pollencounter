@@ -119,7 +119,8 @@ COMANDI DURANTE L'INSERIMENTO
             senza mai staccare gli occhi dall'oculare
 
   u         Annulla l'ultimo inserimento (o l'ultimo blocco NNxQ)
-            Dopo 5 annullamenti consecutivi chiede conferma.
+            Dopo 5 annullamenti consecutivi chiede conferma
+            (a voce l'annullo e' sempre immediato, senza domande).
             Ogni annullamento viene registrato nel log.
 
   r         Riepilogo giornata corrente: mostra pollini e spore

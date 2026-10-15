@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest import mock
 
 import dominio
 import sessione
@@ -277,6 +278,41 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(leggi(self._cfg(tmp, {"voce_attesa_ms": 99999})), 2000)
             for non_valido in ("tanto", -5, None, True):
                 self.assertEqual(leggi(self._cfg(tmp, {"voce_attesa_ms": non_valido})), 300)
+
+
+@unittest.skipIf(sessione.openpyxl is None, "openpyxl non installato")
+class TestContaRigheLog(unittest.TestCase):
+    def setUp(self):
+        sessione._conta_righe_log.cache_clear()
+
+    def _xlsx_con_log(self, tmp, righe):
+        wb = sessione.openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "dati_grezzi"
+        ws.append(["data"])
+        for i in range(righe):
+            ws.append([f"riga {i}"])
+        percorso = Path(tmp) / "conta.xlsx"
+        wb.save(percorso)
+        return percorso
+
+    def test_conta_le_righe_dopo_l_intestazione(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sessione.conta_righe_log(self._xlsx_con_log(tmp, 3)), "(3 righe log)")
+
+    def test_errore_transitorio_non_resta_in_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            percorso = self._xlsx_con_log(tmp, 2)
+            vero = sessione.openpyxl.load_workbook
+            with mock.patch.object(sessione.openpyxl, "load_workbook",
+                                   side_effect=PermissionError("file bloccato")):
+                self.assertEqual(sessione.conta_righe_log(percorso), "")
+            # Stesso file, stessa data di modifica: ora e' leggibile e va letto davvero.
+            with mock.patch.object(sessione.openpyxl, "load_workbook", side_effect=vero):
+                self.assertEqual(sessione.conta_righe_log(percorso), "(2 righe log)")
+
+    def test_file_inesistente(self):
+        self.assertEqual(sessione.conta_righe_log("/non/esiste.xlsx"), "")
 
 
 if __name__ == "__main__":

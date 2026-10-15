@@ -6,6 +6,50 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ## 2026-10-15
 
+### GUI: annullo a voce senza dialogo, errori di salvataggio, cache dei log
+
+**Problema:** (1) con la conferma degli annulli ora attiva, il sesto "conta
+annulla" a voce apriva un dialogo modale dentro `_gestisci_frase_vocale`: il
+controllo "dialogo aperto = voce ignorata" era gia' superato, le frasi dette
+nel frattempo restavano in coda e venivano eseguite alla chiusura. (2) Il
+salvataggio, che ora riscrive sempre l'`.xlsx`, non gestiva gli errori di
+scrittura: su Windows, con il file aperto in Excel, l'eccezione non compariva
+da nessuna parte e la sessione non si chiudeva senza spiegazioni. (3) La
+schermata iniziale mostrava per sempre una riga vuota al posto di "(N righe
+log)" se la prima lettura del file falliva (file bloccato o in scrittura).
+(4) `CLAUDE.md` descriveva ancora il ridisegno delle tab come "sincrono".
+
+**Causa:** (`codice/polline_counter_gui.py`) `_annulla` chiedeva sempre la
+conferma, anche da voce; `_salva` non catturava `OSError`. (`codice/sessione.py`)
+`_conta_righe_log` ingoiava l'eccezione restituendo `""`, e `lru_cache` ricordava
+quel risultato finche' data e dimensione del file non cambiavano.
+
+**Correzione:**
+- `_annulla(giorno_num, conferma=True)`: `_esegui_comando` passa
+  `conferma=not fonte`, quindi da voce l'annullo e' sempre immediato (scelta
+  concordata: il flusso a mani libere non va bloccato); da tastiera e pulsante
+  la conferma resta.
+- `_salva`: `OSError` in scrittura -> riga `ERRORE` nel log e finestra in
+  italiano ("chiudilo e riprova", i dati restano nella sessione); ritorna
+  `None`, quindi "Esci" non chiude la sessione. Il messaggio "Salvataggio
+  annullato." si e' spostato dentro `_salva` (solo quando l'utente annulla la
+  scelta del file).
+- `sessione._conta_righe_log` lascia salire le eccezioni (che `lru_cache` non
+  ricorda); `conta_righe_log` le cattura fuori dalla cache e restituisce `""`:
+  al rientro successivo si riprova. Il workbook si chiude sempre (`finally`).
+- Test: `TestContaRigheLog` in `tests/test_sessione.py` (conteggio, errore
+  transitorio non in cache, file inesistente). 187 test OK.
+- `CLAUDE.md` (ridisegno con `after_idle`, annullo a voce senza conferma) e
+  `ISTRUZIONI.txt` (conferma solo da tastiera).
+
+**Non applicato:** ridisegno della sola scheda visibile (era il punto 5 della
+revisione, tenuto in sospeso). La CLI non gestisce `OSError` in
+`esporta_xlsx`: mostra l'errore del sistema nel terminale.
+
+---
+
+## 2026-10-15
+
 ### Pulizia di tutti i moduli (`/simplify`): helper condivisi, codice morto, cache
 
 **Problema:** logica ripetuta fra CLI, GUI e moduli (riga di log in `Settimana`
@@ -15,8 +59,13 @@ dei codici su 7 giorni in due funzioni), piu' codice morto e commenti su
 architetture rimosse. La schermata iniziale riapriva ogni `.xlsx` (~0,25 s a
 file) per contare le righe di log a ogni rientro.
 
-**Correzione:** nessun cambiamento di comportamento (output `.xlsx`/`.docx`
-confrontati cella per cella con quelli della versione precedente: identici).
+**Causa:** copie successive della stessa logica nei vari moduli, cresciute con
+le rifiniture dopo la riscrittura.
+
+**Correzione:** nessun cambiamento nell'output (`.xlsx`/`.docx` confrontati
+cella per cella con quelli della versione precedente: identici). I cambiamenti
+di comportamento della GUI nello stesso commit (salvataggio in uscita, conferma
+degli annulli, ridisegno differito delle schede) sono nella voce successiva.
 - `dominio.py`: `somma_codici`, `posizione_codice` (da cui `codice_to_row` e le
   colonne/righe di `esportatori.py`), `descrivi_inserimento`,
   `annullo_richiede_conferma`; vocabolario vocale senza il test `is` sulla
@@ -76,7 +125,7 @@ era nuovo; `_on_settimana_change` richiamava `_imposta_giorno_ui`, che azzera
 - Le schede si ridisegnano con `after_idle` una volta per raffica di modifiche;
   le colonne della griglia del Bollettino si configurano una volta sola.
 - Pulizia: un solo ciclo sui codici per Settimanale e Giornaliero,
-  `_crea_tabella` per i tre `Treeview`, `_descrivi` per il testo "[cod] specie xQ",
+  `_crea_tabella` per i tre `Treeview`, `dominio.descrivi_inserimento` per il testo "[cod] specie xQ",
   vocabolario vocale costruito una volta (`_costruisci_vocabolario_vocale`),
   rimossa `_frase_con_attivazione` (sempre vera sui segmenti di
   `dividi_comandi_vocali`), import di `datetime` in testa.

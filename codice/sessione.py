@@ -409,24 +409,27 @@ def conta_righe_log(path):
         stato = Path(path).stat()
     except OSError:
         return ""
-    return _conta_righe_log(str(path), stato.st_mtime_ns, stato.st_size)
+    try:
+        return _conta_righe_log(str(path), stato.st_mtime_ns, stato.st_size)
+    except Exception:
+        # Errore (file bloccato da un altro programma, scrittura in corso): le
+        # eccezioni non entrano nella cache, al prossimo rientro si riprova.
+        return ""
 
 
 @functools.lru_cache(maxsize=64)
 def _conta_righe_log(path, _mtime_ns, _dimensione):
     if openpyxl is None:
         return ""
+    wb = openpyxl.load_workbook(path, read_only=True)
     try:
-        wb = openpyxl.load_workbook(path, read_only=True)
         if "dati_grezzi" not in wb.sheetnames:
-            wb.close()
             return ""
         ws = wb["dati_grezzi"]
         n = sum(1 for row in ws.iter_rows(min_row=2, max_col=1) if row[0].value is not None)
-        wb.close()
         return f"({n} righe log)"
-    except Exception:
-        return ""
+    finally:
+        wb.close()
 
 
 # ============================================================
