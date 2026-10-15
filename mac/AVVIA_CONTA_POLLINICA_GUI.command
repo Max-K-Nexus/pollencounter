@@ -46,6 +46,13 @@ if ! python3 -c "import docx" 2>/dev/null; then
     echo ""
 fi
 
+# Opzionale: aspetto moderno. Il programma parte comunque.
+if ! python3 -c "import sv_ttk" 2>/dev/null; then
+    echo "Nota: per l'aspetto moderno installa sv-ttk:"
+    echo "  pip3 install sv-ttk"
+    echo ""
+fi
+
 # Opzionale: lettura vocale. Si controlla solo se il modello vocale e' stato
 # messo in codice/modelli (cioe' se l'utente vuole la voce).
 if ls "$SCRIPT_DIR"/../codice/modelli/vosk-model* >/dev/null 2>&1; then

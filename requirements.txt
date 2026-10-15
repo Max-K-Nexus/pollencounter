@@ -7,7 +7,7 @@ openpyxl>=3.1.0          # lettura/scrittura file Excel (.xlsx)
 #   oppure (Debian/Ubuntu): sudo apt install python3-docx
 python-docx>=1.0.0
 
-# Tema grafico moderno (solo Windows):
+# Tema grafico moderno, stile Windows 11 (tutti i sistemi; senza, aspetto di base):
 #   pip install sv-ttk
 sv-ttk>=2.6.0
 

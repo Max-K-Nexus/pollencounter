@@ -106,7 +106,7 @@ Install dependencies:
 pip install openpyxl
 # Optional — Word bulletins:
 pip install python-docx
-# Optional — Windows visual theme:
+# Optional — modern Windows 11-style look:
 pip install sv-ttk
 # Optional — voice counting (also needs the Vosk Italian model, see below):
 pip install vosk sounddevice pyttsx3
@@ -145,7 +145,7 @@ An optional mode to record grains by voice, inspired by [EcoCount](https://doi.o
 | `conta annulla` / `conta ripeti` | undo / repeat the last entry |
 | `conta totale` | reads the day's total aloud |
 
-Phrases are registered about half a second after you stop speaking, so species can follow each other quickly. Several commands can also be said back to back (`conta acero conta ontano conta graminacee per tre`): every *conta* closes the previous command and starts a new one, and a command that was not understood is skipped without losing the others. The *Ripeti a voce* button makes the computer say the name it just recorded, so a wrong recognition can be undone straight away; the microphone stays open while it speaks. Saving, closing the day and quitting are keyboard/button only. Everything runs offline.
+Phrases are registered about half a second after you stop speaking, so species can follow each other quickly. Several commands can also be said back to back (`conta acero conta ontano conta graminacee per tre`): every *conta* closes the previous command and starts a new one, and a command that was not understood is skipped without losing the others. The *Ripeti a voce* switch makes the computer say the name it just recorded, so a wrong recognition can be undone straight away; the microphone stays open while it speaks. Saving, closing the day and closing the week are keyboard/button only. Everything runs offline.
 
 **Setup** (one-off): install `vosk sounddevice pyttsx3` (on Linux also `libportaudio2` and `espeak-ng`), then download `vosk-model-small-it-0.22` from <https://alphacephei.com/vosk/models> and unzip it into `codice/modelli/`. You need a microphone and, for the spoken confirmation, an Italian system voice. The small Vosk model does not know many Latin names; they are recognised through built-in pronunciations (e.g. `conta alternaria`, `conta betulacee`) that were tuned on a synthetic voice and checked with a real one on Linux. If a name is not understood, say the code or a common name instead (the **Codici** tab lists what each species accepts; in *Prova voce* the log also shows phrases that were heard but not matched). Activation word and extra synonyms can be customised in `pollencounter.cfg` (see `codice/pollencounter.cfg.esempio` and `ISTRUZIONI.txt`).
 
@@ -175,7 +175,7 @@ python3 script_aiuto/applica_formattazione.py
 
 **The executable won't start?** Ensure you have correctly extracted the ZIP archive and that your antivirus is not blocking the executable file.
 
-**Voice counting does not work?** Check that `vosk`, `sounddevice` and `pyttsx3` are installed and that the Italian model is in `codice/modelli/`; the **Voce** button explains what is missing. The program always works from the keyboard without it.
+**Voice counting does not work?** Check that `vosk`, `sounddevice` and `pyttsx3` are installed and that the Italian model is in `codice/modelli/`; the **Voce** switch explains what is missing. The program always works from the keyboard without it.
 
 **Errors with Excel files?** Verify that you haven't modified or moved the column structure in the templates within the `codice/` folder.
 
@@ -212,6 +212,6 @@ If you use Pollencounter in your project or report, please cite the authors:
 | `openpyxl` | Mandatory | Excel reading/writing |
 | `tkinter` | Mandatory (GUI) | On Debian: `sudo apt install python3-tk` |
 | `python-docx` | Optional | Word bulletin generation |
-| `sv-ttk` | Optional | Modern graphic theme (Windows only) |
+| `sv-ttk` | Optional | Modern Windows 11-style look on every system (without it the program works with the basic look) |
 | `vosk`, `sounddevice`, `pyttsx3` | Optional | Voice counting (also needs the Vosk Italian model; Linux: `libportaudio2`, `espeak-ng` and a WAV player such as `paplay`; Windows/macOS: nothing else, `pyttsx3` installs `pywin32`/`comtypes` or `pyobjc` itself) |
 | `pyinstaller` | Development only | Windows/macOS executable build |

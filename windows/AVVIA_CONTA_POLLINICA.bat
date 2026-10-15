@@ -38,6 +38,13 @@ if errorlevel 1 (
     )
 )
 
+REM Aspetto moderno (opzionale, solo estetico): se manca prova a installarlo in
+REM silenzio; se non ci riesce il programma parte lo stesso con l'aspetto base.
+python -c "import sv_ttk" >nul 2>&1
+if errorlevel 1 (
+    python -m pip install sv-ttk >nul 2>&1
+)
+
 REM Lettura vocale (opzionale): solo se il modello vocale e' stato messo in
 REM codice\modelli. Se mancano le librerie prova a installarle; il programma
 REM parte comunque anche senza voce.

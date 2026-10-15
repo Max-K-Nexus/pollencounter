@@ -50,6 +50,32 @@ class TestDate(unittest.TestCase):
         self.assertEqual(d.lunedi_di(datetime(2026, 2, 12)), datetime(2026, 2, 9))
 
 
+class TestDescrizioniGui(unittest.TestCase):
+    def test_nome_giorno_accentato(self):
+        self.assertEqual(d.nome_giorno_accentato(datetime(2026, 10, 15)), "giovedì")
+        self.assertEqual(d.nome_giorno_accentato(datetime(2026, 10, 12)), "lunedì")
+        self.assertEqual(d.nome_giorno_accentato(datetime(2026, 10, 18)), "domenica")
+
+    def test_descrivi_settimana(self):
+        self.assertEqual(d.descrivi_settimana(datetime(2026, 10, 12)),
+                         "da lunedì 12/10 a domenica 18/10/2026")
+
+    def test_descrivi_settimana_a_cavallo_d_anno(self):
+        self.assertEqual(d.descrivi_settimana(datetime(2026, 12, 28)),
+                         "da lunedì 28/12 a domenica 03/01/2027")
+
+    def test_descrivi_quando(self):
+        adesso = datetime(2026, 10, 15, 18, 0)
+        self.assertEqual(d.descrivi_quando(datetime(2026, 10, 15, 14, 32), adesso), "oggi 14:32")
+        self.assertEqual(d.descrivi_quando(datetime(2026, 10, 14, 9, 10), adesso), "ieri 09:10")
+        self.assertEqual(d.descrivi_quando(datetime(2026, 10, 12, 9, 10), adesso), "12/10/2026")
+
+    def test_descrivi_quando_dopo_mezzanotte(self):
+        # 23:50 di ieri visto alle 00:10 di oggi: "ieri", non "oggi"
+        self.assertEqual(d.descrivi_quando(datetime(2026, 10, 14, 23, 50),
+                                           datetime(2026, 10, 15, 0, 10)), "ieri 23:50")
+
+
 class TestConcentrazione(unittest.TestCase):
     def test_conta_zero_ritorna_none(self):
         self.assertIsNone(d.concentrazione(0, 0.4))

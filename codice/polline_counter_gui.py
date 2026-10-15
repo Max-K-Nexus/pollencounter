@@ -8,7 +8,9 @@ memoria e notifica le tab con una chiamata diretta (nessun polling, nessuna
 corsa dati).
 """
 
+import os
 import re
+import subprocess
 import sys
 import tkinter as tk
 from datetime import datetime, timedelta
@@ -39,8 +41,27 @@ elif sys.platform == "darwin":
 else:
     _MONO_FONT = "Monospace"
 
+# Font dell'interfaccia: proporzionale (quello di sistema, "Segoe UI" su Windows).
+# Si risolve in _imposta_tema(), quando esiste la finestra; _MONO_FONT resta
+# solo per la casella dei codici.
+_UI_FONT = "Segoe UI" if sys.platform == "win32" else "TkDefaultFont"
+
+# Palette (Windows 11, tema chiaro). Un solo posto per i colori che non vengono
+# dal tema: registro, avvisi, stato.
+_COLORI = {
+    "accento": "#0067C0",
+    "ok": "#0F7B0F",
+    "avviso": "#9D5D00",
+    "errore": "#C42B1C",
+    "grigio": "#605E5C",
+    "riquadro_avviso": "#FFF4CE",
+    "sfondo_registro": "#FFFFFF",
+    "testo_registro": "#1B1B1B",
+    "famiglia": "#EAEFF7",
+}
+
 MAX_LINES_LOG = 3000
-_MIN_SINISTRA, _MIN_DESTRA = 330, 380     # larghezze minime dei due pannelli (px)
+_MIN_SINISTRA, _MIN_DESTRA = 330, 410     # larghezze minime dei due pannelli (px)
 
 HELP_TEXT = """Codici: 01-59 inserisce la specie corrispondente.
 NNxQ inserisce Q occorrenze (es. 48x4 = 4 Alternaria).
@@ -58,7 +79,9 @@ Comandi (lettera + Invio nella casella di inserimento):
   d   chiudi la giornata corrente
   q   salva ed esci
 
-Gli stessi comandi sono disponibili anche dai pulsanti sulla sinistra.
+Gli stessi comandi sono disponibili anche dai pulsanti sulla sinistra e dai
+menu in alto. Scorciatoie: Ctrl+S salva, Ctrl+Z annulla, Ctrl+Q esce dal
+programma, Ctrl+1...4 cambia scheda, F1 apre questo aiuto.
 
 Lettura vocale (pulsante "Voce"): ogni frase inizia con "conta".
   conta ventiquattro        inserisce il codice 24
@@ -75,8 +98,112 @@ registrato (es. "conta alternaria" -> "alternaria"): utile per controllare
 senza staccare gli occhi dal microscopio. "conta totale" risponde sempre.
 Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante."""
 
+HELP_AVVIO = """Come si comincia
 
-class _ScrollableFrame(tk.Frame):
+Settimana nuova: controlla la data (le frecce passano alla settimana
+precedente o successiva) e premi "Inizia nuova settimana".
+
+Continuare un lavoro: scegli la riga nell'elenco e premi "Riprendi
+selezionato" (oppure doppio clic).
+  Non salvato  = il programma si e' chiuso prima del salvataggio: i dati sono
+                 al sicuro e si possono riprendere da dove eri rimasto.
+  File salvato = un file Excel gia' salvato, a cui aggiungere altri dati.
+
+I file stanno nella cartella di lavoro indicata in basso ("Cambia..." per
+sceglierne un'altra, "Apri" per vederla in Esplora file).
+Per chiudere il programma premi "Esci" (o Ctrl+Q)."""
+
+
+def _sfondo_tema():
+    """Colore di sfondo del tema in uso, per i widget tk che non lo seguono da soli."""
+    return ttk.Style().lookup("TFrame", "background") or "#ffffff"
+
+
+def _imposta_tema(root):
+    """Tema Windows 11 (sv_ttk) se installato, altrimenti un ripiego pulito con gli
+    stessi nomi di stile ("Accent.TButton"), cosi' il resto del codice non cambia.
+    Risolve anche il font dell'interfaccia."""
+    global _UI_FONT
+    style = ttk.Style(root)
+    if sv_ttk is not None:
+        sv_ttk.set_theme("light")
+    else:
+        if sys.platform != "win32" and "clam" in style.theme_names():
+            style.theme_use("clam")      # su Windows resta il tema nativo
+        style.configure("Accent.TButton", background=_COLORI["accento"], foreground="#FFFFFF",
+                        font=(_UI_FONT, 10, "bold"))
+        style.map("Accent.TButton", background=[("active", "#1A7FD4"), ("disabled", "#B0B0B0")],
+                  foreground=[("disabled", "#F0F0F0")])
+    if _UI_FONT == "TkDefaultFont":
+        _UI_FONT = tkfont.nametofont("TkDefaultFont").actual("family")
+    # Dimensione leggibile per chi lavora al microscopio e guarda lo schermo di sfuggita.
+    for nome in ("TkDefaultFont", "TkTextFont", "TkMenuFont"):
+        try:
+            tkfont.nametofont(nome).configure(size=10)
+        except tk.TclError:
+            pass
+    style.configure("Giorno.TButton", padding=(2, 5))
+    style.configure("Giorno.Accent.TButton", padding=(2, 5))
+    style.configure("TNotebook.Tab", font=(_UI_FONT, 9))
+    style.configure("Titolo.TLabel", font=(_UI_FONT, 20, "bold"))
+    style.configure("Sezione.TLabel", font=(_UI_FONT, 11, "bold"))
+    style.configure("Giorno.TLabel", font=(_UI_FONT, 12, "bold"))
+    style.configure("Summary.Treeview", font=(_UI_FONT, 10), rowheight=24)
+    style.configure("Summary.Treeview.Heading", font=(_UI_FONT, 10, "bold"))
+    style.configure("Elenco.Treeview", font=(_UI_FONT, 10), rowheight=28)
+    style.configure("Elenco.Treeview.Heading", font=(_UI_FONT, 10, "bold"))
+    if sys.platform == "darwin":
+        style.map("Treeview", background=[], foreground=[])
+
+
+class _Suggerimento:
+    """Fumetto con una frase che compare dopo mezzo secondo con il mouse fermo sul
+    widget: spiega a cosa serve un pulsante senza occupare spazio."""
+
+    RITARDO_MS = 600
+
+    def __init__(self, widget, testo):
+        self.widget, self.testo = widget, testo
+        self._finestra = None
+        self._after = None
+        widget.bind("<Enter>", self._programma, add="+")
+        widget.bind("<Leave>", self._nascondi, add="+")
+        widget.bind("<ButtonPress>", self._nascondi, add="+")
+
+    def _programma(self, _e=None):
+        self._nascondi()
+        self._after = self.widget.after(self.RITARDO_MS, self._mostra)
+
+    def _mostra(self):
+        self._after = None
+        try:
+            x = self.widget.winfo_rootx() + 12
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+            self._finestra = tk.Toplevel(self.widget)
+            self._finestra.wm_overrideredirect(True)
+            self._finestra.wm_geometry(f"+{x}+{y}")
+            tk.Label(self._finestra, text=self.testo, bg="#FFFFE1", fg="#1B1B1B",
+                     relief=tk.SOLID, borderwidth=1, padx=6, pady=3, justify=tk.LEFT,
+                     wraplength=320, font=(_UI_FONT, 9)).pack()
+        except tk.TclError:
+            self._finestra = None
+
+    def _nascondi(self, _e=None):
+        if self._after is not None:
+            try:
+                self.widget.after_cancel(self._after)
+            except tk.TclError:
+                pass
+            self._after = None
+        if self._finestra is not None:
+            try:
+                self._finestra.destroy()
+            except tk.TclError:
+                pass
+            self._finestra = None
+
+
+class _ScrollableFrame(ttk.Frame):
     """Frame con scrollbar verticale (per la scheda Bollettino, che disegna
     una griglia di celle colorate e non un semplice elenco). Il contenuto
     segue la larghezza della finestra; la barra orizzontale compare solo se
@@ -84,11 +211,12 @@ class _ScrollableFrame(tk.Frame):
 
     def __init__(self, parent, **kw):
         super().__init__(parent, **kw)
-        self.canvas = tk.Canvas(self, highlightthickness=0, bg="#ffffff")
-        vscroll = tk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
-        self._hscroll = tk.Scrollbar(self, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        sfondo = _sfondo_tema()
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg=sfondo)
+        vscroll = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
+        self._hscroll = ttk.Scrollbar(self, orient=tk.HORIZONTAL, command=self.canvas.xview)
         self._hscroll_visibile = False
-        self.inner = tk.Frame(self.canvas, bg="#ffffff")
+        self.inner = tk.Frame(self.canvas, bg=sfondo)
         self.inner.bind("<Configure>", self._adatta)
         self._window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
         self.canvas.bind("<Configure>", self._adatta)
@@ -130,7 +258,7 @@ class _ScrollableFrame(tk.Frame):
             self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
 
-class _BarraFluida(tk.Frame):
+class _BarraFluida(ttk.Frame):
     """Barra di pulsanti che va a capo da sola: i pulsanti si dispongono su
     quante righe servono in base alla larghezza disponibile, cosi' non
     obbligano la finestra a essere larga e non vengono mai tagliati.
@@ -178,6 +306,7 @@ class PollineCounterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Conta Pollinica")
+        _imposta_tema(root)
         self._imposta_dimensioni_iniziali()
 
         self.output_dir = percorsi.EXE_DIR
@@ -185,7 +314,11 @@ class PollineCounterGUI:
         self.journal = None
         self.percorso_salvato = None
         self.soglie = {}
-        self._modificato = False
+        self.text_log = None         # esistono solo nella schermata di lavoro
+        self.lbl_stato = None
+        self.lbl_file = None
+        self._ora_salvataggio = None
+        self._modificato_val = False
         self._undo_consecutivi = 0
         self._refresh_in_attesa = False
         self._giorno_bottoni = {}
@@ -194,10 +327,46 @@ class PollineCounterGUI:
         self._talkback = False       # la voce ripete cio' che ha registrato
         self._voce_vocabolario = {}
         self._voce_attivazione = dominio.PAROLA_ATTIVAZIONE_DEFAULT
+        # Interruttori (pulsanti e menu condividono la stessa variabile).
+        self._var_beep = tk.BooleanVar(value=False)
+        self._var_voce = tk.BooleanVar(value=False)
+        self._var_talkback = tk.BooleanVar(value=False)
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self._collega_scorciatoie()
         self._carica_config_iniziale()
         self._build_avvio()
+
+    # ================================================================
+    # Stato "modifiche non salvate" (barra di stato in basso)
+    # ================================================================
+    @property
+    def _modificato(self):
+        return self._modificato_val
+
+    @_modificato.setter
+    def _modificato(self, valore):
+        self._modificato_val = valore
+        self._aggiorna_stato()
+
+    def _aggiorna_stato(self):
+        if self.lbl_stato is None or self.settimana is None:
+            return
+        if self._modificato_val:
+            testo, colore = "● Modifiche non salvate", _COLORI["avviso"]
+        elif self._ora_salvataggio:
+            testo, colore = f"✓ Salvato alle {self._ora_salvataggio}", _COLORI["ok"]
+        else:
+            testo, colore = "Nessuna modifica da salvare", _COLORI["grigio"]
+        try:
+            self.lbl_stato.config(text=testo, foreground=colore)
+            if self.percorso_salvato:
+                self.lbl_file.config(text=f"File: {self.percorso_salvato.name}")
+            else:
+                self.lbl_file.config(
+                    text=f"File: {self.settimana.nome_file_default()} (non ancora salvato)")
+        except tk.TclError:             # barra gia' distrutta (cambio schermata)
+            pass
 
     # ================================================================
     # Dimensioni della finestra
@@ -212,7 +381,7 @@ class PollineCounterGUI:
         alt = min(layout.get("altezza", min(int(sh * 0.85), 900)), sh)
         self._divisione = layout.get("divisione", 0.55)    # quota della larghezza per il pannello sinistro
         self.root.geometry(f"{larg}x{alt}+{(sw - larg) // 2}+{max(0, (sh - alt) // 2 - 20)}")
-        self.root.minsize(min(720, sw), min(480, sh))
+        self.root.minsize(min(760, sw), min(560, sh))
 
     def _salva_layout(self):
         """Ricorda dimensione e proporzione per la prossima volta (mai un errore
@@ -255,80 +424,316 @@ class PollineCounterGUI:
         sessione.salva_cartella_anno(percorsi.CONFIG_FILE, datetime.now().year, self.output_dir)
         self._aggiorna_lista_sessioni()
 
+    def _apri_cartella(self):
+        self._apri_con_sistema(self.output_dir)
+
+    def _apri_con_sistema(self, percorso):
+        """Apre un file o una cartella con il programma predefinito del sistema."""
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(percorso))
+            else:
+                comando = "open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.Popen([comando, str(percorso)],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, ValueError) as e:
+            messagebox.showwarning("Non riesco ad aprirlo",
+                                   f"Il sistema non ha aperto:\n{percorso}\n\n{e}")
+
+    # ================================================================
+    # Menu, scorciatoie e aiuto
+    # ================================================================
+    def _imposta_menu(self, lavoro):
+        """Barra dei menu in stile Windows. Ogni voce chiama la stessa funzione
+        del pulsante corrispondente: un solo percorso per ogni azione."""
+        barra = tk.Menu(self.root)
+
+        def menu(titolo):
+            m = tk.Menu(barra, tearoff=False)
+            barra.add_cascade(label=titolo, menu=m)
+            return m
+
+        def azione(lettera):
+            return lambda: self._esegui_azione(lettera)
+
+        f = menu("File")
+        if lavoro:
+            f.add_command(label="Salva", accelerator="Ctrl+S", command=azione("s"))
+            f.add_command(label="Chiudi la settimana…", command=azione("q"))
+        else:
+            f.add_command(label="Inizia nuova settimana", command=self._avvio_nuovo_file)
+            f.add_command(label="Apri un file da un'altra cartella…", command=self._avvio_importa)
+            f.add_command(label="Cambia cartella di lavoro…", command=self._cambia_cartella)
+        f.add_command(label="Apri la cartella di lavoro", command=self._apri_cartella)
+        f.add_separator()
+        f.add_command(label="Esci dal programma", accelerator="Ctrl+Q", command=self.on_closing)
+
+        if lavoro:
+            m = menu("Modifica")
+            m.add_command(label="Annulla l'ultimo inserimento", accelerator="Ctrl+Z", command=azione("u"))
+            m.add_command(label="Correggi un giorno…", command=azione("c"))
+            m.add_command(label="Aggiungi una nota…", command=azione("n"))
+            m.add_separator()
+            m.add_command(label="Ultimi inserimenti", command=azione("l"))
+
+            m = menu("Visualizza")
+            for i, nome in enumerate(("Settimanale", "Giornaliero", "Bollettino", "Codici")):
+                m.add_command(label=nome, accelerator=f"Ctrl+{i + 1}",
+                              command=lambda i=i: self.notebook.select(i))
+
+            m = menu("Strumenti")
+            m.add_checkbutton(label="Beep a ogni inserimento", variable=self._var_beep,
+                              command=azione("b"))
+            m.add_checkbutton(label="Lettura vocale", variable=self._var_voce,
+                              command=self._toggle_voce)
+            m.add_checkbutton(label="Ripeti a voce", variable=self._var_talkback,
+                              command=self._toggle_talkback)
+            m.add_separator()
+            m.add_command(label="Elenco codici stampabile (Word)…",
+                          command=self._stampa_cheatsheet_codici)
+
+        m = menu("Aiuto")
+        m.add_command(label="Comandi e scorciatoie", accelerator="F1", command=self._mostra_aiuto)
+        m.add_command(label="Guida completa…", command=self._apri_guida)
+        m.add_separator()
+        m.add_command(label="Informazioni", command=self._informazioni)
+        self.root.config(menu=barra)
+        self._menubar = barra
+
+    def _collega_scorciatoie(self):
+        """Scorciatoie classiche di Windows, valide in tutta la finestra principale
+        (i dialoghi hanno i loro widget e non le ricevono)."""
+        def lega(sequenza, comando, solo_lavoro=True):
+            def gestore(_e=None):
+                if self.settimana is not None or not solo_lavoro:
+                    comando()
+                return "break"
+            self.root.bind(sequenza, gestore)
+            if "Control-" in sequenza and sequenza[-2].islower():     # anche con Bloccamaiusc
+                self.root.bind(sequenza[:-2] + sequenza[-2].upper() + ">", gestore)
+
+        lega("<Control-s>", lambda: self._esegui_azione("s"))
+        lega("<Control-z>", lambda: self._esegui_azione("u"))
+        lega("<Control-q>", self.on_closing, solo_lavoro=False)
+        lega("<F1>", self._mostra_aiuto, solo_lavoro=False)
+        for i in range(4):
+            lega(f"<Control-Key-{i + 1}>", lambda i=i: self.notebook.select(i))
+
+    def _mostra_aiuto(self):
+        if self.settimana is None:
+            messagebox.showinfo("Come si comincia", HELP_AVVIO)
+        else:
+            messagebox.showinfo("Comandi", HELP_TEXT)
+
+    def _apri_guida(self):
+        """Apre il file di istruzioni per questo sistema, se si trova."""
+        nome, sottocartella = {
+            "win32": ("ISTRUZIONI_WINDOWS.txt", "windows"),
+            "darwin": ("ISTRUZIONI_MAC.txt", "mac"),
+        }.get(sys.platform, ("ISTRUZIONI_LINUX.txt", "script_aiuto"))
+        for cartella in (percorsi.EXE_DIR, percorsi.EXE_DIR.parent / sottocartella,
+                         percorsi.EXE_DIR.parent):
+            for candidato in (cartella / nome, cartella / "ISTRUZIONI.txt"):
+                if candidato.is_file():
+                    self._apri_con_sistema(candidato)
+                    return
+        messagebox.showinfo("Guida non trovata",
+                            f"Non trovo il file {nome} accanto al programma.\n"
+                            "Premi F1 per la guida rapida dei comandi.")
+
+    def _informazioni(self):
+        messagebox.showinfo(
+            "Informazioni",
+            "Conta Pollinica\n\n"
+            "Registra i granuli di polline contati al microscopio, salva i dati in Excel e "
+            "prepara il bollettino settimanale.\n\n"
+            f"Cartella di lavoro:\n{self.output_dir}")
+
     # ================================================================
     # Schermata iniziale: scelta sessione/file/nuovo
     # ================================================================
+    @staticmethod
+    def _abbrevia_percorso(percorso, massimo=42):
+        testo = str(percorso)
+        return testo if len(testo) <= massimo else "…" + testo[-(massimo - 1):]
+
     def _build_avvio(self):
-        self.frame_avvio = tk.Frame(self.root, padx=16, pady=16)
+        self._imposta_menu(lavoro=False)
+        self.root.title("Conta Pollinica")
+        self.frame_avvio = ttk.Frame(self.root, padding=(28, 16))
         self.frame_avvio.pack(fill=tk.BOTH, expand=True)
 
-        riga_cartella = tk.Frame(self.frame_avvio)
-        riga_cartella.pack(side=tk.TOP, fill=tk.X, pady=(0, 12))
-        tk.Button(riga_cartella, text="Cambia cartella...", command=self._cambia_cartella).pack(side=tk.RIGHT)
-        tk.Label(riga_cartella, text="Cartella di lavoro:", font=(_MONO_FONT, 10, "bold")).pack(side=tk.LEFT)
-        self.lbl_cartella = tk.Label(riga_cartella, text=str(self.output_dir), font=(_MONO_FONT, 10),
-                                     anchor="w")
-        self.lbl_cartella.pack(side=tk.LEFT, padx=8, fill=tk.X, expand=True)
+        # Le barre in basso si impacchettano PRIMA di quanto si espande: con la
+        # finestra bassa e' l'elenco a restringersi, non i pulsanti.
+        in_basso = ttk.Frame(self.frame_avvio)
+        in_basso.pack(side=tk.BOTTOM, fill=tk.X, pady=(14, 0))
+        riga_azioni = ttk.Frame(in_basso)
+        riga_azioni.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        ttk.Button(riga_azioni, text="Esci", width=10, command=self.on_closing).pack(side=tk.RIGHT)
+        ttk.Button(riga_azioni, text="Guida (F1)", command=self._mostra_aiuto).pack(side=tk.RIGHT, padx=8)
+        ttk.Button(riga_azioni, text="Elenco codici stampabile",
+                   command=self._stampa_cheatsheet_codici).pack(side=tk.LEFT)
 
-        tk.Label(self.frame_avvio, text="Sessioni e file disponibili:",
-                font=(_MONO_FONT, 10, "bold")).pack(side=tk.TOP, anchor="w")
+        riga_cartella = ttk.Frame(in_basso)
+        riga_cartella.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Button(riga_cartella, text="Apri", command=self._apri_cartella).pack(side=tk.RIGHT)
+        ttk.Button(riga_cartella, text="Cambia…", command=self._cambia_cartella).pack(side=tk.RIGHT, padx=8)
+        ttk.Label(riga_cartella, text="Cartella di lavoro:", style="Sezione.TLabel").pack(side=tk.LEFT)
+        self.lbl_cartella = ttk.Label(riga_cartella, text="", anchor="w")
+        self.lbl_cartella.pack(side=tk.LEFT, padx=8)
+        ttk.Separator(in_basso).pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 10))
 
-        # Le righe in basso si impacchettano PRIMA dell'elenco che si espande:
-        # con la finestra bassa e' l'elenco a restringersi, non i pulsanti.
-        riga_nuovo = tk.Frame(self.frame_avvio, pady=8)
-        riga_nuovo.pack(side=tk.BOTTOM, fill=tk.X)
-        riga_data = tk.Frame(riga_nuovo)
+        # Intestazione
+        oggi = datetime.now()
+        ttk.Label(self.frame_avvio, text="Conta Pollinica", style="Titolo.TLabel").pack(anchor="w")
+        ttk.Label(self.frame_avvio, foreground=_COLORI["grigio"],
+                  text=f"Stagione {oggi.year}  ·  oggi è {dominio.nome_giorno_accentato(oggi)} "
+                       f"{oggi.strftime('%d/%m/%Y')}").pack(anchor="w", pady=(0, 8))
+
+        # Avviso di lavoro interrotto (riempito da _aggiorna_lista_sessioni)
+        self.box_avviso = ttk.Frame(self.frame_avvio)
+        self.box_avviso.pack(side=tk.TOP, fill=tk.X)
+
+        # Nuova settimana
+        nuova = ttk.LabelFrame(self.frame_avvio, text=" Nuova settimana ", padding=(14, 6, 14, 8))
+        nuova.pack(side=tk.TOP, fill=tk.X, pady=(0, 8))
+        riga_data = ttk.Frame(nuova)
         riga_data.pack(side=tk.TOP, fill=tk.X)
-        tk.Button(riga_data, text="Nuovo file dal template", command=self._avvio_nuovo_file).pack(side=tk.RIGHT)
-        tk.Label(riga_data, text="Nuovo file \u2014 settimana:", font=(_MONO_FONT, 10, "bold")).pack(side=tk.LEFT)
-        lun_corrente = dominio.lunedi_di(datetime.now())
-        self.entry_settimana = tk.Entry(riga_data, width=16, font=(_MONO_FONT, 10))
-        self.entry_settimana.insert(0, lun_corrente.strftime("%d-%m-%Y"))
-        self.entry_settimana.pack(side=tk.LEFT, padx=8)
-        tk.Label(riga_nuovo, text="(es. 9-2-2026, 9/2/26, 9 feb 2026)",
-                fg="#666666", font=(_MONO_FONT, 9), anchor="w").pack(side=tk.TOP, fill=tk.X)
+        ttk.Label(riga_data, text="Un giorno della settimana:").pack(side=tk.LEFT)
+        ttk.Button(riga_data, text="◀", width=3,
+                   command=lambda: self._sposta_settimana(-7)).pack(side=tk.LEFT, padx=(10, 2))
+        self._var_data = tk.StringVar(value=dominio.lunedi_di(oggi).strftime("%d-%m-%Y"))
+        self.entry_settimana = ttk.Entry(riga_data, width=14, textvariable=self._var_data,
+                                         font=(_MONO_FONT, 11))
+        self.entry_settimana.pack(side=tk.LEFT)
+        ttk.Button(riga_data, text="▶", width=3,
+                   command=lambda: self._sposta_settimana(7)).pack(side=tk.LEFT, padx=(2, 12))
+        self.btn_nuova = ttk.Button(riga_data, text="Inizia nuova settimana", style="Accent.TButton",
+                                    command=self._avvio_nuovo_file)
+        self.btn_nuova.pack(side=tk.RIGHT)
+        self.lbl_anteprima = ttk.Label(nuova, text="", foreground=_COLORI["grigio"])
+        self.lbl_anteprima.pack(side=tk.TOP, anchor="w", pady=(6, 0))
+        self._var_data.trace_add("write", lambda *_: self._aggiorna_anteprima_settimana())
+        self.entry_settimana.bind("<Return>", lambda e: self._avvio_nuovo_file())
+        self._aggiorna_anteprima_settimana()
 
-        riga_bottoni = tk.Frame(self.frame_avvio)
-        riga_bottoni.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 12))
-        tk.Button(riga_bottoni, text="Riprendi selezionata", command=self._avvio_riprendi_selezionata).pack(side=tk.LEFT)
-        tk.Button(riga_bottoni, text="Importa file da un'altra cartella...", command=self._avvio_importa).pack(side=tk.LEFT, padx=8)
+        # Riprendere un lavoro
+        riprendi = ttk.LabelFrame(self.frame_avvio, text=" Riprendi un lavoro ", padding=(14, 6, 14, 8))
+        riprendi.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        riga_bottoni = ttk.Frame(riprendi)
+        riga_bottoni.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+        self.btn_riprendi = ttk.Button(riga_bottoni, text="Riprendi selezionato", style="Accent.TButton",
+                                       command=self._avvio_riprendi_selezionata, state=tk.DISABLED)
+        self.btn_riprendi.pack(side=tk.LEFT)
+        ttk.Button(riga_bottoni, text="Apri un file da un'altra cartella…",
+                   command=self._avvio_importa).pack(side=tk.LEFT, padx=8)
+        self.lbl_elenco_info = ttk.Label(riprendi, text="", foreground=_COLORI["grigio"])
+        self.lbl_elenco_info.pack(side=tk.TOP, anchor="w", pady=(0, 4))
 
-        elenco = tk.Frame(self.frame_avvio)
-        elenco.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=8)
-        cols = ("tipo", "nome", "info")
-        self.tree_avvio = ttk.Treeview(elenco, columns=cols, show="headings", height=4)
-        self.tree_avvio.heading("tipo", text="Tipo")
-        self.tree_avvio.heading("nome", text="Nome")
-        self.tree_avvio.heading("info", text="Dettagli")
-        self.tree_avvio.column("tipo", width=110, minwidth=80, stretch=False, anchor=tk.W)
-        self.tree_avvio.column("nome", width=320, minwidth=120, stretch=True, anchor=tk.W)
-        self.tree_avvio.column("info", width=260, minwidth=100, stretch=True, anchor=tk.W)
-        scroll = tk.Scrollbar(elenco, command=self.tree_avvio.yview)
+        elenco = ttk.Frame(riprendi)
+        elenco.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        cols = ("stato", "nome", "quando", "info")
+        self.tree_avvio = ttk.Treeview(elenco, columns=cols, show="headings", height=4,
+                                       style="Elenco.Treeview", selectmode="browse")
+        for col, titolo, larg, elastica in (("stato", "Stato", 100, False),
+                                            ("nome", "Settimana / file", 300, True),
+                                            ("quando", "Ultima modifica", 120, False),
+                                            ("info", "Dettagli", 190, True)):
+            self.tree_avvio.heading(col, text=titolo, anchor=tk.W)
+            self.tree_avvio.column(col, width=larg, minwidth=80, stretch=elastica, anchor=tk.W)
+        scroll = ttk.Scrollbar(elenco, command=self.tree_avvio.yview)
         self.tree_avvio.configure(yscrollcommand=scroll.set)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_avvio.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.tree_avvio.bind("<Double-1>", lambda e: self._avvio_riprendi_selezionata())
+        self.tree_avvio.bind("<<TreeviewSelect>>", lambda e: self.btn_riprendi.config(
+            state=(tk.NORMAL if self.tree_avvio.selection() else tk.DISABLED)))
 
         self._aggiorna_lista_sessioni()
+        self.entry_settimana.focus_set()
+
+    # ── data della nuova settimana ──
+    def _data_settimana_scelta(self):
+        """datetime scelto nella casella (oggi se vuota), o None se non valido."""
+        testo = self._var_data.get().strip()
+        return dominio.parse_data_flessibile(testo) if testo else datetime.now()
+
+    def _aggiorna_anteprima_settimana(self):
+        dt = self._data_settimana_scelta()
+        if dt is None:
+            self.lbl_anteprima.config(
+                text="Non riconosco questa data. Prova con: 9-2-2026, 9/2/2026, 9 feb 2026.",
+                foreground=_COLORI["errore"])
+            self.btn_nuova.config(state=tk.DISABLED)
+        else:
+            self.lbl_anteprima.config(
+                text=f"Settimana {dominio.descrivi_settimana(dominio.lunedi_di(dt))}",
+                foreground=_COLORI["grigio"])
+            self.btn_nuova.config(state=tk.NORMAL)
+
+    def _sposta_settimana(self, giorni):
+        dt = self._data_settimana_scelta() or datetime.now()
+        self._var_data.set((dominio.lunedi_di(dt) + timedelta(days=giorni)).strftime("%d-%m-%Y"))
 
     def _aggiorna_lista_sessioni(self):
-        self.lbl_cartella.config(text=str(self.output_dir))
+        self.lbl_cartella.config(text=self._abbrevia_percorso(self.output_dir))
         for item in self.tree_avvio.get_children():
             self.tree_avvio.delete(item)
+        for figlio in self.box_avviso.winfo_children():
+            figlio.destroy()
         self._righe_avvio = []
+        adesso = datetime.now()
 
-        for path, info in sessione.recupera_sessioni(self.output_dir):
+        def quando(path):
+            try:
+                return dominio.descrivi_quando(datetime.fromtimestamp(path.stat().st_mtime), adesso)
+            except OSError:
+                return ""
+
+        interrotte = sessione.recupera_sessioni(self.output_dir)
+        for path, info in interrotte:
+            try:
+                settimana = dominio.descrivi_settimana(datetime.strptime(info["lunedi"], "%Y-%m-%d"))
+            except ValueError:
+                settimana = f"settimana del {info['lunedi']}"
             self.tree_avvio.insert("", tk.END, values=(
-                "Interrotta", f"settimana del {info['lunedi']}",
-                f"{info['n_operazioni']} operazioni non salvate",
+                "Non salvato", settimana.capitalize(), quando(path),
+                f"{info['n_operazioni']} operazioni da recuperare",
             ))
             self._righe_avvio.append(("journal", path))
 
         for f in sessione.cerca_file_ripresa(self.output_dir, esportatori.TEMPLATE_FILE.name):
             self.tree_avvio.insert("", tk.END, values=(
-                "File salvato", f.name, sessione.conta_righe_log(f),
+                "File salvato", f.name, quando(f), sessione.conta_righe_log(f),
             ))
             self._righe_avvio.append(("xlsx", f))
+
+        self.btn_riprendi.config(state=tk.DISABLED)
+        self.lbl_elenco_info.config(
+            text=("Doppio clic su una riga per aprirla." if self._righe_avvio else
+                  "Nessun lavoro precedente in questa cartella: inizia una nuova settimana qui sopra."))
+        if interrotte:
+            self._mostra_avviso_interrotte(*interrotte[0], altre=len(interrotte) - 1)
+
+    def _mostra_avviso_interrotte(self, path, info, altre):
+        """Riquadro giallo in cima: dopo un blackout o una chiusura improvvisa e'
+        la prima cosa che l'operatore deve vedere."""
+        try:
+            settimana = dominio.descrivi_settimana(datetime.strptime(info["lunedi"], "%Y-%m-%d"))
+        except ValueError:
+            settimana = f"settimana del {info['lunedi']}"
+        testo = (f"C'è un lavoro non salvato: {settimana} ({info['n_operazioni']} operazioni). "
+                 "I dati sono al sicuro e si possono riprendere.")
+        if altre > 0:
+            testo += f"  (Altri {altre} nell'elenco.)"
+        riquadro = tk.Frame(self.box_avviso, bg=_COLORI["riquadro_avviso"],
+                            highlightbackground="#E8D38A", highlightthickness=1)
+        riquadro.pack(fill=tk.X, pady=(0, 8))
+        ttk.Button(riquadro, text="Riprendi", style="Accent.TButton",
+                   command=lambda: self._avvia_da_journal(path)).pack(side=tk.RIGHT, padx=10, pady=8)
+        tk.Label(riquadro, text="⚠  " + testo, bg=_COLORI["riquadro_avviso"], fg="#1B1B1B",
+                 font=(_UI_FONT, 10), justify=tk.LEFT, anchor="w", wraplength=620,
+                 padx=12, pady=8).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _avvio_riprendi_selezionata(self):
         sel = self.tree_avvio.selection()
@@ -352,16 +757,45 @@ class PollineCounterGUI:
         self._avvia_da_xlsx(Path(raw))
 
     def _avvio_nuovo_file(self):
-        testo = self.entry_settimana.get().strip()
-        dt = dominio.parse_data_flessibile(testo) if testo else None
-        if testo and not dt:
+        dt = self._data_settimana_scelta()
+        if dt is None:
             messagebox.showerror("Data non valida",
                                  "Non riconosco questa data. Prova con: 9-2-2026, 9/2/2026, 9 feb 2026.")
             return
-        lunedi = dominio.lunedi_di(dt or datetime.now())
+        lunedi = dominio.lunedi_di(dt)
+
+        # Iniziare "da zero" una settimana gia' iniziata cancellerebbe il lavoro non
+        # salvato (Journal.avvia sovrascrive): si offre prima di riprenderlo.
+        percorso_journal = self.output_dir / sessione.nome_journal(lunedi)
+        if percorso_journal.exists():
+            risp = messagebox.askyesnocancel(
+                "Settimana già iniziata",
+                "Per questa settimana c'è già un lavoro non salvato.\n\n"
+                "Sì: riprendi quel lavoro\n"
+                "No: ricomincia da zero (il lavoro non salvato verrà cancellato)\n"
+                "Annulla: torna indietro")
+            if risp is None:
+                return
+            if risp:
+                self._avvia_da_journal(percorso_journal)
+                return
+        else:
+            nome = sessione.Settimana(lunedi).nome_file_default()
+            if (self.output_dir / nome).exists():
+                risp = messagebox.askyesnocancel(
+                    "File già presente",
+                    f"Nella cartella di lavoro c'è già il file:\n{nome}\nper questa settimana.\n\n"
+                    "Sì: aprilo e continua da lì\n"
+                    "No: crea comunque una settimana nuova\n"
+                    "Annulla: torna indietro")
+                if risp is None:
+                    return
+                if risp:
+                    self._avvia_da_xlsx(self.output_dir / nome)
+                    return
 
         self.settimana = sessione.Settimana(lunedi)
-        self.journal = sessione.Journal(self.output_dir / sessione.nome_journal(lunedi))
+        self.journal = sessione.Journal(percorso_journal)
         self.journal.avvia(self.settimana)
         self.percorso_salvato = None
         self._entra_in_lavoro()
@@ -394,8 +828,19 @@ class PollineCounterGUI:
         if not mantieni:
             nuova = self._chiedi_settimana_dialogo(lunedi_attuale)
             if nuova is None:
+                self.settimana = None
                 return
             self.settimana.lunedi = nuova
+
+        # Journal.avvia sovrascrive: non farlo in silenzio se c'e' un lavoro interrotto
+        if (self.output_dir / sessione.nome_journal(self.settimana.lunedi)).exists():
+            if not messagebox.askyesno(
+                    "Lavoro non salvato",
+                    "Per questa settimana c'è già un lavoro interrotto, non salvato.\n"
+                    "Se continui verrà cancellato.\n\nContinuare?",
+                    icon="warning", default="no"):
+                self.settimana = None
+                return
 
         self.percorso_salvato = None
         self.journal = sessione.Journal(self.output_dir / sessione.nome_journal(self.settimana.lunedi))
@@ -422,8 +867,10 @@ class PollineCounterGUI:
     def _entra_in_lavoro(self):
         self.frame_avvio.destroy()
         self.soglie = esportatori.carica_soglie(self.output_dir) or {}
-        self._modificato = False
+        self._ora_salvataggio = None
         self._build_lavoro()
+        self._var_beep.set(self.settimana.beep)
+        self._modificato = False
         self.settimana.on_change(self._on_settimana_change)
 
         if self.settimana.giorno_attivo:
@@ -435,73 +882,117 @@ class PollineCounterGUI:
         self._refresh_tabs()
 
     def _build_lavoro(self):
-        self.pane = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, sashwidth=6, bg="#cccccc")
+        self._imposta_menu(lavoro=True)
+        self.root.title(f"Conta Pollinica — settimana {dominio.descrivi_settimana(self.settimana.lunedi)}")
+        self.frame_lavoro = ttk.Frame(self.root)
+        self.frame_lavoro.pack(fill=tk.BOTH, expand=True)
+
+        # Barra di stato in basso: impacchettata per prima, non si taglia mai.
+        barra_stato = ttk.Frame(self.frame_lavoro, padding=(12, 4))
+        barra_stato.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Separator(self.frame_lavoro).pack(side=tk.BOTTOM, fill=tk.X)
+        self.lbl_file = ttk.Label(barra_stato, text="", foreground=_COLORI["grigio"])
+        self.lbl_file.pack(side=tk.LEFT)
+        self.lbl_stato = ttk.Label(barra_stato, text="")
+        self.lbl_stato.pack(side=tk.RIGHT)
+
+        self.pane = tk.PanedWindow(self.frame_lavoro, orient=tk.HORIZONTAL, sashwidth=6,
+                                   bg="#d0d0d0", borderwidth=0)
         self.pane.pack(fill=tk.BOTH, expand=True)
 
         # ── Pannello sinistro ──
-        sinistra = tk.Frame(self.pane)
+        sinistra = ttk.Frame(self.pane, padding=(10, 8, 6, 8))
         self.pane.add(sinistra, stretch="always", minsize=_MIN_SINISTRA)
 
-        barra_giorni = tk.Frame(sinistra, pady=4)
+        barra_giorni = ttk.Frame(sinistra)
         barra_giorni.pack(side=tk.TOP, fill=tk.X)
         for g in range(1, 8):
             nome = dominio.GIORNI_ABBREV[g - 1]
-            btn = tk.Button(barra_giorni, text=nome, padx=2,
-                            command=lambda g=g: self._pick_giorno(g))
+            btn = ttk.Button(barra_giorni, text=nome, style="Giorno.TButton",
+                             command=lambda g=g: self._pick_giorno(g))
             btn.pack(side=tk.LEFT, padx=1, fill=tk.X, expand=True)
             self._giorno_bottoni[g] = btn
+            _Suggerimento(btn, f"Inizia a contare {dominio.GIORNI_NOMI[g].upper()}")
 
-        self.lbl_giorno = tk.Label(sinistra, text="Nessun giorno selezionato",
-                                   font=(_MONO_FONT, 11, "bold"), anchor="w")
-        self.lbl_giorno.pack(side=tk.TOP, fill=tk.X, padx=6, pady=(2, 4))
+        self.lbl_giorno = ttk.Label(sinistra, text="Nessun giorno selezionato", style="Giorno.TLabel",
+                                    anchor="w")
+        self.lbl_giorno.pack(side=tk.TOP, fill=tk.X, pady=(10, 6))
 
         # Le barre in basso si impacchettano PRIMA del riquadro di log, che si
         # espande: se la finestra e' bassa e' il log a restringersi, mai i pulsanti.
-        input_frame = tk.Frame(sinistra, bg="#2d2d2d")
+        ttk.Label(sinistra, foreground=_COLORI["grigio"], wraplength=320, justify=tk.LEFT,
+                  text="Scrivi il numero del polline (es. 24) e premi Invio.  48x4 = quattro granuli "
+                       "del codice 48.  Un punto (.) ripete l'ultimo."
+                  ).pack(side=tk.BOTTOM, fill=tk.X, pady=(4, 0))
+        input_frame = ttk.Frame(sinistra, padding=(0, 8, 0, 0))
         input_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        prompt_lbl = tk.Label(input_frame, text=" >> ", font=(_MONO_FONT, 11),
-                              bg="#2d2d2d", fg="#00cc00")
-        prompt_lbl.pack(side=tk.LEFT)
-        self.entry = tk.Entry(input_frame, font=(_MONO_FONT, 11),
-                              bg="#1e1e1e", fg="#d4d4d4",
-                              insertbackground="#d4d4d4", relief=tk.FLAT)
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4), pady=4)
+        ttk.Label(input_frame, text="Codice:", style="Sezione.TLabel").pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(input_frame, text="Invia", command=self._invia).pack(side=tk.RIGHT, padx=(8, 0))
+        self.entry = ttk.Entry(input_frame, font=(_MONO_FONT, 12))
+        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.entry.bind("<Return>", self._invia)
         self.entry.focus_set()
 
         # I pulsanti vanno a capo da soli in base alla larghezza (_BarraFluida);
-        # quelli che cambiano testo hanno larghezza fissa per non far ridisporre la barra.
-        barra_azioni = _BarraFluida(sinistra, pady=4)
-        barra_azioni.pack(side=tk.BOTTOM, fill=tk.X)
+        # le etichette cambiano solo nei Checkbutton (interruttori), che hanno larghezza fissa.
+        barra_azioni = _BarraFluida(sinistra)
+        barra_azioni.pack(side=tk.BOTTOM, fill=tk.X, pady=(6, 0))
+        barra_interruttori = _BarraFluida(sinistra)
+        barra_interruttori.pack(side=tk.BOTTOM, fill=tk.X, pady=(6, 0))
 
-        def pulsante(testo, comando, **kw):
-            b = tk.Button(barra_azioni, text=testo, command=comando, **kw)
+        def pulsante(testo, comando, suggerimento, **kw):
+            b = ttk.Button(barra_azioni, text=testo, command=comando, **kw)
             barra_azioni.aggiungi(b)
+            _Suggerimento(b, suggerimento)
             return b
 
-        pulsante("Aiuto (h)", lambda: self._esegui_azione("h"))
-        pulsante("Correggi (c)", lambda: self._esegui_azione("c"))
-        pulsante("Nota (n)", lambda: self._esegui_azione("n"))
-        pulsante("Annulla (u)", lambda: self._esegui_azione("u"))
-        self.btn_beep = pulsante("Beep: off", lambda: self._esegui_azione("b"), width=9)
-        self.btn_voce = pulsante("Voce: off", self._toggle_voce, width=9)
-        self.btn_talkback = pulsante("Ripeti a voce: off", self._toggle_talkback, width=17)
-        pulsante("Salva (s)", lambda: self._esegui_azione("s"))
-        pulsante("Chiudi giornata (d)", lambda: self._esegui_azione("d"))
-        pulsante("Esci (q)", lambda: self._esegui_azione("q"))
+        def interruttore(testo, variabile, comando, suggerimento):
+            c = ttk.Checkbutton(barra_interruttori, text=testo, variable=variabile,
+                                command=comando, style="Switch.TCheckbutton")
+            barra_interruttori.aggiungi(c)
+            _Suggerimento(c, suggerimento)
+            return c
+
+        pulsante("Aiuto (h)", lambda: self._esegui_azione("h"),
+                 "Elenco dei comandi e delle scorciatoie — anche F1")
+        pulsante("Correggi (c)", lambda: self._esegui_azione("c"),
+                 "Cambia il valore di una specie in un giorno già contato")
+        pulsante("Nota (n)", lambda: self._esegui_azione("n"),
+                 "Aggiunge una nota di testo alla giornata (finisce nel file Excel)")
+        pulsante("Annulla (u)", lambda: self._esegui_azione("u"),
+                 "Annulla l'ultimo inserimento — anche Ctrl+Z")
+        pulsante("Salva (s)", lambda: self._esegui_azione("s"),
+                 "Salva il file Excel senza uscire — anche Ctrl+S", style="Accent.TButton")
+        pulsante("Chiudi giornata (d)", lambda: self._esegui_azione("d"),
+                 "Finisce la giornata corrente: poi scegli un altro giorno")
+        pulsante("Chiudi settimana (q)", lambda: self._esegui_azione("q"),
+                 "Salva (se vuoi) e torna alla schermata iniziale. Per uscire dal programma: Ctrl+Q")
+
+        interruttore("Beep (b)", self._var_beep, lambda: self._esegui_azione("b"),
+                     "Un suono a ogni granulo registrato")
+        interruttore("Voce", self._var_voce, self._toggle_voce,
+                     "Detta i granuli al microfono: ogni frase inizia con «conta»")
+        interruttore("Ripeti a voce", self._var_talkback, self._toggle_talkback,
+                     "Il computer ripete il nome di ciò che ha registrato")
 
         self.text_log = tk.Text(
-            sinistra, wrap=tk.WORD, font=(_MONO_FONT, 11), height=4, width=20,
-            bg="#1e1e1e", fg="#d4d4d4", insertbackground="#d4d4d4",
-            state=tk.DISABLED, relief=tk.FLAT, padx=6, pady=6,
+            sinistra, wrap=tk.WORD, font=(_UI_FONT, 11), height=4, width=20,
+            bg=_COLORI["sfondo_registro"], fg=_COLORI["testo_registro"],
+            state=tk.DISABLED, relief=tk.FLAT, padx=8, pady=6,
+            highlightthickness=1, highlightbackground="#D0D0D0", highlightcolor="#D0D0D0",
         )
-        scroll_log = tk.Scrollbar(sinistra, command=self.text_log.yview)
+        for tag, colore in (("inserimento", _COLORI["ok"]), ("annullo", _COLORI["avviso"]),
+                            ("errore", _COLORI["errore"]), ("voce", _COLORI["accento"]),
+                            ("ok", _COLORI["ok"])):
+            self.text_log.tag_configure(tag, foreground=colore)
+        self.text_log.tag_configure("grigio", foreground=_COLORI["grigio"])
+        scroll_log = ttk.Scrollbar(sinistra, command=self.text_log.yview)
         self.text_log.configure(yscrollcommand=scroll_log.set)
         scroll_log.pack(side=tk.RIGHT, fill=tk.Y)
         self.text_log.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         # ── Pannello destro ──
-        destra = tk.Frame(self.pane)
+        destra = ttk.Frame(self.pane, padding=(6, 8, 10, 8))
         self.pane.add(destra, stretch="always", minsize=_MIN_DESTRA)
 
         # Il divisorio tiene la proporzione quando la finestra cambia misura;
@@ -513,12 +1004,7 @@ class PollineCounterGUI:
         self.notebook = ttk.Notebook(destra)
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
-        style = ttk.Style()
-        style.configure("Summary.Treeview", font=(_MONO_FONT, 10), rowheight=22)
-        style.configure("Summary.Treeview.Heading", font=(_MONO_FONT, 10, "bold"))
-        if sys.platform == "darwin":
-            style.map("Treeview", background=[], foreground=[])
-        self._font_tab = tkfont.Font(family=_MONO_FONT, size=10)
+        self._font_tab = tkfont.Font(family=_UI_FONT, size=10)
 
         self._build_tab_settimanale()
         self._build_tab_giornaliero()
@@ -562,9 +1048,9 @@ class PollineCounterGUI:
         for col, titolo in intestazioni.items():
             tree.heading(col, text=titolo)
             tree.column(col, anchor=tk.W if col in ("specie", "voce") else tk.CENTER)
-        tree.tag_configure("famiglia", font=(_MONO_FONT, 10, "bold"),
-                           background="#E6E6E6", foreground="#000000")
-        scroll = tk.Scrollbar(tab, command=tree.yview)
+        tree.tag_configure("famiglia", font=(_UI_FONT, 10, "bold"),
+                           background=_COLORI["famiglia"], foreground="#000000")
+        scroll = ttk.Scrollbar(tab, command=tree.yview)
         tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         tree.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -581,18 +1067,18 @@ class PollineCounterGUI:
             tree.column(col, width=minimo, minwidth=minimo, stretch=True)
 
     def _build_tab_settimanale(self):
-        tab = tk.Frame(self.notebook)
-        self.notebook.add(tab, text=" Settimanale ")
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Settimanale")
 
         # Totali in basso impacchettati per primi: non si tagliano mai.
-        totals = tk.Frame(tab, pady=8)
+        totals = ttk.Frame(tab, padding=(0, 8))
         totals.pack(side=tk.BOTTOM, fill=tk.X)
-        self.lbl_s_pollini = tk.Label(totals, text="Pollini: 0", font=(_MONO_FONT, 11), anchor=tk.W)
+        self.lbl_s_pollini = ttk.Label(totals, text="Pollini: 0", font=(_UI_FONT, 11), anchor=tk.W)
         self.lbl_s_pollini.pack(fill=tk.X, padx=10)
-        self.lbl_s_spore = tk.Label(totals, text="Spore: 0", font=(_MONO_FONT, 11), anchor=tk.W)
+        self.lbl_s_spore = ttk.Label(totals, text="Spore: 0", font=(_UI_FONT, 11), anchor=tk.W)
         self.lbl_s_spore.pack(fill=tk.X, padx=10)
         ttk.Separator(totals, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=4)
-        self.lbl_s_totale = tk.Label(totals, text="TOTALE: 0", font=(_MONO_FONT, 12, "bold"), anchor=tk.W)
+        self.lbl_s_totale = ttk.Label(totals, text="TOTALE: 0", font=(_UI_FONT, 12, "bold"), anchor=tk.W)
         self.lbl_s_totale.pack(fill=tk.X, padx=10)
 
         self.tree_sett = self._crea_tabella(
@@ -600,17 +1086,18 @@ class PollineCounterGUI:
         self._colonne_tabella(self.tree_sett, {"codice": "00000", "conteggio": "000000"}, ["specie"])
 
     def _build_tab_giornaliero(self):
-        tab = tk.Frame(self.notebook)
-        self.notebook.add(tab, text=" Giornaliero ")
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Giornaliero")
 
-        totals = tk.Frame(tab, pady=8)
+        totals = ttk.Frame(tab, padding=(0, 8))
         totals.pack(side=tk.BOTTOM, fill=tk.X)
-        self.lbl_g_pollini = tk.Label(totals, text="Pollini: -", font=(_MONO_FONT, 10), anchor=tk.W)
+        # Qui i totali sono allineati in colonna ("LUN:3  MAR:5"): servono i caratteri a larghezza fissa.
+        self.lbl_g_pollini = ttk.Label(totals, text="Pollini: -", font=(_MONO_FONT, 10), anchor=tk.W)
         self.lbl_g_pollini.pack(fill=tk.X, padx=10)
-        self.lbl_g_spore = tk.Label(totals, text="Spore: -", font=(_MONO_FONT, 10), anchor=tk.W)
+        self.lbl_g_spore = ttk.Label(totals, text="Spore: -", font=(_MONO_FONT, 10), anchor=tk.W)
         self.lbl_g_spore.pack(fill=tk.X, padx=10)
         ttk.Separator(totals, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=10, pady=4)
-        self.lbl_g_totale = tk.Label(totals, text="TOTALE: -", font=(_MONO_FONT, 11, "bold"), anchor=tk.W)
+        self.lbl_g_totale = ttk.Label(totals, text="TOTALE: -", font=(_MONO_FONT, 11, "bold"), anchor=tk.W)
         self.lbl_g_totale.pack(fill=tk.X, padx=10)
 
         giorni = {g.lower(): g for g in dominio.GIORNI_ABBREV}
@@ -621,21 +1108,21 @@ class PollineCounterGUI:
                               ["specie"], margine=12, minimo=60)
 
     def _build_tab_bollettino(self):
-        tab = tk.Frame(self.notebook)
-        self.notebook.add(tab, text=" Bollettino ")
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Bollettino")
 
-        info_frame = tk.Frame(tab, pady=6)
+        info_frame = ttk.Frame(tab, padding=(0, 6))
         info_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        self.lbl_boll_info = tk.Label(
+        self.lbl_boll_info = ttk.Label(
             info_frame, text="Fattore: -   Specie rilevate: -",
-            font=(_MONO_FONT, 10), anchor=tk.W,
+            font=(_UI_FONT, 10), anchor=tk.W,
         )
         self.lbl_boll_info.pack(fill=tk.X, padx=10)
         if not self.soglie:
-            tk.Label(info_frame,
-                    text=f"ATTENZIONE: '{esportatori.SOGLIE_FILE_NOME}' non trovato, uso soglie di riserva.",
-                    fg="#B00000", font=(_MONO_FONT, 9), anchor=tk.W,
-                    wraplength=340, justify=tk.LEFT).pack(fill=tk.X, padx=10)
+            ttk.Label(info_frame,
+                      text=f"ATTENZIONE: '{esportatori.SOGLIE_FILE_NOME}' non trovato, uso soglie di riserva.",
+                      foreground=_COLORI["errore"], font=(_UI_FONT, 9), anchor=tk.W,
+                      wraplength=340, justify=tk.LEFT).pack(fill=tk.X, padx=10)
 
         self._boll_scroll = _ScrollableFrame(tab)
         self._boll_scroll.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -647,20 +1134,20 @@ class PollineCounterGUI:
             griglia.grid_columnconfigure(c, weight=1, uniform="giorni")
 
     def _build_tab_codici(self):
-        tab = tk.Frame(self.notebook)
-        self.notebook.add(tab, text=" Codici ")
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Codici")
 
-        ricerca_frame = tk.Frame(tab, pady=6)
+        ricerca_frame = ttk.Frame(tab, padding=(0, 6))
         ricerca_frame.pack(side=tk.TOP, fill=tk.X)
-        tk.Label(ricerca_frame, text="Cerca:").pack(side=tk.LEFT, padx=(10, 4))
-        self.entry_cerca_codici = tk.Entry(ricerca_frame, font=(_MONO_FONT, 10))
+        ttk.Label(ricerca_frame, text="Cerca:").pack(side=tk.LEFT, padx=(10, 4))
+        self.entry_cerca_codici = ttk.Entry(ricerca_frame)
         self.entry_cerca_codici.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.entry_cerca_codici.bind("<KeyRelease>", self._filtra_tab_codici)
 
-        azioni_frame = tk.Frame(tab, pady=6)
+        azioni_frame = ttk.Frame(tab, padding=(0, 6))
         azioni_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        tk.Button(azioni_frame, text="Stampa elenco (Word)",
-                 command=self._stampa_cheatsheet_codici).pack(side=tk.LEFT, padx=10)
+        ttk.Button(azioni_frame, text="Stampa elenco (Word)",
+                   command=self._stampa_cheatsheet_codici).pack(side=tk.LEFT, padx=10)
 
         self.tree_codici = self._crea_tabella(
             tab, {"codice": "Cod.", "specie": "Specie", "voce": "A voce"})
@@ -722,6 +1209,12 @@ class PollineCounterGUI:
     # Lettura vocale (voce.py + dominio.interpreta_vocale)
     # ================================================================
     def _toggle_voce(self):
+        try:
+            self._toggle_voce_interno()
+        finally:                      # l'interruttore mostra sempre lo stato reale
+            self._var_voce.set(self._voce is not None)
+
+    def _toggle_voce_interno(self):
         if self._voce is not None:
             self._voce_spegni()
             self._log("Voce disattivata.")
@@ -755,7 +1248,6 @@ class PollineCounterGUI:
             return
 
         self._voce = (asc, sintesi)
-        self.btn_voce.config(text="Voce: ON")
         if sintesi.avviso:
             self._log(f"[voce] Attenzione: {sintesi.avviso}")
         for avviso in avvisi:
@@ -779,7 +1271,7 @@ class PollineCounterGUI:
 
     def _toggle_talkback(self):
         self._talkback = not self._talkback
-        self.btn_talkback.config(text=f"Ripeti a voce: {'ON' if self._talkback else 'off'}")
+        self._var_talkback.set(self._talkback)
         if self._talkback:
             self._log("Ripeti a voce ATTIVO: il computer dice il nome di cio' che registra.")
         else:
@@ -796,8 +1288,7 @@ class PollineCounterGUI:
             self._voce = None
             sintesi.ferma()
             asc.ferma()
-        if hasattr(self, "btn_voce") and self.btn_voce.winfo_exists():
-            self.btn_voce.config(text="Voce: off")
+        self._var_voce.set(False)
 
     def _poll_voce(self):
         """Svuota la coda delle frasi capite (nel thread di Tk: tkinter non e'
@@ -860,7 +1351,7 @@ class PollineCounterGUI:
 
     def _imposta_giorno_ui(self, giorno_num):
         for g, btn in self._giorno_bottoni.items():
-            btn.config(relief=(tk.SUNKEN if g == giorno_num else tk.RAISED))
+            btn.config(style=("Giorno.Accent.TButton" if g == giorno_num else "Giorno.TButton"))
         self._aggiorna_etichetta_giorno(giorno_num)
         self._undo_consecutivi = 0
         self._imposta_entry_abilitata(True)
@@ -943,7 +1434,7 @@ class PollineCounterGUI:
         giorno_num = self.settimana.giorno_attivo
 
         if lettera == "h":
-            messagebox.showinfo("Comandi", HELP_TEXT)
+            self._mostra_aiuto()
         elif lettera == "r":
             self.notebook.select(1)
         elif lettera == "w":
@@ -952,7 +1443,7 @@ class PollineCounterGUI:
             self._mostra_storico()
         elif lettera == "b":
             self.settimana.beep = not self.settimana.beep
-            self.btn_beep.config(text=f"Beep: {'on' if self.settimana.beep else 'off'}")
+            self._var_beep.set(self.settimana.beep)
             self._log(f"Beep sonoro: {'ATTIVO' if self.settimana.beep else 'disattivo'}")
             if self.settimana.beep and not voce.beep():
                 self._log("Non riesco a riprodurre il beep: manca un programma audio "
@@ -1004,31 +1495,49 @@ class PollineCounterGUI:
         self._log(f"Chiusura {nome_giorno}: {totale} osservazioni.")
         self.settimana.giorno_attivo = None
         for btn in self._giorno_bottoni.values():
-            btn.config(relief=tk.RAISED)
+            btn.config(style="Giorno.TButton")
         self.lbl_giorno.config(text="Nessun giorno selezionato — sceglilo dalla barra sopra")
         self._imposta_entry_abilitata(False)
 
     # ================================================================
     # Dialoghi: correggi / nota
     # ================================================================
+    def _prepara_dialogo(self, top, larghezza=None, altezza=None):
+        """Dialogo centrato sulla finestra principale e modale: finche' e' aperto
+        la voce e le scorciatoie non toccano i dati (vedi _gestisci_frase_vocale)."""
+        top.transient(self.root)
+        top.update_idletasks()
+        larghezza = larghezza or top.winfo_reqwidth()
+        altezza = altezza or top.winfo_reqheight()
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - larghezza) // 2)
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - altezza) // 3)
+        top.geometry(f"{larghezza}x{altezza}+{x}+{y}")
+        try:
+            top.wait_visibility()       # senza, su Linux il grab fallisce
+            top.grab_set()
+        except tk.TclError:
+            pass
+        top.focus_set()
+
     def _dialog_correggi(self):
         if self.settimana is None:
             return
         top = tk.Toplevel(self.root)
         top.title("Correggi un giorno")
-        top.transient(self.root)
-        top.geometry("420x360")
+        top.minsize(380, 320)
 
-        riga_giorno = tk.Frame(top, pady=8)
-        riga_giorno.pack(fill=tk.X, padx=10)
-        tk.Label(riga_giorno, text="Giorno:").pack(side=tk.LEFT)
+        riga_giorno = ttk.Frame(top, padding=(0, 8))
+        riga_giorno.pack(fill=tk.X, padx=12)
+        ttk.Label(riga_giorno, text="Giorno:").pack(side=tk.LEFT)
         combo = ttk.Combobox(riga_giorno, state="readonly", width=14,
                              values=[f"{n}) {dominio.GIORNI_NOMI[n].upper()}" for n in range(1, 8)])
         combo.current((self.settimana.giorno_attivo or 1) - 1)
         combo.pack(side=tk.LEFT, padx=8)
 
-        lista = tk.Listbox(top, font=(_MONO_FONT, 10))
-        lista.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
+        lista = tk.Listbox(top, font=(_UI_FONT, 10), relief=tk.FLAT, highlightthickness=1,
+                           highlightbackground="#D0D0D0", activestyle="none",
+                           selectbackground=_COLORI["accento"], selectforeground="#FFFFFF")
+        lista.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
 
         def _aggiorna_lista():
             lista.delete(0, tk.END)
@@ -1042,10 +1551,10 @@ class PollineCounterGUI:
         combo.bind("<<ComboboxSelected>>", lambda e: _aggiorna_lista())
         _aggiorna_lista()
 
-        riga_valore = tk.Frame(top, pady=8)
-        riga_valore.pack(fill=tk.X, padx=10)
-        tk.Label(riga_valore, text="Nuovo valore:").pack(side=tk.LEFT)
-        entry_val = tk.Entry(riga_valore, width=8)
+        riga_valore = ttk.Frame(top, padding=(0, 8))
+        riga_valore.pack(fill=tk.X, padx=12)
+        ttk.Label(riga_valore, text="Nuovo valore:").pack(side=tk.LEFT)
+        entry_val = ttk.Entry(riga_valore, width=8)
         entry_val.pack(side=tk.LEFT, padx=8)
 
         def _applica():
@@ -1071,8 +1580,12 @@ class PollineCounterGUI:
             entry_val.delete(0, tk.END)
             _aggiorna_lista()
 
-        tk.Button(riga_valore, text="Applica", command=_applica).pack(side=tk.LEFT, padx=8)
-        tk.Button(top, text="Chiudi", command=top.destroy).pack(pady=(0, 10))
+        ttk.Button(riga_valore, text="Applica", style="Accent.TButton",
+                   command=_applica).pack(side=tk.LEFT, padx=8)
+        entry_val.bind("<Return>", lambda e: _applica())
+        ttk.Button(top, text="Chiudi", command=top.destroy).pack(pady=(0, 12))
+        top.bind("<Escape>", lambda e: top.destroy())
+        self._prepara_dialogo(top, 420, 380)
 
     def _dialog_nota(self):
         if self.settimana is None or self.settimana.giorno_attivo is None:
@@ -1116,6 +1629,7 @@ class PollineCounterGUI:
                 "I dati non sono persi: restano nella sessione.")
             return None
         self.percorso_salvato = percorso
+        self._ora_salvataggio = datetime.now().strftime("%H:%M")
         self._modificato = False
         self._log(f"[OK] File salvato: {percorso}")
         return percorso
@@ -1124,7 +1638,8 @@ class PollineCounterGUI:
     # Uscita dalla sessione (comando 'q' / pulsante Esci)
     # ================================================================
     def _esci_sessione(self):
-        risp = messagebox.askyesnocancel("Salvare ed uscire?", "Salvare il file prima di uscire dalla sessione?")
+        risp = messagebox.askyesnocancel("Chiudere la settimana?",
+                                         "Salvare il file prima di chiudere questa settimana?")
         if risp is None:
             return  # annulla, resta in sessione
         if risp:
@@ -1150,12 +1665,12 @@ class PollineCounterGUI:
     def _menu_operazioni_aggiuntive(self, cartella):
         top = tk.Toplevel(self.root)
         top.title("Operazioni aggiuntive")
-        top.transient(self.root)
-        tk.Label(top, text="Vuoi generare anche:", padx=16, pady=10).pack(anchor="w")
+        ttk.Label(top, text="Vuoi generare anche:", padding=(18, 14, 18, 8),
+                  style="Sezione.TLabel").pack(anchor="w")
         var_annuale = tk.BooleanVar(value=True)
         var_bollettini = tk.BooleanVar(value=True)
-        tk.Checkbutton(top, text="Aggiorna riepilogo annuale", variable=var_annuale).pack(anchor="w", padx=16)
-        tk.Checkbutton(top, text="Genera bollettini Word (ITA/ENG)", variable=var_bollettini).pack(anchor="w", padx=16)
+        ttk.Checkbutton(top, text="Aggiorna riepilogo annuale", variable=var_annuale).pack(anchor="w", padx=18, pady=2)
+        ttk.Checkbutton(top, text="Genera bollettini Word (ITA/ENG)", variable=var_bollettini).pack(anchor="w", padx=18, pady=2)
 
         def _conferma():
             top.destroy()
@@ -1179,10 +1694,12 @@ class PollineCounterGUI:
                     else:
                         self._log("Nessun dato presente: bollettini Word non generati.")
 
-        riga = tk.Frame(top, pady=10)
+        riga = ttk.Frame(top, padding=(0, 14))
         riga.pack(fill=tk.X)
-        tk.Button(riga, text="Conferma", command=_conferma).pack(side=tk.RIGHT, padx=16)
-        tk.Button(riga, text="Salta", command=top.destroy).pack(side=tk.RIGHT)
+        ttk.Button(riga, text="Conferma", style="Accent.TButton", command=_conferma).pack(side=tk.RIGHT, padx=18)
+        ttk.Button(riga, text="Salta", command=top.destroy).pack(side=tk.RIGHT)
+        top.bind("<Escape>", lambda e: top.destroy())
+        self._prepara_dialogo(top, 380)
         top.wait_window(top)
 
     def _avvisa_fattore_diverso(self, messaggio):
@@ -1192,9 +1709,8 @@ class PollineCounterGUI:
     def _scegli_duplicati_dialogo(self, data_str):
         top = tk.Toplevel(self.root)
         top.title("Giorno gia' presente")
-        top.transient(self.root)
-        tk.Label(top, text=f"Il giorno '{data_str}' e' gia' presente nel riepilogo annuale.",
-                padx=16, pady=10).pack()
+        ttk.Label(top, text=f"Il giorno '{data_str}' \u00e8 gi\u00e0 presente nel riepilogo annuale.\n"
+                            "Cosa vuoi fare?", padding=(18, 14, 18, 4), justify=tk.CENTER).pack()
         # Se la finestra viene chiusa per errore (tasto X) senza scegliere un
         # pulsante, il giorno non deve essere toccato: e' l'unica scelta sicura.
         scelta = {"valore": "annulla"}
@@ -1203,23 +1719,28 @@ class PollineCounterGUI:
             scelta["valore"] = v
             top.destroy()
 
-        riga = tk.Frame(top, pady=10)
+        riga = ttk.Frame(top, padding=(14, 12))
         riga.pack()
-        tk.Button(riga, text="Sovrascrivi", command=lambda: _scegli("a")).pack(side=tk.LEFT, padx=6)
-        tk.Button(riga, text="Nuova riga", command=lambda: _scegli("b")).pack(side=tk.LEFT, padx=6)
-        tk.Button(riga, text="Somma", command=lambda: _scegli("c")).pack(side=tk.LEFT, padx=6)
-        tk.Button(riga, text="Annulla", command=lambda: _scegli("annulla")).pack(side=tk.LEFT, padx=(24, 6))
+        ttk.Button(riga, text="Sovrascrivi", command=lambda: _scegli("a")).pack(side=tk.LEFT, padx=6)
+        ttk.Button(riga, text="Nuova riga", command=lambda: _scegli("b")).pack(side=tk.LEFT, padx=6)
+        ttk.Button(riga, text="Somma", command=lambda: _scegli("c")).pack(side=tk.LEFT, padx=6)
+        ttk.Button(riga, text="Annulla", style="Accent.TButton",
+                   command=lambda: _scegli("annulla")).pack(side=tk.LEFT, padx=(24, 6))
         top.protocol("WM_DELETE_WINDOW", lambda: _scegli("annulla"))
+        top.bind("<Escape>", lambda e: _scegli("annulla"))
+        self._prepara_dialogo(top)
         top.wait_window(top)
         return scelta["valore"]
 
     def _torna_ad_avvio(self):
         self._voce_spegni()
         self._salva_layout()
-        self.pane.destroy()
+        self.text_log = self.lbl_stato = self.lbl_file = None
+        self.frame_lavoro.destroy()
         self.settimana = None
         self.journal = None
         self.percorso_salvato = None
+        self._ora_salvataggio = None
         self._modificato = False
         self._giorno_bottoni = {}
         self._build_avvio()
@@ -1227,9 +1748,17 @@ class PollineCounterGUI:
     # ================================================================
     # Log testuale (sostituisce il vecchio terminale)
     # ================================================================
-    def _log(self, testo):
+    # Colore della riga dedotto dall'inizio del testo (le chiamate non devono saperlo).
+    _PREFISSI_LOG = (("->", "inserimento"), ("<-", "annullo"), ("[OK]", "ok"), ("ERRORE", "errore"),
+                     ("Attenzione", "errore"), ("[voce]", "voce"))
+
+    def _log(self, testo, tipo=None):
+        if self.text_log is None:           # schermata iniziale: non c'e' il registro
+            return
+        if tipo is None:
+            tipo = next((t for prefisso, t in self._PREFISSI_LOG if testo.startswith(prefisso)), None)
         self.text_log.config(state=tk.NORMAL)
-        self.text_log.insert(tk.END, testo + "\n")
+        self.text_log.insert(tk.END, testo + "\n", tipo or ())
         n_righe = int(self.text_log.index("end-1c").split(".")[0])
         if n_righe > MAX_LINES_LOG:
             self.text_log.delete("1.0", f"{n_righe - MAX_LINES_LOG}.0")
@@ -1320,19 +1849,19 @@ class PollineCounterGUI:
         griglia = self._boll_scroll.inner
         header = ["Specie", *dominio.GIORNI_ABBREV, "Media"]
         for c, testo in enumerate(header):
-            tk.Label(griglia, text=testo, font=(_MONO_FONT, 9, "bold"),
+            tk.Label(griglia, text=testo, font=(_UI_FONT, 9, "bold"),
                     relief=tk.RIDGE, bg="#e0e0e0").grid(row=0, column=c, sticky="nsew")
 
         for r, riga in enumerate(righe, start=1):
-            tk.Label(griglia, text=riga.nome_ita, font=(_MONO_FONT, 9),
+            tk.Label(griglia, text=riga.nome_ita, font=(_UI_FONT, 9),
                     anchor="w", padx=3, relief=tk.RIDGE).grid(row=r, column=0, sticky="nsew")
             for c, (val, livello) in enumerate(zip(riga.concentrazioni, riga.livelli_giorno), start=1):
                 bg, fg = dominio.LIVELLO_COLORE_GUI[livello]
                 testo = f"{val:g}" if val else "-"
-                tk.Label(griglia, text=testo, font=(_MONO_FONT, 9),
+                tk.Label(griglia, text=testo, font=(_UI_FONT, 9),
                         bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=c, sticky="nsew")
             bg, fg = dominio.LIVELLO_COLORE_GUI[riga.livello_media]
-            tk.Label(griglia, text=f"{riga.media:g}", font=(_MONO_FONT, 9, "bold"),
+            tk.Label(griglia, text=f"{riga.media:g}", font=(_UI_FONT, 9, "bold"),
                     bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=8, sticky="nsew")
 
         n_sp = len(righe)
@@ -1370,8 +1899,6 @@ def main():
         sys.exit(1)
 
     root = tk.Tk()
-    if sv_ttk is not None and sys.platform == "win32":
-        sv_ttk.set_theme("light")
     PollineCounterGUI(root)
     root.mainloop()
 

@@ -55,6 +55,36 @@ due pannelli mantiene la proporzione. Il divisorio si puo' trascinare a
 mano: dimensione della finestra e proporzione vengono ricordate per la
 volta successiva.
 
+MENU, SCORCIATOIE E SCHERMATA INIZIALE
+---------------------------------------
+Schermata iniziale: in alto, se c'e' un lavoro interrotto (chiusura
+improvvisa, mancanza di corrente) compare un riquadro giallo con il
+pulsante "Riprendi": i dati non sono persi. Poi "Nuova settimana" (le
+frecce passano alla settimana precedente o successiva; sotto la data
+compare il periodo, es. "da lunedi 12/10 a domenica 18/10/2026") e
+l'elenco "Riprendi un lavoro" con la data dell'ultima modifica. In
+basso: cartella di lavoro ("Cambia..." per sceglierne un'altra, "Apri"
+per vederla nel gestore file), elenco codici stampabile, guida (F1) e
+"Esci" per chiudere il programma.
+Se per la settimana scelta esiste gia' un lavoro non salvato o un file,
+il programma lo dice e propone di riprenderlo invece di ricominciare da
+zero.
+
+Barra dei menu (File, Modifica, Visualizza, Strumenti, Aiuto): ha le
+stesse azioni dei pulsanti, piu' "Esci dal programma". Scorciatoie:
+  Ctrl+S  salva            Ctrl+Z  annulla l'ultimo inserimento
+  Ctrl+Q  esce dal programma
+  Ctrl+1 ... Ctrl+4  cambia scheda a destra         F1  aiuto
+Il pulsante "Chiudi settimana (q)" salva e torna alla schermata
+iniziale; per uscire dal programma si usa "Esci" (schermata iniziale),
+il menu File o Ctrl+Q. Beep, Voce e "Ripeti a voce" sono interruttori
+(si accendono con un clic). In basso la barra di stato dice se ci sono
+modifiche non salvate.
+
+Aspetto: se e' installato il pacchetto sv-ttk la finestra ha lo stile
+di Windows 11; senza funziona uguale con l'aspetto di base
+(pip install sv-ttk).
+
 LETTURA VOCALE (opzionale)
 ---------------------------
 Permette di registrare i granuli a voce, senza staccare gli occhi dal

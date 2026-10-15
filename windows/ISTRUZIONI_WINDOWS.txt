@@ -81,10 +81,10 @@ divisa in due pannelli:
   PANNELLO SINISTRO
     In alto, i pulsanti LUN...DOM per scegliere il giorno su cui
     lavorare. Sotto, il riquadro con lo storico delle operazioni e,
-    in basso, la casella di inserimento (stesso prompt della CLI:
-    "LUN [3] >>") dove digitare codici e comandi. I pulsanti
-    Correggi / Nota / Annulla / Salva / Chiudi giornata / Esci
-    fanno le stesse cose dei comandi da tastiera.
+    in basso, la casella "Codice:" dove digitare codici e comandi
+    (si conferma con Invio o col pulsante "Invia"). I pulsanti
+    Correggi / Nota / Annulla / Salva / Chiudi giornata / Chiudi
+    settimana fanno le stesse cose dei comandi da tastiera.
 
   PANNELLO DESTRO - Riepilogo live
     Si aggiorna immediatamente a ogni inserimento (non e' piu' un
@@ -113,10 +113,10 @@ divisa in due pannelli:
 UTILIZZO DEL PROGRAMMA
 -----------------------
   PASSO 1 - Scegliere sessione, file o nuovo
-    Nella schermata iniziale: doppio clic (o "Riprendi selezionata")
-    su una sessione/file dall'elenco, "Importa..." per un file in
-    un'altra cartella, oppure inserisci la settimana e premi
-    "Nuovo file dal template".
+    Nella schermata iniziale: doppio clic (o "Riprendi selezionato")
+    su una sessione/file dall'elenco, "Apri un file da un'altra
+    cartella..." per un file fuori dalla cartella di lavoro, oppure
+    scegli la settimana e premi "Inizia nuova settimana".
     Formati data accettati (giorno e mese anche senza zero):
       9-2-2026    09/02/2026    9 feb 2026
 
@@ -146,7 +146,7 @@ Si digitano nella casella di inserimento, esattamente come nella CLI.
   h           Mostra l'elenco dei comandi
   d           Chiude la giornata (bisogna sceglierne un'altra)
   s           Salva subito il file .xlsx, senza uscire
-  q           Salva ed esci dalla sessione
+  q           Salva e chiude la settimana (torna alla schermata iniziale)
 
 I comandi c, n, u, s, d, q sono disponibili anche come pulsanti.
 
@@ -159,6 +159,36 @@ Giornaliero, Bollettino, Codici) riempiono lo spazio e il divisorio fra i
 due pannelli mantiene la proporzione. Il divisorio si puo' trascinare a
 mano: dimensione della finestra e proporzione vengono ricordate per la
 volta successiva.
+
+MENU, SCORCIATOIE E SCHERMATA INIZIALE
+---------------------------------------
+Schermata iniziale: in alto, se c'e' un lavoro interrotto (chiusura
+improvvisa, mancanza di corrente) compare un riquadro giallo con il
+pulsante "Riprendi": i dati non sono persi. Poi "Nuova settimana" (le
+frecce passano alla settimana precedente o successiva; sotto la data
+compare il periodo, es. "da lunedi 12/10 a domenica 18/10/2026") e
+l'elenco "Riprendi un lavoro" con la data dell'ultima modifica. In
+basso: cartella di lavoro ("Cambia..." per sceglierne un'altra, "Apri"
+per vederla nel gestore file), elenco codici stampabile, guida (F1) e
+"Esci" per chiudere il programma.
+Se per la settimana scelta esiste gia' un lavoro non salvato o un file,
+il programma lo dice e propone di riprenderlo invece di ricominciare da
+zero.
+
+Barra dei menu (File, Modifica, Visualizza, Strumenti, Aiuto): ha le
+stesse azioni dei pulsanti, piu' "Esci dal programma". Scorciatoie:
+  Ctrl+S  salva            Ctrl+Z  annulla l'ultimo inserimento
+  Ctrl+Q  esce dal programma
+  Ctrl+1 ... Ctrl+4  cambia scheda a destra         F1  aiuto
+Il pulsante "Chiudi settimana (q)" salva e torna alla schermata
+iniziale; per uscire dal programma si usa "Esci" (schermata iniziale),
+il menu File o Ctrl+Q. Beep, Voce e "Ripeti a voce" sono interruttori
+(si accendono con un clic). In basso la barra di stato dice se ci sono
+modifiche non salvate.
+
+Aspetto: se e' installato il pacchetto sv-ttk la finestra ha lo stile
+di Windows 11; senza funziona uguale con l'aspetto di base
+(pip install sv-ttk).
 
 LETTURA VOCALE
 ---------------
@@ -176,7 +206,7 @@ Requisiti:
     codice\modelli\ e lanciare build_exe.bat (l'exe pesa ~80 MB e
     si avvia piu' lentamente: il modello viene estratto a ogni avvio).
 
-Uso: premere il pulsante "Voce" (diventa "Voce: ON"). Ogni frase deve
+Uso: premere il pulsante "Voce" (l'interruttore si accende). Ogni frase deve
 cominciare con "conta": senza, il computer ignora tutto, cosi' le
 conversazioni in laboratorio non vengono registrate. Il computer ripete a
 voce il nome che ha capito; se e' sbagliato dire "conta annulla".
@@ -231,7 +261,7 @@ SALVATAGGIO
     sessione. La prima volta chiede dove salvare; le volte
     successive riusa lo stesso percorso.
 
-  Comando/pulsante "q" - Uscita
+  Comando/pulsante "q" - Chiusura della settimana
     Chiede se salvare il file .xlsx definitivo. Se si sceglie di
     uscire senza salvare, chiede se conservare il file di sessione
     per riprenderlo in seguito. Dopo un salvataggio riuscito viene

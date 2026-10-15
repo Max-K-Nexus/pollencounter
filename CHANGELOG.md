@@ -6,6 +6,57 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ## 2026-10-15
 
+### GUI: stile Windows 11, menu, schermata iniziale piu' ricca, pulsante Esci
+
+**Problema:** per utenti non informatici la GUI sembrava "da tecnici": pulsanti `tk`
+classici, font monospace ovunque, registro nero stile terminale, nessun menu e nessun
+modo di uscire dalla schermata iniziale. Il tema `sv_ttk` (gia' nell'exe) agiva solo
+sui pochi widget `ttk` e solo su Windows. In piu': "Nuova settimana" su una settimana
+gia' iniziata **sovrascriveva in silenzio** il journal con il lavoro non salvato
+(`Journal.avvia` apre in `"w"`); lo stesso riprendendo un `.xlsx` la cui settimana
+aveva un journal interrotto.
+
+**Causa:** widget `tk.*` ovunque, tema attivato solo in `main()` per `win32`,
+schermata iniziale minima senza controlli sull'esistente.
+
+**Correzione:**
+- `codice/polline_counter_gui.py`: `_imposta_tema()` attiva `sv_ttk` su tutte le
+  piattaforme (ripiego `clam` con gli stessi nomi di stile se manca); widget convertiti
+  a `ttk`; font proporzionale (`_UI_FONT`), palette in `_COLORI`; registro chiaro con
+  righe colorate (inserimenti verdi, annulli arancio, errori rossi, `[voce]` blu);
+  Beep/Voce/Ripeti a voce diventano interruttori (pulsante e menu condividono la
+  `BooleanVar`); suggerimenti al passaggio del mouse; casella "Codice:" con pulsante
+  "Invia"; "Esci (q)" rinominato "Chiudi settimana (q)" (salva e torna all'inizio).
+- Barra dei menu (File, Modifica, Visualizza, Strumenti, Aiuto) e scorciatoie
+  Ctrl+S, Ctrl+Z, Ctrl+Q, Ctrl+1..4, F1; ogni voce usa la stessa funzione del pulsante.
+- Barra di stato: file corrente e "Modifiche non salvate" / "Salvato alle HH:MM".
+- Schermata iniziale: intestazione con data, riquadro giallo "C'e' un lavoro non
+  salvato" con "Riprendi", nuova settimana con frecce e anteprima del periodo (data
+  non valida: messaggio rosso e pulsante disattivato), elenco con "Ultima modifica",
+  barra in basso con cartella ("Cambia...", "Apri"), elenco codici stampabile, guida
+  e **"Esci"**. Se per la settimana scelta esiste gia' un journal o un file `.xlsx`
+  il programma chiede se riprenderlo; riprendere un `.xlsx` con journal interrotto
+  della stessa settimana chiede conferma prima di cancellarlo.
+- Dialoghi Correggi / Operazioni aggiuntive / Duplicati: `ttk`, centrati e modali
+  (`_prepara_dialogo`, `grab_set`: ora la voce li ignora davvero, come descritto).
+- Finestra minima 760x560 (era 720x480: con i widget di sv_ttk l'elenco e il registro
+  si riducevano a nulla e SAB/DOM e le schede uscivano dal pannello).
+- `codice/dominio.py`: `nome_giorno_accentato`, `descrivi_settimana`, `descrivi_quando`
+  (test in `tests/test_dominio.py`, `TestDescrizioniGui`).
+- Lanciatori Linux/macOS: "Nota" con il comando per `sv-ttk`; lanciatore Windows lo
+  installa in silenzio se manca; `requirements.txt`, `README.md`, `ISTRUZIONI.txt` e le
+  tre guide aggiornate (menu, scorciatoie, schermata iniziale, interruttori).
+
+**Verifica:** 192 test OK; giro completo della GUI sotto Xvfb con e senza `sv_ttk`
+(avvio, data non valida, nuova settimana, inserimenti, Ctrl+Z/Ctrl+S, interruttori,
+Correggi, chiusura settimana, nuova settimana su journal/file esistenti, ripresa,
+F1, Esci) con screenshot, anche alla dimensione minima. Non provato su Windows/macOS
+reali; exe da ricompilare.
+
+---
+
+## 2026-10-15
+
 ### GUI: annullo a voce senza dialogo, errori di salvataggio, cache dei log
 
 **Problema:** (1) con la conferma degli annulli ora attiva, il sesto "conta

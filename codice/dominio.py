@@ -263,6 +263,32 @@ def lunedi_di(dt):
     return dt - timedelta(days=dt.weekday())
 
 
+_GIORNI_ACCENTATI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+
+
+def nome_giorno_accentato(dt):
+    """'giovedì' per un giovedì (per i testi della GUI; i nomi senza accento
+    di GIORNI_NOMI servono ai file e al log)."""
+    return _GIORNI_ACCENTATI[dt.weekday()]
+
+
+def descrivi_settimana(lunedi):
+    """'da lunedì 12/10 a domenica 18/10/2026' per la settimana che inizia a ``lunedi``."""
+    domenica = lunedi + timedelta(days=6)
+    return (f"da lunedì {lunedi.strftime('%d/%m')} "
+            f"a domenica {domenica.strftime('%d/%m/%Y')}")
+
+
+def descrivi_quando(dt, adesso):
+    """'oggi 14:32' / 'ieri 09:10' / '12/10/2026': quando e' stato modificato un file."""
+    giorni = (adesso.date() - dt.date()).days
+    if giorni == 0:
+        return f"oggi {dt.strftime('%H:%M')}"
+    if giorni == 1:
+        return f"ieri {dt.strftime('%H:%M')}"
+    return dt.strftime("%d/%m/%Y")
+
+
 # ============================================================
 # Concentrazione e soglie
 # ============================================================
