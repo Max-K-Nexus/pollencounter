@@ -6,6 +6,49 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ## 2026-10-15
 
+### Bollettino dell'.xlsx esportato: colori per livello (assente/bassa/media/alta)
+
+**Problema:** nelle due tabelle del bollettino del foglio `riepilogo_settimana`
+(righe 73-110, colonne E-L e Q-X) le celle comparivano bianche, o colorate con
+soglie diverse da quelle del programma.
+
+**Causa:** le regole del template salvavano il colore solo come `fgColor`, mentre
+Excel nei formati condizionali legge `bgColor`; le soglie erano numeri scritti a
+mano in `applica_formattazione.py`, non quelli di `concentrazioni_polliniche.xlsx`
+(unica fonte per GUI e Word).
+
+**Correzione:**
+- `dominio.py`: `soglia_famiglia(soglie, famiglia)` (file, poi ripiego, poi
+  default), usata da `righe_bollettino` e dall'esportatore.
+- `esportatori.py`: `colora_bollettino(ws, soglie)` rifa' a ogni esportazione le
+  regole di E76:L110 e Q76:X110 (4 regole per riga, stessa semantica di
+  `dominio.livello`, `stopIfTrue`), con riempimento fg+bg e colori di
+  `LIVELLO_COLORE_WORD` (testo bianco sull'"alta"); `esporta_xlsx(..., soglie=None)`
+  le carica da sola se non passate. La GUI passa `self.soglie`.
+- Test: `TestColoraBollettino` (regole su ogni riga e su entrambe le tabelle,
+  soglie dal file esterno, bgColor, corrispondenza righe template/`BOLLETTINO_RIGHE`),
+  `TestSogliaFamiglia`. Verificato in LibreOffice (PDF).
+- `ISTRUZIONI.txt` aggiornato.
+
+### Aiuto (F1): finestra ordinata e ridimensionabile
+
+**Problema:** su Linux F1 apriva un messagebox con font proporzionale e larghezza
+fissa: le colonne allineate con spazi e gli a-capo manuali si sfasavano, la
+finestra non si ridimensionava e non aveva una dimensione adatta al testo.
+
+**Causa:** `_mostra_aiuto` mostrava `HELP_TEXT`/`HELP_AVVIO` (stringhe
+preformattate) con `messagebox.showinfo`.
+
+**Correzione:** `polline_counter_gui.py`: `HELP_TEXT`/`HELP_AVVIO` diventano liste
+di blocchi (titolo / testo / voci chiave-descrizione); `_finestra_aiuto` li
+mostra in un `Toplevel` non modale (la voce resta attiva), ridimensionabile, con
+`Text` a capo automatico e rientro sospeso (la descrizione resta allineata alla
+colonna delle chiavi), barra di scorrimento, dimensione iniziale in base al
+contenuto e allo schermo, centrata; una sola istanza; Esc/F1 chiudono; pulsanti
+"Guida completa..." e "Chiudi". `_posizione_centrata` condiviso con
+`_prepara_dialogo`. Guide (Linux, Mac, Windows, `ISTRUZIONI.txt`) aggiornate.
+
+
 ### Rimozione dei lavori interrotti dalla schermata iniziale
 
 **Problema:** un `~sessione_*.jsonl` che non serviva piu' (prove, settimane

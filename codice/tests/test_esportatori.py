@@ -78,6 +78,70 @@ class TestEsportaXlsx(unittest.TestCase):
             self.assertEqual(ripreso.fattore, s.fattore)
 
 
+class TestColoraBollettino(unittest.TestCase):
+    """Formattazione condizionale delle due tabelle del bollettino (righe 76-110)."""
+
+    def _esporta(self, soglie=None):
+        s = _settimana_di_prova()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "prova.xlsx"
+        esportatori.esporta_xlsx(s, path, soglie=soglie)
+        wb = openpyxl.load_workbook(path)
+        self.addCleanup(wb.close)
+        return wb["riepilogo_settimana"]
+
+    @staticmethod
+    def _regole(ws, intervallo):
+        for cf in ws.conditional_formatting:
+            if str(cf.sqref) == intervallo:
+                return cf.rules
+        return []
+
+    def test_ogni_riga_ha_regole_su_entrambe_le_tabelle(self):
+        ws = self._esporta()
+        for i in range(len(dominio.BOLLETTINO_RIGHE)):
+            riga = 76 + i
+            for intervallo in (f"E{riga}:L{riga}", f"Q{riga}:X{riga}"):
+                self.assertEqual(len(self._regole(ws, intervallo)), 4, intervallo)
+
+    def test_righe_del_template_corrispondono_a_bollettino_righe(self):
+        ws = self._esporta()
+        for i, (ita, _eng, _codici, _fam) in enumerate(dominio.BOLLETTINO_RIGHE):
+            nome = str(ws.cell(row=76 + i, column=4).value)
+            self.assertTrue(nome.startswith(ita.split(" (")[0]) or ita in nome,
+                            f"riga {76 + i}: {nome!r} != {ita!r}")
+
+    def test_soglie_dal_file_esterno(self):
+        soglie = esportatori.carica_soglie()
+        ws = self._esporta(soglie=soglie)
+        for nome, riga in (("Alternaria", 109), ("Graminaceae", 95)):
+            max_ass, max_bas, max_med = soglie[nome]
+            soglie_riga = [float(r.formula[0]) for r in self._regole(ws, f"E{riga}:L{riga}")]
+            self.assertEqual(soglie_riga, [max_med, max_bas, max_ass, 0.0], nome)
+
+    def test_soglie_caricate_da_sole_se_non_passate(self):
+        ws = self._esporta(soglie=None)
+        regole = self._regole(ws, "E109:L109")
+        self.assertEqual(float(regole[0].formula[0]), esportatori.carica_soglie()["Alternaria"][2])
+
+    def test_riempimento_ha_anche_bgcolor(self):
+        # Excel legge bgColor nei formati condizionali, LibreOffice fgColor
+        ws = self._esporta()
+        colori = []
+        for regola in self._regole(ws, "E76:L76"):
+            fill = regola.dxf.fill
+            self.assertEqual(fill.bgColor.rgb, fill.fgColor.rgb)
+            colori.append(fill.bgColor.rgb[-6:])
+        self.assertEqual(colori, [dominio.LIVELLO_COLORE_WORD[l]
+                                  for l in ("alta", "media", "bassa", "assente")])
+
+    def test_regole_del_template_sostituite_non_sommate(self):
+        ws = self._esporta()
+        self.assertEqual(len(list(ws.conditional_formatting)),
+                         2 * len(dominio.BOLLETTINO_RIGHE))
+
+
 class TestCaricaSoglie(unittest.TestCase):
     def test_trova_file_nella_cartella_dello_script(self):
         soglie = esportatori.carica_soglie()

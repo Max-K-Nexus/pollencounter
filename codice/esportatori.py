@@ -14,6 +14,9 @@ from pathlib import Path
 try:
     import openpyxl
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.styles.differential import DifferentialStyle
+    from openpyxl.formatting.formatting import ConditionalFormattingList
+    from openpyxl.formatting.rule import Rule
     from openpyxl.utils import get_column_letter
 except ImportError:
     openpyxl = None
@@ -99,8 +102,55 @@ def compila_intestazione(ws, lunedi):
     ws["Y3"] = anno
 
 
-def esporta_xlsx(settimana, path):
-    """Scrive il file .xlsx settimanale (template + conteggi + log) su path."""
+# Bollettino nel foglio riepilogo_settimana: la riga _BOLL_PRIMA_RIGA + i
+# corrisponde a dominio.BOLLETTINO_RIGHE[i] (righe 76-110). Due copie affiancate,
+# ciascuna con 7 giorni + media: E-L e Q-X.
+_BOLL_PRIMA_RIGA = 76
+_BOLL_LATI = (("E", "L"), ("Q", "X"))
+
+
+def _regole_livelli(soglia_tuple):
+    """Le quattro regole di colore di una riga, in ordine di priorita'. Stessa
+    semantica di dominio.livello(): ogni soglia e' il massimo del livello sotto.
+    Il riempimento ha sia fgColor sia bgColor: i formati condizionali di Excel
+    leggono il secondo, LibreOffice il primo."""
+    max_ass, max_bas, max_med = soglia_tuple
+    regole = []
+    for livello, operatore, valore in (
+        ("alta", "greaterThan", max_med),
+        ("media", "greaterThan", max_bas),
+        ("bassa", "greaterThan", max_ass),
+        ("assente", "greaterThanOrEqual", 0),
+    ):
+        colore = dominio.LIVELLO_COLORE_WORD[livello]
+        stile = DifferentialStyle(
+            fill=PatternFill(fill_type="solid", start_color=colore, end_color=colore),
+            font=Font(color="FFFFFF") if livello == "alta" else None)
+        regole.append(Rule(type="cellIs", operator=operatore, formula=[repr(valore)],
+                           dxf=stile, stopIfTrue=True))
+    return regole
+
+
+def colora_bollettino(ws, soglie):
+    """Formattazione condizionale delle due tabelle del bollettino, con le soglie di
+    concentrazioni_polliniche.xlsx (la stessa fonte della GUI e del Word). Sostituisce
+    le regole del template, che avevano soglie scritte a mano."""
+    ws.conditional_formatting = ConditionalFormattingList()
+    for i, (_ita, _eng, _codici, famiglia) in enumerate(dominio.BOLLETTINO_RIGHE):
+        riga = _BOLL_PRIMA_RIGA + i
+        soglia_tuple = dominio.soglia_famiglia(soglie, famiglia)
+        for da, a in _BOLL_LATI:
+            intervallo = f"{da}{riga}:{a}{riga}"
+            for regola in _regole_livelli(soglia_tuple):
+                ws.conditional_formatting.add(intervallo, regola)
+
+
+def esporta_xlsx(settimana, path, soglie=None):
+    """Scrive il file .xlsx settimanale (template + conteggi + log) su path.
+    soglie: dict da carica_soglie(); se None viene caricato."""
+    path = Path(path)
+    if soglie is None:
+        soglie = carica_soglie(path.parent) or {}
     wb = openpyxl.load_workbook(TEMPLATE_FILE)
     ws = wb["riepilogo_settimana"]
     ws_log = wb["dati_grezzi"]
@@ -123,7 +173,8 @@ def esporta_xlsx(settimana, path):
         if riga.get("nota"):
             ws_log.cell(row=i, column=5, value=riga["nota"])
 
-    path = Path(path)
+    colora_bollettino(ws, soglie)
+
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
     wb.close()

@@ -148,6 +148,13 @@ class TestSoglie(unittest.TestCase):
         self.assertEqual(d.livello(None, soglia), "assente")
 
 
+class TestSogliaFamiglia(unittest.TestCase):
+    def test_dal_file_poi_fallback_poi_default(self):
+        self.assertEqual(d.soglia_famiglia({"Aceracee": (1, 2, 3)}, "Aceracee"), (1, 2, 3))
+        self.assertEqual(d.soglia_famiglia({}, "Aceracee"), d.SOGLIE_FALLBACK["Aceracee"])
+        self.assertEqual(d.soglia_famiglia({}, "Sconosciuta"), (0.9, 19.9, 39.9))
+
+
 class TestRigheBollettino(unittest.TestCase):
     def test_specie_senza_dati_esclusa(self):
         righe = d.righe_bollettino({}, 0.4, {})

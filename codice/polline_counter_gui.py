@@ -63,59 +63,78 @@ _COLORI = {
 MAX_LINES_LOG = 3000
 _MIN_SINISTRA, _MIN_DESTRA = 330, 410     # larghezze minime dei due pannelli (px)
 
-HELP_TEXT = """Codici: 01-59 inserisce la specie corrispondente.
-NNxQ inserisce Q occorrenze (es. 48x4 = 4 Alternaria).
-.    ripete l'ultimo codice inserito.
+# Contenuto della finestra di aiuto (F1): lista di blocchi
+#   ("titolo", testo) | ("testo", testo) | ("voci", [(chiave, descrizione), ...])
+# Niente a-capo manuali: e' la finestra a impaginare, anche quando si ridimensiona.
+HELP_TEXT = [
+    ("titolo", "Inserire i codici"),
+    ("voci", [
+        ("01-59", "inserisce la specie corrispondente."),
+        ("NNxQ", "inserisce Q occorrenze (es. 48x4 = 4 Alternaria)."),
+        (".", "ripete l'ultimo codice inserito."),
+    ]),
+    ("titolo", "Comandi (lettera + Invio nella casella di inserimento)"),
+    ("voci", [
+        ("r", "riepilogo della giornata corrente (apre la scheda Giornaliero)"),
+        ("w", "riepilogo settimanale (apre la scheda Settimanale)"),
+        ("l", "ultimi inserimenti"),
+        ("c", "correggi un giorno precedente"),
+        ("n", "aggiungi una nota per la giornata"),
+        ("f", "cambia il fattore di conversione (scheda Bollettino: pulsante «Cambia fattore»)"),
+        ("u", "annulla l'ultimo inserimento"),
+        ("b", "attiva/disattiva il beep sonoro"),
+        ("s", "salva il file (senza uscire)"),
+        ("d", "chiudi la giornata corrente"),
+        ("q", "salva ed esci"),
+    ]),
+    ("testo", "Gli stessi comandi sono disponibili anche dai pulsanti sulla sinistra e dai "
+              "menu in alto."),
+    ("titolo", "Scorciatoie"),
+    ("voci", [
+        ("Ctrl+S", "salva"),
+        ("Ctrl+Z", "annulla l'ultimo inserimento"),
+        ("Ctrl+Q", "esce dal programma"),
+        ("Ctrl+1…4", "cambia scheda"),
+        ("F1", "apre questo aiuto"),
+    ]),
+    ("titolo", "Lettura vocale (pulsante «Voce»)"),
+    ("testo", "Ogni frase inizia con «conta»."),
+    ("voci", [
+        ("conta ventiquattro", "inserisce il codice 24"),
+        ("conta graminacee", "inserisce la specie per nome"),
+        ("conta graminacee per tre", "inserisce 3 occorrenze (da 1 a 20)"),
+        ("conta annulla", "annulla l'ultimo inserimento"),
+        ("conta ripeti", "ripete l'ultimo codice"),
+        ("conta totale", "il computer legge il totale del giorno"),
+    ]),
+    ("testo", "Più comandi di seguito: ogni «conta» chiude il precedente e ne inizia uno "
+              "nuovo (es. «conta acero conta ontano conta graminacee per tre» registra tre "
+              "inserimenti). Fra un comando e l'altro basta una pausa breve."),
+    ("testo", "Con «Ripeti a voce» attivo il computer ripete il nome di ciò che ha "
+              "registrato (es. «conta alternaria» → «alternaria»): utile per controllare "
+              "senza staccare gli occhi dal microscopio. «conta totale» risponde sempre."),
+    ("testo", "Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante."),
+]
 
-Comandi (lettera + Invio nella casella di inserimento):
-  r   riepilogo giornata corrente (apre la scheda Giornaliero)
-  w   riepilogo settimanale (apre la scheda Settimanale)
-  l   ultimi inserimenti
-  c   correggi un giorno precedente
-  n   aggiungi una nota per la giornata
-  f   cambia il fattore di conversione (scheda Bollettino: pulsante "Cambia fattore")
-  u   annulla ultimo inserimento
-  b   attiva/disattiva il beep sonoro
-  s   salva il file (senza uscire)
-  d   chiudi la giornata corrente
-  q   salva ed esci
-
-Gli stessi comandi sono disponibili anche dai pulsanti sulla sinistra e dai
-menu in alto. Scorciatoie: Ctrl+S salva, Ctrl+Z annulla, Ctrl+Q esce dal
-programma, Ctrl+1...4 cambia scheda, F1 apre questo aiuto.
-
-Lettura vocale (pulsante "Voce"): ogni frase inizia con "conta".
-  conta ventiquattro        inserisce il codice 24
-  conta graminacee          inserisce la specie per nome
-  conta graminacee per tre  inserisce 3 occorrenze (da 1 a 20)
-  conta annulla             annulla l'ultimo inserimento
-  conta ripeti              ripete l'ultimo codice
-  conta totale              il computer legge il totale del giorno
-Piu' comandi di seguito: ogni "conta" chiude il precedente e ne inizia uno
-nuovo (es. "conta acero conta ontano conta graminacee per tre" registra tre
-inserimenti). Fra un comando e l'altro basta una pausa breve.
-Con "Ripeti a voce" attivo il computer ripete il nome di cio' che ha
-registrato (es. "conta alternaria" -> "alternaria"): utile per controllare
-senza staccare gli occhi dal microscopio. "conta totale" risponde sempre.
-Salvare, chiudere la giornata e uscire restano solo da tastiera/pulsante."""
-
-HELP_AVVIO = """Come si comincia
-
-Settimana nuova: controlla la data (le frecce passano alla settimana
-precedente o successiva) e premi "Inizia nuova settimana".
-
-Continuare un lavoro: scegli la riga nell'elenco e premi "Riprendi
-selezionato" (oppure doppio clic).
-  Non salvato  = il programma si e' chiuso prima del salvataggio: i dati sono
-                 al sicuro e si possono riprendere da dove eri rimasto.
-                 Se non servono piu' (prove, settimane abbandonate) usa
-                 "Scegli o rimuovi..." nel riquadro giallo, o "Rimuovi non
-                 salvato": la rimozione e' definitiva e chiede conferma.
-  File salvato = un file Excel gia' salvato, a cui aggiungere altri dati.
-
-I file stanno nella cartella di lavoro indicata in basso ("Cambia..." per
-sceglierne un'altra, "Apri" per vederla in Esplora file).
-Per chiudere il programma premi "Esci" (o Ctrl+Q)."""
+HELP_AVVIO = [
+    ("titolo", "Settimana nuova"),
+    ("testo", "Controlla la data (le frecce passano alla settimana precedente o successiva) "
+              "e premi «Inizia nuova settimana»."),
+    ("titolo", "Continuare un lavoro"),
+    ("testo", "Scegli la riga nell'elenco e premi «Riprendi selezionato» (oppure doppio clic)."),
+    ("voci", [
+        ("Non salvato", "il programma si è chiuso prima del salvataggio: i dati sono al "
+                        "sicuro e si possono riprendere da dove eri rimasto. Se non servono "
+                        "più (prove, settimane abbandonate) usa «Scegli o rimuovi...» nel "
+                        "riquadro giallo, o «Rimuovi non salvato»: la rimozione è definitiva "
+                        "e chiede conferma."),
+        ("File salvato", "un file Excel già salvato, a cui aggiungere altri dati."),
+    ]),
+    ("titolo", "Cartella di lavoro e uscita"),
+    ("testo", "I file stanno nella cartella indicata in basso («Cambia...» per sceglierne "
+              "un'altra, «Apri» per vederla nel gestore file)."),
+    ("testo", "Per chiudere il programma premi «Esci» (o Ctrl+Q)."),
+]
 
 
 def _sfondo_tema():
@@ -318,6 +337,7 @@ class PollineCounterGUI:
         self.journal = None
         self.percorso_salvato = None
         self.soglie = {}
+        self._aiuto = None           # finestra di aiuto (F1), una sola alla volta
         self.text_log = None         # esistono solo nella schermata di lavoro
         self.lbl_stato = None
         self.lbl_file = None
@@ -528,9 +548,90 @@ class PollineCounterGUI:
 
     def _mostra_aiuto(self):
         if self.settimana is None:
-            messagebox.showinfo("Come si comincia", HELP_AVVIO)
+            self._finestra_aiuto("Come si comincia", HELP_AVVIO)
         else:
-            messagebox.showinfo("Comandi", HELP_TEXT)
+            self._finestra_aiuto("Comandi e scorciatoie", HELP_TEXT)
+
+    def _finestra_aiuto(self, titolo, blocchi):
+        """Aiuto in una finestra propria: ridimensionabile, il testo si reimpagina da solo
+        (a differenza di un messagebox, che ha larghezza fissa e font proporzionale che
+        rompe le colonne). Non modale: si legge mentre si conta, la voce resta attiva.
+        Una sola istanza: un secondo F1 aggiorna e porta in primo piano la stessa."""
+        top = self._aiuto
+        if top is not None:
+            try:
+                if top.winfo_exists():
+                    top.destroy()
+            except tk.TclError:
+                pass
+        top = self._aiuto = tk.Toplevel(self.root)
+        top.title(titolo)
+        top.transient(self.root)
+        top.minsize(420, 300)
+
+        # I pulsanti per primi con side=BOTTOM: se la finestra si stringe, Tk taglia il testo
+        barra = ttk.Frame(top, padding=(12, 8))
+        barra.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Button(barra, text="Chiudi", style="Accent.TButton",
+                   command=top.destroy).pack(side=tk.RIGHT)
+        ttk.Button(barra, text="Guida completa…",
+                   command=self._apri_guida).pack(side=tk.RIGHT, padx=8)
+
+        corpo = ttk.Frame(top)
+        corpo.pack(fill=tk.BOTH, expand=True)
+        scroll = ttk.Scrollbar(corpo, orient=tk.VERTICAL)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        testo = tk.Text(corpo, wrap=tk.WORD, font=(_UI_FONT, 11), padx=16, pady=10,
+                        relief=tk.FLAT, borderwidth=0, highlightthickness=0, cursor="arrow",
+                        background=_COLORI["sfondo_registro"], foreground=_COLORI["testo_registro"],
+                        yscrollcommand=scroll.set, spacing1=2, spacing3=2)
+        scroll.configure(command=testo.yview)
+        testo.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        font = tkfont.Font(family=_UI_FONT, size=11)
+        font_grassetto = tkfont.Font(family=_UI_FONT, size=11, weight="bold")
+        chiavi = [k for tipo, c in blocchi if tipo == "voci" for k, _ in c]
+        # Colonna delle chiavi larga quanto la piu' lunga, ma non oltre un terzo della finestra
+        colonna = 16 + min(max((font_grassetto.measure(k) for k in chiavi), default=0) + 18, 190)
+        testo.tag_configure("titolo", font=(_UI_FONT, 12, "bold"), foreground=_COLORI["accento"],
+                            spacing1=14, spacing3=4)
+        testo.tag_configure("testo", spacing1=6, spacing3=2)
+        # Rientro sospeso: se la descrizione va a capo resta allineata alla colonna
+        testo.tag_configure("voce", lmargin1=16, lmargin2=colonna, tabs=(colonna,))
+        testo.tag_configure("chiave", font=font_grassetto)
+
+        for tipo, contenuto in blocchi:
+            if tipo == "titolo":
+                testo.insert(tk.END, contenuto + "\n", "titolo")
+            elif tipo == "testo":
+                testo.insert(tk.END, contenuto + "\n", "testo")
+            else:
+                for chiave, descrizione in contenuto:
+                    testo.insert(tk.END, chiave, ("voce", "chiave"))
+                    testo.insert(tk.END, "\t" + descrizione + "\n", "voce")
+        testo.configure(state=tk.DISABLED)
+
+        top.bind("<Escape>", lambda e: top.destroy())
+        top.bind("<F1>", lambda e: top.destroy())
+        self._dimensiona_aiuto(top, testo, font, colonna)
+        testo.focus_set()
+
+    def _dimensiona_aiuto(self, top, testo, font, colonna):
+        """Dimensione iniziale proporzionata al contenuto e allo schermo: abbastanza larga
+        per righe comode (~70 caratteri oltre la colonna delle chiavi), alta quanto serve
+        al testo (oltre il 85% dello schermo compare la barra di scorrimento)."""
+        larghezza = min(colonna + 70 * font.measure("n") + 60, int(top.winfo_screenwidth() * 0.9))
+        # Prima la larghezza, poi si misura quante righe visive servono a quella larghezza
+        top.geometry(f"{larghezza}x600")
+        top.update_idletasks()
+        righe = testo.count("1.0", "end", "displaylines")
+        righe = righe[0] if righe else 30
+        altezza = righe * (font.metrics("linespace") + 4) + 120      # + titoli, margini, pulsanti
+        altezza = max(300, min(altezza, int(top.winfo_screenheight() * 0.85)))
+        x, y = self._posizione_centrata(larghezza, altezza)
+        top.geometry(f"{larghezza}x{altezza}+{x}+{y}")
+        top.lift()
+        top.focus_force()
 
     def _apri_guida(self):
         """Apre il file di istruzioni per questo sistema, se si trova."""
@@ -1662,6 +1763,12 @@ class PollineCounterGUI:
     # ================================================================
     # Dialoghi: correggi / nota
     # ================================================================
+    def _posizione_centrata(self, larghezza, altezza):
+        """Angolo in alto a sinistra per centrare una finestra sulla principale."""
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - larghezza) // 2)
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - altezza) // 3)
+        return x, y
+
     def _prepara_dialogo(self, top, larghezza=None, altezza=None):
         """Dialogo centrato sulla finestra principale e modale: finche' e' aperto
         la voce e le scorciatoie non toccano i dati (vedi _gestisci_frase_vocale)."""
@@ -1669,8 +1776,7 @@ class PollineCounterGUI:
         top.update_idletasks()
         larghezza = larghezza or top.winfo_reqwidth()
         altezza = altezza or top.winfo_reqheight()
-        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - larghezza) // 2)
-        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - altezza) // 3)
+        x, y = self._posizione_centrata(larghezza, altezza)
         top.geometry(f"{larghezza}x{altezza}+{x}+{y}")
         try:
             top.wait_visibility()       # senza, su Linux il grab fallisce
@@ -1801,7 +1907,7 @@ class PollineCounterGUI:
                 return None
             percorso = Path(scelta)
         try:
-            esportatori.esporta_xlsx(self.settimana, percorso)
+            esportatori.esporta_xlsx(self.settimana, percorso, soglie=self.soglie or None)
         except OSError as e:
             # Tipico su Windows: il file e' aperto in Excel e non si puo' riscrivere.
             self._log(f"ERRORE: non riesco a salvare {percorso}: {e}")

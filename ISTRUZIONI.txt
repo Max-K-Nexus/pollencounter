@@ -129,6 +129,8 @@ stesse azioni dei pulsanti, piu' "Esci dal programma". Scorciatoie:
   Ctrl+S  salva            Ctrl+Z  annulla l'ultimo inserimento
   Ctrl+Q  esce dal programma
   Ctrl+1 ... Ctrl+4  cambia scheda a destra         F1  aiuto
+F1 apre una finestra con i comandi, che si puo' ridimensionare (il testo si
+riadatta) e lasciare aperta mentre si conta; Esc o F1 la chiudono.
 Il pulsante "Chiudi settimana (q)" salva e torna alla schermata
 iniziale; per uscire dal programma si usa "Esci" (schermata iniziale),
 il menu File o Ctrl+Q. Beep, Voce e "Ripeti a voce" sono interruttori
@@ -416,6 +418,11 @@ Foglio "riepilogo_settimana":
   - Riga 53: totali pollini
   - Righe 58-69: dati spore
   - Riga 70: totali spore
+  - Righe 73-110: bollettino (due copie affiancate, E-L e Q-X): ogni
+    cella e' colorata secondo la concentrazione (verde assente, giallo
+    bassa, arancio media, rosso alta) con le soglie del file
+    concentrazioni_polliniche.xlsx, come nell'anteprima del programma e
+    nel bollettino Word. Si vedono sia in Excel sia in LibreOffice.
   - Colonna Z: MEDIA settimanale (formula AVERAGE automatica)
   - Le formule di concentrazione (=grezzo * 0.4) si aggiornano
     automaticamente.

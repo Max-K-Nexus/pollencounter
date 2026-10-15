@@ -369,6 +369,12 @@ def livello(valore, soglia_tuple):
     return "alta"
 
 
+def soglia_famiglia(soglie, famiglia):
+    """(max_assente, max_bassa, max_media) di una famiglia: dal file soglie, poi dal
+    ripiego, poi un default. Unico punto di scelta (GUI, Word ed Excel)."""
+    return soglie.get(famiglia, SOGLIE_FALLBACK.get(famiglia, (0.9, 19.9, 39.9)))
+
+
 LIVELLO_COLORE_WORD = {
     "assente": "92D050",
     "bassa": "FFFF00",
@@ -414,7 +420,7 @@ def righe_bollettino(conteggi, fattore, soglie):
             continue
         conc = [concentrazione(v, fattore) or 0.0 for v in totali_giorno]
         media = round(sum(conc) / 7, 1)
-        soglia_tuple = soglie.get(famiglia, SOGLIE_FALLBACK.get(famiglia, (0.9, 19.9, 39.9)))
+        soglia_tuple = soglia_famiglia(soglie, famiglia)
         righe.append(RigaBollettino(
             nome_ita=nome_ita, nome_eng=nome_eng,
             concentrazioni=conc,
