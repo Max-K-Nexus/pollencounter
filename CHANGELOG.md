@@ -6,6 +6,34 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ## 2026-10-15
 
+### Inserimenti sempre piu' lenti al crescere delle specie contate
+
+**Problema:** a ogni inserimento l'aggiornamento della GUI era un po' piu'
+lento, dando un senso di "attivita' a singhiozzo" (molto piu' marcato su
+Windows che su Linux).
+
+**Causa:** `_refresh_tabs` ridisegnava tutto a ogni inserimento, anche le
+schede non visibili: la griglia del Bollettino distruggeva e ricreava 9
+`tk.Label` per ogni specie presente (con 59 specie, 324 widget: ~52 ms su ~65
+ms totali su Linux/X11; su Windows ogni widget e' una finestra nativa e costa
+di piu') e le due tabelle venivano svuotate e riempite da capo. Il costo
+cresceva con le specie trovate. Il registro (anche a 3000 righe) e il journal
+non c'entrano. Il difetto c'era gia' prima del restyling di oggi.
+
+**Correzione** (`polline_counter_gui.py`):
+- Bollettino: intestazione e celle create una volta sola alla prima comparsa
+  della specie (riga di griglia = posizione in `BOLLETTINO_RIGHE`), poi
+  `config()` solo sulle celle il cui testo/colore cambia; le specie tornate a
+  zero si nascondono con `grid_remove()`. I livelli e i colori vengono sempre da
+  `dominio.righe_bollettino` (unica fonte, invariata).
+- Si ridisegna solo la scheda visibile; le altre risultano "sporche"
+  (`_tab_sporche`) e si aggiornano all'apertura (`<<NotebookTabChanged>>`).
+- Tabelle Settimanale/Giornaliero: righe con `iid` stabile (`_aggiorna_tabella`),
+  aggiornate sul posto; ricostruzione completa solo quando una specie compare
+  o sparisce (come effetto, lo scorrimento non salta piu').
+- Misure (Xvfb, 59 specie): per inserimento ~70 ms -> ~16 ms sulla scheda
+  Settimanale, ~75 ms -> ~5 ms sul Bollettino, ora quasi costante.
+
 ### Fattore di conversione modificabile dall'utente
 
 **Problema:** la tab Bollettino mostrava "Fattore: 0.4" ma il valore non era

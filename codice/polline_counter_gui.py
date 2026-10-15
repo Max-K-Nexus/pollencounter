@@ -322,8 +322,10 @@ class PollineCounterGUI:
         self._modificato_val = False
         self._undo_consecutivi = 0
         self._refresh_in_attesa = False
+        self._tab_sporche = set()    # indici delle tab live da ridisegnare quando diventano visibili
+        self._tree_cache = {}        # {Treeview: {iid: valori}} per aggiornare le righe sul posto
         self._giorno_bottoni = {}
-        self._voce = None          # (Ascoltatore, Sintesi) quando la voce e' attiva
+        self._voce = None         # (Ascoltatore, Sintesi) quando la voce e' attiva
         self._voce_after = None
         self._talkback = False       # la voce ripete cio' che ha registrato
         self._voce_vocabolario = {}
@@ -881,6 +883,8 @@ class PollineCounterGUI:
             self._log("Seleziona un giorno per iniziare l'inserimento.")
             self._imposta_entry_abilitata(False)
 
+        self._tab_sporche = set(self._TAB_LIVE)
+        self._tree_cache = {}
         self._refresh_tabs()
 
     def _build_lavoro(self):
@@ -1012,6 +1016,8 @@ class PollineCounterGUI:
         self._build_tab_giornaliero()
         self._build_tab_bollettino()
         self._build_tab_codici()
+        # Solo la tab visibile si ridisegna a ogni modifica: le altre, quando le si apre.
+        self.notebook.bind("<<NotebookTabChanged>>", lambda _e: self._aggiorna_tab_visibile())
 
     def _applica_divisione(self, _e=None):
         if self._divisione_in_corso:
@@ -1138,6 +1144,15 @@ class PollineCounterGUI:
         griglia.grid_columnconfigure(0, weight=3)
         for c in range(1, 9):
             griglia.grid_columnconfigure(c, weight=1, uniform="giorni")
+        # Le celle si creano una volta sola, alla prima comparsa di una specie, e poi si
+        # aggiornano sul posto: ricrearle a ogni inserimento costava ~9 widget per specie.
+        for c, testo in enumerate(["Specie", *dominio.GIORNI_ABBREV, "Media"]):
+            tk.Label(griglia, text=testo, font=(_UI_FONT, 9, "bold"),
+                     relief=tk.RIDGE, bg="#e0e0e0").grid(row=0, column=c, sticky="nsew")
+        self._boll_posizione = {riga[0]: i for i, riga in enumerate(dominio.BOLLETTINO_RIGHE)}
+        self._boll_celle = {}       # {posizione: [9 Label]}
+        self._boll_valori = {}      # {posizione: [(testo, bg, fg) delle 8 celle di dati]}
+        self._boll_visibili = set()
 
     def _build_tab_codici(self):
         tab = ttk.Frame(self.notebook)
@@ -1805,6 +1820,7 @@ class PollineCounterGUI:
             self._aggiorna_etichetta_giorno(settimana.giorno_attivo)
         # Una frase vocale con piu' comandi notifica piu' volte di seguito: le
         # tab si ridisegnano una volta sola, appena Tk e' libero.
+        self._tab_sporche.update(self._TAB_LIVE)
         if not self._refresh_in_attesa:
             self._refresh_in_attesa = True
             self.root.after_idle(self._refresh_tabs)
@@ -1827,39 +1843,92 @@ class PollineCounterGUI:
     def _celle_giorni(vals):
         return ["-" if v == 0 else str(v) for v in vals]
 
+    # Indici delle tab live nel notebook (la tab Codici e' statica).
+    _TAB_SETTIMANALE, _TAB_GIORNALIERO, _TAB_BOLLETTINO = 0, 1, 2
+    _TAB_LIVE = (_TAB_SETTIMANALE, _TAB_GIORNALIERO, _TAB_BOLLETTINO)
+
     def _refresh_tabs(self):
         self._refresh_in_attesa = False
-        s = self.settimana
-        if s is None:
-            return
+        self._aggiorna_tab_visibile()
 
-        # Tab Settimanale e Giornaliero: un solo giro sui codici
-        self.tree_sett.delete(*self.tree_sett.get_children())
-        self.tree_giorn.delete(*self.tree_giorn.get_children())
-        gp, gs = [0] * 7, [0] * 7
-        famiglie = dominio.totali_famiglia(s.conteggi)
+    def _aggiorna_tab_visibile(self):
+        """Ridisegna la tab aperta se i dati sono cambiati; le altre restano
+        'sporche' e si aggiornano quando l'utente le apre."""
+        if self.settimana is None:
+            return
+        try:
+            corrente = self.notebook.index("current")
+        except tk.TclError:             # schermata in chiusura
+            return
+        if corrente not in self._tab_sporche:
+            return
+        self._tab_sporche.discard(corrente)
+        if corrente == self._TAB_SETTIMANALE:
+            self._refresh_settimanale()
+        elif corrente == self._TAB_GIORNALIERO:
+            self._refresh_giornaliero()
+        elif corrente == self._TAB_BOLLETTINO:
+            self._refresh_bollettino()
+
+    def _righe_specie(self, giornaliero):
+        """[(iid, valori, tags)] per la tab Settimanale (totale) o Giornaliero
+        (sette giorni): le specie con dati, con la riga di totale per famiglia."""
+        conteggi = self.settimana.conteggi
+        famiglie = dominio.totali_famiglia(conteggi)
+        righe = []
         for codice in dominio.TUTTI_CODICI:
-            vals = s.conteggi[codice]
+            vals = conteggi[codice]
             specie = dominio.CODICI_SPECIE[codice]
-            if self._mostra_totale_famiglia(codice, s.conteggi):
+            if self._mostra_totale_famiglia(codice, conteggi):
                 nome = self._nome_famiglia(codice)
                 somma = famiglie[codice]
-                self.tree_sett.insert("", tk.END, tags=("famiglia",),
-                                      values=("\u03a3", f"{nome} (totale)", sum(somma)))
-                self.tree_giorn.insert("", tk.END, tags=("famiglia",),
-                                       values=("\u03a3", f"{nome} (totale)", *self._celle_giorni(somma)))
+                celle = self._celle_giorni(somma) if giornaliero else (sum(somma),)
+                righe.append(("Σ" + codice, ("Σ", f"{nome} (totale)", *celle), ("famiglia",)))
                 specie = f"{nome} (dubbi)"
-            val = sum(vals)
-            if val == 0:
+            if sum(vals) == 0:
                 continue
-            self.tree_sett.insert("", tk.END, values=(codice, specie, val))
-            self.tree_giorn.insert("", tk.END, values=(codice, specie, *self._celle_giorni(vals)))
-            somme = gp if codice in dominio.POLLINI_CODICI else gs
+            celle = self._celle_giorni(vals) if giornaliero else (sum(vals),)
+            righe.append((codice, (codice, specie, *celle), ()))
+        return righe
+
+    def _aggiorna_tabella(self, tree, righe):
+        """Allinea il Treeview a ``righe`` [(iid, valori, tags)]. Se l'elenco delle
+        righe e' lo stesso (il caso normale: un granulo in piu' di una specie gia'
+        presente) cambia solo il testo delle righe modificate; ricostruisce da
+        capo solo quando una specie compare o sparisce."""
+        cache = self._tree_cache.setdefault(tree, {})
+        if list(tree.get_children()) != [iid for iid, _v, _t in righe]:
+            tree.delete(*tree.get_children())
+            cache.clear()
+            for iid, valori, tags in righe:
+                tree.insert("", tk.END, iid=iid, values=valori, tags=tags)
+                cache[iid] = valori
+            return
+        for iid, valori, _tags in righe:
+            if cache.get(iid) != valori:
+                tree.item(iid, values=valori)
+                cache[iid] = valori
+
+    def _somme_pollini_spore(self):
+        """([7 totali giornalieri dei pollini], [7 delle spore])."""
+        pollini = set(dominio.POLLINI_CODICI)
+        gp, gs = [0] * 7, [0] * 7
+        for codice, vals in self.settimana.conteggi.items():
+            somme = gp if codice in pollini else gs
             for i, v in enumerate(vals):
                 somme[i] += v
+        return gp, gs
+
+    def _refresh_settimanale(self):
+        self._aggiorna_tabella(self.tree_sett, self._righe_specie(giornaliero=False))
+        gp, gs = self._somme_pollini_spore()
         self.lbl_s_pollini.config(text=f"Pollini: {sum(gp)}")
         self.lbl_s_spore.config(text=f"Spore: {sum(gs)}")
         self.lbl_s_totale.config(text=f"TOTALE: {sum(gp) + sum(gs)}")
+
+    def _refresh_giornaliero(self):
+        self._aggiorna_tabella(self.tree_giorn, self._righe_specie(giornaliero=True))
+        gp, gs = self._somme_pollini_spore()
 
         def _fmt(vals):
             return "  ".join(f"{g}:{v}" for g, v in zip(dominio.GIORNI_ABBREV, vals) if v > 0)
@@ -1869,34 +1938,45 @@ class PollineCounterGUI:
         self.lbl_g_spore.config(text=f"Spore:   {_fmt(gs) or '-'}")
         self.lbl_g_totale.config(text=f"TOTALE:  {_fmt(gt) or '-'}")
 
-        # Tab Bollettino
-        self._refresh_bollettino()
-
     def _refresh_bollettino(self):
         righe = dominio.righe_bollettino(self.settimana.conteggi, self.settimana.fattore, self.soglie)
-        for child in self._boll_scroll.inner.winfo_children():
-            child.destroy()
-
         griglia = self._boll_scroll.inner
-        header = ["Specie", *dominio.GIORNI_ABBREV, "Media"]
-        for c, testo in enumerate(header):
-            tk.Label(griglia, text=testo, font=(_UI_FONT, 9, "bold"),
-                    relief=tk.RIDGE, bg="#e0e0e0").grid(row=0, column=c, sticky="nsew")
+        presenti = set()
+        for riga in righe:
+            pos = self._boll_posizione[riga.nome_ita]
+            presenti.add(pos)
+            celle = self._boll_celle.get(pos)
+            if celle is None:       # prima comparsa della specie: le 9 celle si creano ora
+                celle = [tk.Label(griglia, text=riga.nome_ita, font=(_UI_FONT, 9),
+                                  anchor="w", padx=3, relief=tk.RIDGE)]
+                celle += [tk.Label(griglia, font=(_UI_FONT, 9, "bold" if c == 8 else "normal"),
+                                   relief=tk.RIDGE) for c in range(1, 9)]
+                self._boll_celle[pos] = celle
+                self._boll_valori[pos] = [None] * 8
+            # riga di griglia fissa = posizione in BOLLETTINO_RIGHE: l'ordine e' sempre quello del Word
+            if pos not in self._boll_visibili:
+                for c, w in enumerate(celle):
+                    w.grid(row=pos + 1, column=c, sticky="nsew")
+                self._boll_visibili.add(pos)
 
-        for r, riga in enumerate(righe, start=1):
-            tk.Label(griglia, text=riga.nome_ita, font=(_UI_FONT, 9),
-                    anchor="w", padx=3, relief=tk.RIDGE).grid(row=r, column=0, sticky="nsew")
-            for c, (val, livello) in enumerate(zip(riga.concentrazioni, riga.livelli_giorno), start=1):
+            nuovi = []
+            for val, livello in zip(riga.concentrazioni, riga.livelli_giorno):
                 bg, fg = dominio.LIVELLO_COLORE_GUI[livello]
-                testo = f"{val:g}" if val else "-"
-                tk.Label(griglia, text=testo, font=(_UI_FONT, 9),
-                        bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=c, sticky="nsew")
+                nuovi.append((f"{val:g}" if val else "-", bg, fg))
             bg, fg = dominio.LIVELLO_COLORE_GUI[riga.livello_media]
-            tk.Label(griglia, text=f"{riga.media:g}", font=(_UI_FONT, 9, "bold"),
-                    bg=bg, fg=fg, relief=tk.RIDGE).grid(row=r, column=8, sticky="nsew")
+            nuovi.append((f"{riga.media:g}", bg, fg))
+            for w, vecchio, nuovo in zip(celle[1:], self._boll_valori[pos], nuovi):
+                if vecchio != nuovo:        # il testo/colore cambia solo nelle celle toccate
+                    w.config(text=nuovo[0], bg=nuovo[1], fg=nuovo[2])
+            self._boll_valori[pos] = nuovi
 
-        n_sp = len(righe)
-        self.lbl_boll_info.config(text=f"Fattore: {self.settimana.fattore:g}   Specie rilevate: {n_sp}")
+        for pos in self._boll_visibili - presenti:      # specie tornata a zero (annullo, correzione)
+            for w in self._boll_celle[pos]:
+                w.grid_remove()
+        self._boll_visibili &= presenti
+
+        self.lbl_boll_info.config(
+            text=f"Fattore: {self.settimana.fattore:g}   Specie rilevate: {len(righe)}")
 
     # ================================================================
     # Chiusura applicazione
