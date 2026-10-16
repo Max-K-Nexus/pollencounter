@@ -264,6 +264,13 @@ def lunedi_di(dt):
     return dt - timedelta(days=dt.weekday())
 
 
+def numero_settimana(dt):
+    """Numero di settimana ISO (1-53). Unica fonte: lo usano il nome dei fogli
+    'Wnn' del riepilogo annuale e il nome della cartella della settimana
+    nell'archivio, che devono coincidere."""
+    return dt.isocalendar()[1]
+
+
 _GIORNI_ACCENTATI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
 
 

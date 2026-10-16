@@ -67,7 +67,8 @@ stesso dall'elenco in basso e non tocca mai i file .xlsx salvati.
 Poi "Nuova settimana" (le
 frecce passano alla settimana precedente o successiva; sotto la data
 compare il periodo, es. "da lunedi 12/10 a domenica 18/10/2026") e
-l'elenco "Riprendi un lavoro" con la data dell'ultima modifica. In
+l'elenco "Riprendi un lavoro", una riga per settimana (stato,
+periodo, data dell'ultima modifica, righe di log e bollettini). In
 basso: cartella di lavoro ("Cambia..." per sceglierne un'altra, "Apri"
 per vederla nel gestore file), elenco codici stampabile, guida (F1) e
 "Esci" per chiudere il programma.

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
+import archivio
 import dominio
 import sessione
 
@@ -208,6 +209,25 @@ class TestJournal(unittest.TestCase):
             self.assertEqual(info["lunedi"], "2026-02-09")
             self.assertEqual(info["n_operazioni"], 2)
 
+    def test_recupera_sessioni_cerca_anche_in_in_corso(self):
+        """I journal nuovi stanno in 'in_corso/', quelli delle versioni
+        precedenti nella radice: vanno trovati entrambi."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            altro_lunedi = LUNEDI + timedelta(days=7)
+            j = sessione.Journal(archivio.percorso_journal(tmp, LUNEDI))
+            archivio.prepara_in_corso(tmp)
+            j.avvia(sessione.Settimana(LUNEDI))
+            j.chiudi()
+            j2 = sessione.Journal(tmp / sessione.nome_journal(altro_lunedi))
+            j2.avvia(sessione.Settimana(altro_lunedi))
+            j2.chiudi()
+
+            risultati = sessione.recupera_sessioni(tmp)
+            self.assertEqual(len(risultati), 2)
+            posizioni = {p.parent.name for p, _ in risultati}
+            self.assertEqual(posizioni, {archivio.NOME_IN_CORSO, tmp.name})
+
     def test_rimuovi_sessioni(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -227,6 +247,53 @@ class TestJournal(unittest.TestCase):
             self.assertEqual(rimaste[0][0].name, sessione.nome_journal(altro_lunedi))
 
             self.assertEqual(sessione.rimuovi_sessioni([]), [])
+
+
+class TestRadiceArchivio(unittest.TestCase):
+    def test_assente(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "pollencounter.cfg"
+            self.assertIsNone(sessione.leggi_radice_archivio(cfg))
+
+    def test_salvata_e_riletta(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "pollencounter.cfg"
+            sessione.salva_radice_archivio(cfg, tmp)
+            self.assertEqual(sessione.leggi_radice_archivio(cfg), Path(tmp))
+
+    def test_ripiega_sulla_vecchia_chiave_per_anno(self):
+        """Un pollencounter.cfg scritto prima dell'archivio continua a
+        funzionare: si prende la cartella dell'anno piu' recente."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "pollencounter.cfg"
+            vecchia = Path(tmp) / "2025"
+            recente = Path(tmp) / "2026"
+            vecchia.mkdir()
+            recente.mkdir()
+            sessione.salva_cartella_anno(cfg, 2025, vecchia)
+            sessione.salva_cartella_anno(cfg, 2026, recente)
+            self.assertEqual(sessione.leggi_radice_archivio(cfg), recente)
+
+    def test_cartella_non_piu_esistente(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "pollencounter.cfg"
+            sessione.salva_radice_archivio(cfg, Path(tmp) / "spostata")
+            self.assertIsNone(sessione.leggi_radice_archivio(cfg))
+
+    def test_non_tocca_le_altre_chiavi(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "pollencounter.cfg"
+            sessione.salva_layout_finestra(cfg, 900, 700, 0.4)
+            sessione.salva_radice_archivio(cfg, tmp)
+            sessione.salva_riordino_rifiutato(cfg, True)
+            self.assertEqual(sessione.leggi_layout_finestra(cfg)["larghezza"], 900)
+            self.assertEqual(sessione.leggi_radice_archivio(cfg), Path(tmp))
+            self.assertTrue(sessione.leggi_riordino_rifiutato(cfg))
+
+    def test_riordino_rifiutato_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "pollencounter.cfg"
+            self.assertFalse(sessione.leggi_riordino_rifiutato(cfg))
 
 
 class TestConfig(unittest.TestCase):

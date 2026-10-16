@@ -36,9 +36,10 @@ FLUSSO DI LAVORO
    programma si e' chiuso all'improvviso senza salvare) e i file
    .xlsx gia' salvati in precedenza nella cartella di lavoro:
 
-     Sessioni recuperabili:
-       1) [interrotta] settimana del 2026-02-09  (23 operazioni non salvate)
-       2) Conta_Pollinica_02-02-2026.xlsx  (80 righe log)
+     Lavori riprendibili:
+       1) [interrotta] settimana dal 09-02-2026  (23 operazioni non salvate)
+       2) settimana dal 02-02-2026  (80 righe log)
+            Conta_Pollinica_02-02-2026.xlsx
        n) Nuovo file (dal template)
        i) Importa da altra cartella
      Scelta:
@@ -116,7 +117,8 @@ stesso dall'elenco in basso e non tocca mai i file .xlsx salvati.
 Poi "Nuova settimana" (le
 frecce passano alla settimana precedente o successiva; sotto la data
 compare il periodo, es. "da lunedi 12/10 a domenica 18/10/2026") e
-l'elenco "Riprendi un lavoro" con la data dell'ultima modifica. In
+l'elenco "Riprendi un lavoro", una riga per settimana (stato, periodo,
+data dell'ultima modifica, righe di log e bollettini presenti). In
 basso: cartella di lavoro ("Cambia..." per sceglierne un'altra, "Apri"
 per vederla nel gestore file), elenco codici stampabile, guida (F1) e
 "Esci" per chiudere il programma.
@@ -339,9 +341,41 @@ CODICI SPECIE
 SALVATAGGIO E FILE
 ------------------
 
+COME SONO ORGANIZZATI I FILE
+
+  Si sceglie una volta sola una cartella di lavoro. Dentro, il
+  programma tiene una cartella per ogni anno e, dentro quella, una
+  cartella per ogni settimana con tutti i file di quella settimana:
+
+    CartellaDiLavoro/
+      Cheatsheet_Codici_Specie.docx     elenco codici stampabile
+      2026/
+        Riepilogo_Annuale_2026.xlsx     uno per anno
+        S42_2026-10-12/                 settimana 42, lunedi 12-10-2026
+          Conta_Pollinica_12-10-2026.xlsx
+          Bollettino_ITA_12-10-2026.docx
+          Bollettino_ENG_12-10-2026.docx
+        S43_2026-10-19/
+          ...
+      in_corso/
+        ~sessione_19-10-2026.jsonl      lavori non ancora salvati
+
+  "S42" e' il numero della settimana, lo stesso dei fogli W42 del
+  riepilogo annuale. I nomi dei file non sono cambiati: restano
+  riconoscibili anche fuori dalla loro cartella (allegati a una mail,
+  stampati, caricati su un portale).
+
+  Se la cartella contiene file salvati con le versioni precedenti
+  (tutti insieme in una cartella sola) il programma li apre comunque e,
+  nella schermata iniziale, propone di metterli in ordine: mostra prima
+  l'elenco di cosa andrebbe dove e non sposta niente finche' non si
+  conferma. Nessun file viene mai cancellato o sovrascritto; quelli il
+  cui nome non dice a che settimana appartengono finiscono in una
+  cartella "da_controllare" (restano nell'elenco e si possono aprire).
+
 - FILE DI SESSIONE (journal): ogni inserimento, annullo, correzione
   o nota viene scritto subito su un file "~sessione_{settimana}.jsonl"
-  nella cartella di lavoro, senza aspettare il salvataggio. E' cosi'
+  nella cartella "in_corso", senza aspettare il salvataggio. E' cosi'
   che una chiusura improvvisa (Ctrl+C, crash, chiusura della finestra,
   mancanza di corrente) non fa perdere nulla: alla prossima esecuzione
   la sessione compare tra quelle recuperabili (vedi RIPRESA O NUOVO
@@ -349,8 +383,12 @@ SALVATAGGIO E FILE
 
 - SALVATAGGIO DEFINITIVO (comando "q", oppure "s" per salvare senza
   uscire): scrive il file .xlsx vero e proprio, a partire dal
-  template. Il default e' "Conta_Pollinica_{data}.xlsx" per file
-  nuovi, oppure il nome originale per file ripresi da un .xlsx.
+  template. Non viene chiesto dove: il file si chiama sempre
+  "Conta_Pollinica_{data del lunedi}.xlsx" e sta sempre nella cartella
+  della sua settimana. Nella GUI, per averne una copia altrove (da
+  mandare per posta, da portare su una chiavetta) c'e' la voce di menu
+  File > "Salva una copia altrove..."; nella CLI si puo' indicare un
+  altro percorso invece di premere Invio.
 
 - Dopo un salvataggio definitivo andato a buon fine, il file di
   sessione "~sessione_*.jsonl" viene eliminato automaticamente (il
@@ -386,8 +424,11 @@ diverso da quello della settimana, il programma lo segnala e mantiene
 quello del riepilogo. I file creati con versioni precedenti vengono
 convertiti alle formule al primo aggiornamento.
 
-Scegliendo "2" o "3" vengono creati due file nella stessa cartella
-del .xlsx:
+Il riepilogo annuale sta nella cartella dell'anno (es. 2026/), uno
+solo per anno: non si sdoppia piu' se si salva il settimanale altrove.
+
+Scegliendo "2" o "3" vengono creati due file nella cartella della
+settimana, accanto ai dati:
   - Bollettino_ITA_{settimana}.docx
   - Bollettino_ENG_{settimana}.docx
 

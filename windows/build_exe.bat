@@ -47,6 +47,7 @@ pyinstaller --onefile --windowed ^
   --add-data "..\codice\concentrazioni_polliniche.xlsx;." ^
   --add-data "..\codice\ITA_Template_Bollettino_pubblicazione.docx;." ^
   --add-data "..\codice\ENG_Template_Bollettino_pubblicazione.docx;." ^
+  --hidden-import archivio ^
   --hidden-import dominio ^
   --hidden-import sessione ^
   --hidden-import esportatori ^

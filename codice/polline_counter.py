@@ -18,13 +18,14 @@ except ImportError:
     print("  pip3 install openpyxl")
     sys.exit(1)
 
+import archivio
 import dominio
 import esportatori
 import percorsi
 import sessione
 import voce
 
-OUTPUT_DIR = percorsi.EXE_DIR
+RADICE = percorsi.EXE_DIR
 
 
 # ============================================================
@@ -74,34 +75,34 @@ def _beep():
 # Configurazione cartella di lavoro
 # ============================================================
 def carica_o_crea_config():
-    global OUTPUT_DIR
-    anno = datetime.now().year
+    global RADICE
 
-    cartella = sessione.leggi_cartella_anno(percorsi.CONFIG_FILE, anno)
+    cartella = sessione.leggi_radice_archivio(percorsi.CONFIG_FILE)
     if cartella:
-        print(f"  Cartella di lavoro {anno}: {cartella}")
-        OUTPUT_DIR = cartella
+        print(f"  Cartella di lavoro: {cartella}")
+        RADICE = cartella
         return
 
-    print(f"\nConfigurazione cartella di lavoro per l'anno {anno}.")
-    print(f"  Tutti i file di questa stagione (settimanali e riepilogo annuale)")
-    print(f"  verranno salvati in questa cartella.")
-    print(f"  Invio = cartella corrente ({OUTPUT_DIR})")
+    print("\nConfigurazione della cartella di lavoro.")
+    print("  Il programma crea al suo interno una cartella per ogni anno e,")
+    print("  dentro quella, una per ogni settimana (es. 2026/S42_2026-10-12)")
+    print("  con i dati e i bollettini di quella settimana.")
+    print(f"  Invio = cartella corrente ({RADICE})")
     risposta = input("  Inserisci il percorso (o premi Invio per usare la cartella corrente): ").strip()
 
     if not risposta:
-        cartella = OUTPUT_DIR
+        cartella = RADICE
     else:
         cartella = Path(risposta)
         try:
             cartella.mkdir(parents=True, exist_ok=True)
         except Exception:
             print("  Percorso non valido, uso la cartella corrente.")
-            cartella = OUTPUT_DIR
+            cartella = RADICE
 
-    sessione.salva_cartella_anno(percorsi.CONFIG_FILE, anno, cartella)
+    sessione.salva_radice_archivio(percorsi.CONFIG_FILE, cartella)
     print(f"  [OK] Configurazione salvata in: {percorsi.CONFIG_FILE.name}")
-    OUTPUT_DIR = cartella
+    RADICE = cartella
 
 
 # ============================================================
@@ -163,24 +164,36 @@ def chiedi_giorno(lunedi):
         print("Scelta non valida, riprova.")
 
 
-def chiedi_ripresa_o_nuovo(cartella):
-    """Mostra il menu di ripresa (sessioni journal + file .xlsx).
+def chiedi_ripresa_o_nuovo(radice):
+    """Mostra il menu di ripresa: una riga per settimana, il lavoro interrotto e
+    il file .xlsx della stessa settimana nella stessa voce (come nella GUI).
     Ritorna ('journal', path) / ('xlsx', path) / ('nuovo', None)."""
-    sessioni = sessione.recupera_sessioni(cartella)
-    file_esistenti = sessione.cerca_file_ripresa(cartella, esportatori.TEMPLATE_FILE.name)
+    info_journal = dict(sessione.recupera_sessioni(radice))
+    fuori_schema = [f for f in sessione.cerca_file_ripresa(
+        radice, esportatori.TEMPLATE_FILE.name) if f.parent == radice]
+    voci = archivio.elenca(radice, legacy_xlsx=fuori_schema)
 
-    if not sessioni and not file_esistenti:
+    if not voci:
         return "nuovo", None
 
-    print("\nSessioni recuperabili:")
+    print("\nLavori riprendibili:")
     opzioni = []
-    for path, info in sessioni:
-        print(f"  {len(opzioni) + 1}) [interrotta] settimana del {info['lunedi']}  "
-              f"({info['n_operazioni']} operazioni non salvate)")
-        opzioni.append(("journal", path))
-    for f in file_esistenti:
-        print(f"  {len(opzioni) + 1}) {f.name}  {sessione.conta_righe_log(f)}")
-        opzioni.append(("xlsx", f))
+    for voce in voci:
+        etichetta = (f"settimana dal {voce.lunedi.strftime('%d-%m-%Y')}"
+                     if voce.lunedi else voce.xlsx.name)
+        if voce.journal:
+            info = info_journal.get(voce.journal)
+            operazioni = f"{info['n_operazioni']} operazioni non salvate" if info \
+                else "file di sessione danneggiato"
+            print(f"  {len(opzioni) + 1}) [interrotta] {etichetta}  ({operazioni})")
+            opzioni.append(("journal", voce.journal))
+        else:
+            dettagli = sessione.conta_righe_log(voce.xlsx)
+            fuori = "  [da riordinare]" if voce.fuori_struttura else ""
+            print(f"  {len(opzioni) + 1}) {etichetta}  {dettagli}{fuori}")
+            if voce.xlsx.name != etichetta:
+                print(f"       {voce.xlsx.name}")
+            opzioni.append(("xlsx", voce.xlsx))
     print(f"  n) Nuovo file (dal template)")
     print(f"  i) Importa da altra cartella")
 
@@ -342,16 +355,23 @@ def aggiungi_nota(settimana, giorno_num, journal):
 # ============================================================
 # Salvataggio
 # ============================================================
-def chiedi_percorso_salvataggio(nome_default):
-    print(f"\n  File: {nome_default}")
-    risposta = input("  Percorso (invio = nome predefinito nella cartella corrente): ").strip()
+def chiedi_percorso_salvataggio(settimana):
+    """Percorso del .xlsx: per difetto quello dell'archivio (sempre lo stesso
+    per quella settimana). Si puo' comunque indicarne un altro."""
+    canonico = archivio.percorso_settimanale(RADICE, settimana.lunedi)
+    try:
+        mostrato = canonico.relative_to(RADICE)
+    except ValueError:
+        mostrato = canonico
+    print(f"\n  File: {mostrato}")
+    risposta = input("  Invio per salvare qui, oppure indica un altro percorso: ").strip()
     if not risposta:
-        return OUTPUT_DIR / nome_default
+        return canonico
     p = Path(risposta)
     if p.suffix.lower() != ".xlsx":
         p = p.with_suffix(".xlsx")
     if not p.is_absolute():
-        p = OUTPUT_DIR / p
+        p = RADICE / p
     return p
 
 
@@ -368,8 +388,11 @@ def menu_uscita_salvataggio(settimana, journal, percorso_salvato):
                 if risp_rapido == "s":
                     percorso = percorso_salvato
             if percorso is None:
-                percorso = chiedi_percorso_salvataggio(settimana.nome_file_default())
-                if percorso.exists():
+                percorso = chiedi_percorso_salvataggio(settimana)
+                canonico = archivio.percorso_settimanale(RADICE, settimana.lunedi)
+                # Riscrivere il file della settimana nell'archivio e' il
+                # comportamento normale: si chiede solo per gli altri percorsi.
+                if percorso.exists() and percorso != canonico:
                     risp2 = input(f"  '{percorso.name}' esiste gia'. Sovrascrivere? (s/n): ").strip().lower()
                     if risp2 != "s":
                         continue
@@ -462,8 +485,7 @@ def sessione_giorno(settimana, journal, giorno_num, stato):
             elif lettera == "f":
                 cambia_fattore(settimana, journal)
             elif lettera == "s":
-                percorso = stato.get("percorso_salvato") or chiedi_percorso_salvataggio(
-                    settimana.nome_file_default())
+                percorso = stato.get("percorso_salvato") or chiedi_percorso_salvataggio(settimana)
                 esportatori.esporta_xlsx(settimana, percorso)
                 stato["percorso_salvato"] = percorso
                 print(f"  [OK] File salvato: {percorso}")
@@ -505,6 +527,52 @@ def sessione_giorno(settimana, journal, giorno_num, stato):
 # ============================================================
 # Main
 # ============================================================
+def _esporta_protetto(cosa, esportazione):
+    """Un errore qui non deve interrompere la chiusura: i conteggi sono gia'
+    salvati nel .xlsx e l'operazione si puo' rifare riaprendo la settimana."""
+    try:
+        esportazione()
+    except Exception as e:                      # noqa: BLE001 (qualunque errore)
+        print(f"\n  ERRORE: non riesco a generare {cosa}: {e}")
+        print("  Se il file e' aperto in Excel o in Word, chiudilo e riprova")
+        print("  riaprendo la settimana: i conteggi sono salvati.")
+
+
+def _esporta_annuale(settimana):
+    """Riepilogo annuale: nella cartella dell'anno, uno solo per anno."""
+    cartella = archivio.prepara_anno(RADICE, settimana.lunedi.year)
+    percorso, n = esportatori.esporta_riepilogo_annuale(
+        settimana, cartella, scegli_duplicati=_scegli_duplicati_interattivo,
+        avvisa=lambda messaggio: print("\n  ATTENZIONE: " + messaggio.replace("\n", "\n  ")))
+    if percorso:
+        print(f"\n  [OK] Riepilogo annuale aggiornato: {percorso}")
+        print(f"       {n} giorni esportati, fattore={settimana.fattore}")
+    else:
+        print("  Nessun dato da esportare nel riepilogo annuale.")
+
+
+def _esporta_bollettini(settimana):
+    """Bollettini ITA/ENG: nella cartella della settimana, accanto ai dati."""
+    soglie = esportatori.carica_soglie(RADICE)
+    if soglie is None:
+        print(f"  ERRORE: file soglie '{esportatori.SOGLIE_FILE_NOME}' non trovato.")
+        return
+    cartella = archivio.prepara_settimana(RADICE, settimana.lunedi)
+    creati = esportatori.genera_bollettini_word(settimana, cartella, soglie=soglie)
+    if creati:
+        for p in creati:
+            print(f"  Bollettino: {p}")
+        print("  Bollettini Word generati.")
+    else:
+        print("  Nessun dato presente: bollettini Word non generati.")
+
+
+def _apri_journal(lunedi):
+    """Journal nuovo per la settimana, in <radice>/in_corso/."""
+    archivio.prepara_in_corso(RADICE)
+    return sessione.Journal(archivio.percorso_journal(RADICE, lunedi))
+
+
 def main():
     if not esportatori.TEMPLATE_FILE.exists():
         print(f"ERRORE: Template non trovato: {esportatori.TEMPLATE_FILE}")
@@ -516,7 +584,7 @@ def main():
 
     carica_o_crea_config()
 
-    tipo, path = chiedi_ripresa_o_nuovo(OUTPUT_DIR)
+    tipo, path = chiedi_ripresa_o_nuovo(RADICE)
 
     if tipo == "journal":
         settimana = sessione.ripristina_da_journal(path)
@@ -534,13 +602,13 @@ def main():
         display_menu()
         lunedi = chiedi_settimana(settimana.lunedi)
         settimana.lunedi = lunedi
-        journal = sessione.Journal(OUTPUT_DIR / sessione.nome_journal(lunedi))
+        journal = _apri_journal(lunedi)
         journal.avvia(settimana)
     else:
         display_menu()
         lunedi = chiedi_settimana()
         settimana = sessione.Settimana(lunedi)
-        journal = sessione.Journal(OUTPUT_DIR / sessione.nome_journal(lunedi))
+        journal = _apri_journal(lunedi)
         journal.avvia(settimana)
 
     stato = {"percorso_salvato": None}
@@ -568,7 +636,6 @@ def main():
     percorso_finale = menu_uscita_salvataggio(settimana, journal, stato["percorso_salvato"])
 
     if percorso_finale:
-        cartella_salvata = percorso_finale.parent
         print("\n  Operazioni aggiuntive:")
         print("    1. Aggiorna riepilogo annuale")
         print("    2. Genera bollettini Word (ITA/ENG)")
@@ -576,26 +643,9 @@ def main():
         print("    Invio = nessuna operazione aggiuntiva")
         risp_extra = input("\n  Scelta: ").strip()
         if risp_extra in ("1", "3"):
-            percorso, n = esportatori.esporta_riepilogo_annuale(
-                settimana, cartella_salvata, scegli_duplicati=_scegli_duplicati_interattivo,
-                avvisa=lambda messaggio: print("\n  ATTENZIONE: " + messaggio.replace("\n", "\n  ")))
-            if percorso:
-                print(f"\n  [OK] Riepilogo annuale aggiornato: {percorso}")
-                print(f"       {n} giorni esportati, fattore={settimana.fattore}")
-            else:
-                print("  Nessun dato da esportare nel riepilogo annuale.")
+            _esporta_protetto("il riepilogo annuale", lambda: _esporta_annuale(settimana))
         if risp_extra in ("2", "3"):
-            soglie = esportatori.carica_soglie(cartella_salvata)
-            if soglie is None:
-                print(f"  ERRORE: file soglie '{esportatori.SOGLIE_FILE_NOME}' non trovato.")
-            else:
-                creati = esportatori.genera_bollettini_word(settimana, cartella_salvata, soglie=soglie)
-                if creati:
-                    for p in creati:
-                        print(f"  Bollettino: {p}")
-                    print("  Bollettini Word generati.")
-                else:
-                    print("  Nessun dato presente: bollettini Word non generati.")
+            _esporta_protetto("i bollettini Word", lambda: _esporta_bollettini(settimana))
 
     print("\n  Sessione terminata.\n")
 

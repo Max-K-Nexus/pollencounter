@@ -27,8 +27,9 @@ PASSI (da fare UNA SOLA VOLTA su un PC con internet):
      Il template Excel e' gia' incluso dentro il .exe.
 
   6. Per usarlo: doppio clic su Conta_Pollinica.exe.
-     Al primo avvio chiede in quale cartella salvare i file
-     della stagione (si puo' cambiare dalla schermata iniziale);
+     Al primo avvio chiede in quale cartella tenere i file
+     (si puo' cambiare dalla schermata iniziale): dentro, il
+     programma crea una cartella per ogni anno e per ogni settimana;
      la scelta e' ricordata nel file pollencounter.cfg, che
      compare accanto all'eseguibile.
 
@@ -256,25 +257,49 @@ vocale di Windows vanno ancora verificati su un PC Windows vero.
 
 SALVATAGGIO
 -----------
+  Come sono organizzati i file
+    Si sceglie una volta sola una cartella di lavoro. Dentro, il
+    programma tiene una cartella per ogni anno e, dentro quella, una
+    cartella per ogni settimana:
+
+      CartellaDiLavoro/
+        2026/
+          Riepilogo_Annuale_2026.xlsx     uno per anno
+          S42_2026-10-12/                 settimana 42, lunedi 12-10-2026
+            Conta_Pollinica_12-10-2026.xlsx
+            Bollettino_ITA_12-10-2026.docx
+            Bollettino_ENG_12-10-2026.docx
+        in_corso/
+          ~sessione_19-10-2026.jsonl      lavori non ancora salvati
+
+    I nomi dei file non sono cambiati. Se la cartella contiene file
+    salvati con le versioni precedenti (tutti insieme in una cartella
+    sola), il programma li apre comunque e propone di metterli in
+    ordine dalla schermata iniziale: prima mostra l'elenco di cosa
+    andrebbe dove, e non sposta niente finche' non si conferma.
+    Nessun file viene mai cancellato o sovrascritto.
+
   File di sessione (journal)
     Ogni inserimento, annullo, correzione o nota viene scritto
     subito su un file "~sessione_<data-lunedi>.jsonl" nella cartella
-    di lavoro. In caso di chiusura improvvisa (crash, mancanza di
+    "in_corso". In caso di chiusura improvvisa (crash, mancanza di
     corrente, chiusura della finestra) nulla va perso: alla
     prossima apertura la sessione compare nell'elenco iniziale,
     pronta per essere ripresa esattamente da dove si era rimasti.
 
   Comando/pulsante "s" - Salvataggio rapido
     Scrive subito il file .xlsx definitivo, senza uscire dalla
-    sessione. La prima volta chiede dove salvare; le volte
-    successive riusa lo stesso percorso.
+    sessione. Non chiede dove: il file sta sempre nella cartella
+    della sua settimana. Per averne una copia altrove (posta,
+    chiavetta) c'e' File > "Salva una copia altrove..."
 
   Comando/pulsante "q" - Chiusura della settimana
     Chiede se salvare il file .xlsx definitivo. Se si sceglie di
     uscire senza salvare, chiede se conservare il file di sessione
     per riprenderlo in seguito. Dopo un salvataggio riuscito viene
-    proposto di aggiornare anche il riepilogo annuale e/o generare
-    i bollettini Word.
+    proposto di aggiornare anche il riepilogo annuale (nella cartella
+    dell'anno) e/o generare i bollettini Word (nella cartella della
+    settimana).
 
   Il template "Polline_Template_Settimanale.xlsx" non viene
   mai modificato.

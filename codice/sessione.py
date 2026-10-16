@@ -23,6 +23,7 @@ try:
 except ImportError:
     openpyxl = None
 
+import archivio
 import dominio
 
 
@@ -61,8 +62,10 @@ class Settimana:
         return self.data_giorno(giorno_num).strftime("%d-%m-%Y")
 
     def nome_file_default(self):
-        """Nome proposto per il file .xlsx: quello di origine, o uno nuovo dal lunedi'."""
-        return self.nome_origine or f"Conta_Pollinica_{self.data_str_giorno(1)}.xlsx"
+        """Nome proposto quando si salva una copia altrove: quello di origine, o
+        il nome canonico dell'archivio. Il percorso di salvataggio normale lo
+        decide archivio.percorso_settimanale()."""
+        return self.nome_origine or archivio.nome_settimanale(self.lunedi)
 
     def totale_giorno(self, giorno_num):
         idx = giorno_num - 1
@@ -250,7 +253,8 @@ class Journal:
 
 
 def nome_journal(lunedi):
-    return f"~sessione_{lunedi.strftime('%d-%m-%Y')}.jsonl"
+    """Conservata per compatibilita': il nome lo definisce archivio.py."""
+    return archivio.nome_journal(lunedi)
 
 
 def ripristina_da_journal(path):
@@ -292,12 +296,22 @@ def ripristina_da_journal(path):
     return settimana
 
 
-def recupera_sessioni(cartella):
-    """Elenca i journal recuperabili in 'cartella': [(path, info_dict), ...],
-    piu' recenti prima. info_dict ha 'lunedi', 'origine', 'n_operazioni'."""
+def recupera_sessioni(radice):
+    """Elenca i journal recuperabili sotto 'radice': [(path, info_dict), ...],
+    piu' recenti prima. info_dict ha 'lunedi', 'origine', 'n_operazioni'.
+
+    Guarda in 'in_corso/' e anche direttamente nella radice, dove stavano i
+    journal prima della struttura ad archivio: un lavoro interrotto non deve
+    mai diventare invisibile. A parita' di nome vince quello in 'in_corso/'."""
+    radice = Path(radice)
+    schema = f"{archivio.PREFISSO_JOURNAL}*.jsonl"
+    trovati = {}
+    for cartella in (archivio.cartella_in_corso(radice), radice):
+        for f in cartella.glob(schema):
+            if f.name not in trovati:
+                trovati[f.name] = f
     risultati = []
-    for f in sorted(Path(cartella).glob("~sessione_*.jsonl"),
-                     key=lambda p: p.stat().st_mtime, reverse=True):
+    for f in sorted(trovati.values(), key=lambda p: p.stat().st_mtime, reverse=True):
         info = _leggi_intestazione_journal(f)
         if info:
             risultati.append((f, info))
@@ -408,7 +422,7 @@ def cerca_file_ripresa(cartella, template_name):
     candidati = [
         f for f in cartella.glob("*.xlsx")
         if f.is_file() and f.name != template_name
-        and not f.name.startswith("Riepilogo_Annuale_")
+        and not f.name.startswith(archivio.PREFISSO_ANNUALE)
     ]
     validi = [f for f in candidati if _ha_foglio_riepilogo(f)]
     validi.sort(key=lambda f: f.stat().st_mtime, reverse=True)
@@ -487,6 +501,53 @@ def leggi_cartella_anno(config_file, anno):
 def salva_cartella_anno(config_file, anno, cartella):
     config = _leggi_config(config_file)
     config[str(anno)] = str(cartella)
+    _scrivi_config(config_file, config)
+
+
+CHIAVE_ARCHIVIO = "archivio"
+
+
+def leggi_radice_archivio(config_file):
+    """Radice dell'archivio (la cartella che contiene gli anni), o None se non
+    e' ancora stata scelta o non esiste piu'.
+
+    Ripiega sulle vecchie chiavi per anno ("2026": "..."), usando quella
+    dell'anno piu' recente: un pollencounter.cfg scritto dalle versioni
+    precedenti continua a funzionare e viene convertito al primo salvataggio."""
+    config = _leggi_config(config_file)
+    valore = config.get(CHIAVE_ARCHIVIO)
+    if isinstance(valore, str):
+        cartella = Path(valore)
+        if cartella.exists():
+            return cartella
+    anni = sorted((c for c in config if c.isdigit() and isinstance(config[c], str)),
+                  reverse=True)
+    for anno in anni:
+        cartella = Path(config[anno])
+        if cartella.exists():
+            return cartella
+    return None
+
+
+def salva_radice_archivio(config_file, radice):
+    """Salva la radice senza toccare le altre chiavi (finestra, voce, ...)."""
+    config = _leggi_config(config_file)
+    config[CHIAVE_ARCHIVIO] = str(radice)
+    _scrivi_config(config_file, config)
+
+
+CHIAVE_RIORDINO_RIFIUTATO = "riordino_rifiutato"
+
+
+def leggi_riordino_rifiutato(config_file):
+    """True se l'utente ha già risposto "lascia come sono" alla proposta di
+    riordinare i file della vecchia cartella piatta: non gliela si ripropone."""
+    return _leggi_config(config_file).get(CHIAVE_RIORDINO_RIFIUTATO) is True
+
+
+def salva_riordino_rifiutato(config_file, rifiutato):
+    config = _leggi_config(config_file)
+    config[CHIAVE_RIORDINO_RIFIUTATO] = bool(rifiutato)
     _scrivi_config(config_file, config)
 
 

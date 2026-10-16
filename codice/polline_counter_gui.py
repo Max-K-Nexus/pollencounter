@@ -18,6 +18,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter import font as tkfont
 
+import archivio
 import dominio
 import esportatori
 import percorsi
@@ -128,11 +129,18 @@ HELP_AVVIO = [
                         "più (prove, settimane abbandonate) usa «Scegli o rimuovi...» nel "
                         "riquadro giallo, o «Rimuovi non salvato»: la rimozione è definitiva "
                         "e chiede conferma."),
-        ("File salvato", "un file Excel già salvato, a cui aggiungere altri dati."),
+        ("Salvato", "la settimana è già salvata in Excel: si riapre per aggiungere "
+                    "altri dati."),
     ]),
-    ("titolo", "Cartella di lavoro e uscita"),
-    ("testo", "I file stanno nella cartella indicata in basso («Cambia...» per sceglierne "
-              "un'altra, «Apri» per vederla nel gestore file)."),
+    ("titolo", "Dove finiscono i file"),
+    ("testo", "Tutto sta nella cartella indicata in basso («Cambia...» per sceglierne "
+              "un'altra, «Apri» per vederla nel gestore file). Dentro, il programma "
+              "tiene una cartella per ogni anno e, dentro quella, una per ogni settimana "
+              "(es. 2026 > S42_2026-10-12) con i dati e i due bollettini di quella "
+              "settimana. Il riepilogo annuale sta nella cartella dell'anno; i lavori "
+              "non ancora salvati in «in_corso»."),
+    ("testo", "Quando salvi non viene chiesto dove: il posto è sempre quello. Per avere "
+              "una copia altrove (posta, chiavetta) usa File > «Salva una copia altrove»."),
     ("testo", "Per chiudere il programma premi «Esci» (o Ctrl+Q)."),
 ]
 
@@ -332,7 +340,7 @@ class PollineCounterGUI:
         _imposta_tema(root)
         self._imposta_dimensioni_iniziali()
 
-        self.output_dir = percorsi.EXE_DIR
+        self.radice = percorsi.EXE_DIR
         self.settimana = None
         self.journal = None
         self.percorso_salvato = None
@@ -348,6 +356,9 @@ class PollineCounterGUI:
         self._tab_sporche = set()    # indici delle tab live da ridisegnare quando diventano visibili
         self._tree_cache = {}        # {Treeview: {iid: valori}} per aggiornare le righe sul posto
         self._giorno_bottoni = {}
+        self._righe_avvio = []       # VoceArchivio, nell'ordine delle righe dell'elenco
+        self._info_journal = {}      # {percorso journal: intestazione} per i dettagli
+        self._origine_da_archiviare = None   # .xlsx ripreso dalla vecchia cartella piatta
         self._voce = None         # (Ascoltatore, Sintesi) quando la voce e' attiva
         self._voce_after = None
         self._talkback = False       # la voce ripete cio' che ha registrato
@@ -424,34 +435,35 @@ class PollineCounterGUI:
     # Configurazione cartella di lavoro
     # ================================================================
     def _carica_config_iniziale(self):
-        anno = datetime.now().year
-        cartella = sessione.leggi_cartella_anno(percorsi.CONFIG_FILE, anno)
-        if cartella:
-            self.output_dir = cartella
+        radice = sessione.leggi_radice_archivio(percorsi.CONFIG_FILE)
+        if radice:
+            self.radice = radice
             return
 
         messagebox.showinfo(
             "Cartella di lavoro",
-            f"Scegli la cartella dove salvare i file di questa stagione "
-            f"({anno}).\nPotrai cambiarla in seguito dalla schermata iniziale.",
+            "Scegli la cartella dove tenere i file del conta pollinica.\n\n"
+            "Il programma crea al suo interno una cartella per ogni anno e, "
+            "dentro, una per ogni settimana con i dati e i bollettini di quella "
+            "settimana.\n\nPotrai cambiarla in seguito dalla schermata iniziale.",
         )
         scelta = filedialog.askdirectory(
-            title="Cartella di lavoro", initialdir=str(self.output_dir))
-        cartella = Path(scelta) if scelta else self.output_dir
-        sessione.salva_cartella_anno(percorsi.CONFIG_FILE, anno, cartella)
-        self.output_dir = cartella
+            title="Cartella di lavoro", initialdir=str(self.radice))
+        radice = Path(scelta) if scelta else self.radice
+        sessione.salva_radice_archivio(percorsi.CONFIG_FILE, radice)
+        self.radice = radice
 
     def _cambia_cartella(self):
         scelta = filedialog.askdirectory(
-            title="Cartella di lavoro", initialdir=str(self.output_dir))
+            title="Cartella di lavoro", initialdir=str(self.radice))
         if not scelta:
             return
-        self.output_dir = Path(scelta)
-        sessione.salva_cartella_anno(percorsi.CONFIG_FILE, datetime.now().year, self.output_dir)
+        self.radice = Path(scelta)
+        sessione.salva_radice_archivio(percorsi.CONFIG_FILE, self.radice)
         self._aggiorna_lista_sessioni()
 
     def _apri_cartella(self):
-        self._apri_con_sistema(self.output_dir)
+        self._apri_con_sistema(self.radice)
 
     def _apri_con_sistema(self, percorso):
         """Apre un file o una cartella con il programma predefinito del sistema."""
@@ -485,6 +497,7 @@ class PollineCounterGUI:
         f = menu("File")
         if lavoro:
             f.add_command(label="Salva", accelerator="Ctrl+S", command=azione("s"))
+            f.add_command(label="Salva una copia altrove…", command=self._salva_copia_altrove)
             f.add_command(label="Chiudi la settimana…", command=azione("q"))
         else:
             f.add_command(label="Inizia nuova settimana", command=self._avvio_nuovo_file)
@@ -655,7 +668,7 @@ class PollineCounterGUI:
             "Conta Pollinica\n\n"
             "Registra i granuli di polline contati al microscopio, salva i dati in Excel e "
             "prepara il bollettino settimanale.\n\n"
-            f"Cartella di lavoro:\n{self.output_dir}")
+            f"Cartella di lavoro:\n{self.radice}")
 
     # ================================================================
     # Schermata iniziale: scelta sessione/file/nuovo
@@ -786,33 +799,31 @@ class PollineCounterGUI:
         self._var_data.set((dominio.lunedi_di(dt) + timedelta(days=giorni)).strftime("%d-%m-%Y"))
 
     def _aggiorna_lista_sessioni(self):
-        self.lbl_cartella.config(text=self._abbrevia_percorso(self.output_dir))
+        """Una riga per settimana: il lavoro non salvato e il file .xlsx della
+        stessa settimana sono la stessa cosa, non due voci scollegate.
+        L'elenco si costruisce dai nomi delle cartelle (archivio.elenca), senza
+        aprire i file; solo i .xlsx rimasti nella vecchia cartella piatta con un
+        nome fuori schema vanno riconosciuti aprendoli (cerca_file_ripresa)."""
+        self.lbl_cartella.config(text=self._abbrevia_percorso(self.radice))
         for item in self.tree_avvio.get_children():
             self.tree_avvio.delete(item)
         for figlio in self.box_avviso.winfo_children():
             figlio.destroy()
-        self._righe_avvio = []
         adesso = datetime.now()
 
-        def quando(path):
-            try:
-                return dominio.descrivi_quando(datetime.fromtimestamp(path.stat().st_mtime), adesso)
-            except OSError:
-                return ""
+        interrotte = sessione.recupera_sessioni(self.radice)
+        self._info_journal = {path: info for path, info in interrotte}
+        fuori_schema = [f for f in sessione.cerca_file_ripresa(
+            self.radice, esportatori.TEMPLATE_FILE.name) if f.parent == self.radice]
+        self._righe_avvio = archivio.elenca(self.radice, legacy_xlsx=fuori_schema)
 
-        interrotte = sessione.recupera_sessioni(self.output_dir)
-        for path, info in interrotte:
+        for voce in self._righe_avvio:
+            quando = (dominio.descrivi_quando(datetime.fromtimestamp(voce.mtime), adesso)
+                      if voce.mtime else "")
             self.tree_avvio.insert("", tk.END, values=(
-                "Non salvato", self._descrivi_journal(info).capitalize(), quando(path),
-                f"{info['n_operazioni']} operazioni da recuperare",
+                "Non salvato" if voce.journal else "Salvato",
+                voce.etichetta, quando, self._dettagli_voce(voce),
             ))
-            self._righe_avvio.append(("journal", path, info))
-
-        for f in sessione.cerca_file_ripresa(self.output_dir, esportatori.TEMPLATE_FILE.name):
-            self.tree_avvio.insert("", tk.END, values=(
-                "File salvato", f.name, quando(f), sessione.conta_righe_log(f),
-            ))
-            self._righe_avvio.append(("xlsx", f, None))
 
         self._aggiorna_pulsanti_avvio()
         self.lbl_elenco_info.config(
@@ -820,6 +831,24 @@ class PollineCounterGUI:
                   "Nessun lavoro precedente in questa cartella: inizia una nuova settimana qui sopra."))
         if interrotte:
             self._mostra_avviso_interrotte(interrotte)
+        else:
+            self._mostra_avviso_riordino()
+
+    def _dettagli_voce(self, voce):
+        """Colonna "Dettagli": cosa c'e' da sapere su quella settimana."""
+        if voce.journal:
+            info = self._info_journal.get(voce.journal)
+            if info is None:
+                return "file di sessione danneggiato"
+            return f"{info['n_operazioni']} operazioni da recuperare"
+        pezzi = []
+        if voce.xlsx:
+            pezzi.append(sessione.conta_righe_log(voce.xlsx))
+        if voce.bollettini:
+            pezzi.append(f"{len(voce.bollettini)} bollettini")
+        if voce.fuori_struttura:
+            pezzi.append("da riordinare")
+        return "  ".join(p for p in pezzi if p)
 
     @staticmethod
     def _descrivi_journal(info):
@@ -834,7 +863,7 @@ class PollineCounterGUI:
         sel = self.tree_avvio.selection()
         self.btn_riprendi.config(state=(tk.NORMAL if sel else tk.DISABLED))
         solo_journal = bool(sel) and all(
-            self._righe_avvio[self.tree_avvio.index(i)][0] == "journal" for i in sel)
+            self._righe_avvio[self.tree_avvio.index(i)].journal is not None for i in sel)
         self.btn_rimuovi.config(state=(tk.NORMAL if solo_journal else tk.DISABLED))
 
     def _mostra_avviso_interrotte(self, interrotte):
@@ -865,6 +894,100 @@ class PollineCounterGUI:
                  font=(_UI_FONT, 10), justify=tk.LEFT, anchor="w", wraplength=520,
                  padx=12, pady=8).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+    def _mostra_avviso_riordino(self):
+        """Riquadro in cima quando nella cartella principale sono rimasti file
+        della vecchia organizzazione (tutto insieme in una cartella sola). Si
+        mostra solo se non c'e' un lavoro interrotto da segnalare, che ha la
+        precedenza."""
+        if sessione.leggi_riordino_rifiutato(percorsi.CONFIG_FILE):
+            return
+        piano = archivio.piano_riordino(self.radice)
+        if not piano:
+            return
+        testo = (f"In questa cartella ci sono {len(piano)} file organizzati alla vecchia "
+                 "maniera, tutti insieme. Il programma li apre comunque. Vuoi metterli in "
+                 "ordine in cartelle per anno e per settimana?")
+        riquadro = tk.Frame(self.box_avviso, bg=_COLORI["riquadro_avviso"],
+                            highlightbackground="#E8D38A", highlightthickness=1)
+        riquadro.pack(fill=tk.X, pady=(0, 8))
+        bottoni = tk.Frame(riquadro, bg=_COLORI["riquadro_avviso"])
+        bottoni.pack(side=tk.RIGHT, padx=10, pady=8)
+        ttk.Button(bottoni, text="Riordina\u2026", style="Accent.TButton",
+                   command=self._dialog_riordino).pack(side=tk.TOP, fill=tk.X)
+        ttk.Button(bottoni, text="Lascia come sono",
+                   command=self._rifiuta_riordino).pack(side=tk.TOP, fill=tk.X, pady=(6, 0))
+        tk.Label(riquadro, text="\u2139  " + testo, bg=_COLORI["riquadro_avviso"], fg="#1B1B1B",
+                 font=(_UI_FONT, 10), justify=tk.LEFT, anchor="w", wraplength=520,
+                 padx=12, pady=8).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+    def _rifiuta_riordino(self):
+        sessione.salva_riordino_rifiutato(percorsi.CONFIG_FILE, True)
+        self._aggiorna_lista_sessioni()
+
+    def _dialog_riordino(self):
+        """Anteprima dello spostamento, file per file: nulla si muove prima di
+        "Riordina adesso". Nessun file viene sovrascritto o cancellato."""
+        piano = archivio.piano_riordino(self.radice)
+        if not piano:
+            messagebox.showinfo("Niente da riordinare", "Tutti i file sono gi\u00e0 al loro posto.")
+            self._aggiorna_lista_sessioni()
+            return
+        top = tk.Toplevel(self.root)
+        top.title("Riordina i file")
+        top.minsize(640, 320)
+        ttk.Label(top, text=f"{len(piano)} file verranno spostati cos\u00ec. "
+                            "Nessun file viene cancellato o sovrascritto.",
+                  foreground=_COLORI["grigio"]).pack(side=tk.TOP, anchor="w", padx=14, pady=(12, 6))
+        riga_bottoni = ttk.Frame(top)
+        riga_bottoni.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=12)
+        elenco = ttk.Frame(top)
+        elenco.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=14)
+        tree = ttk.Treeview(elenco, columns=("da", "a"), show="headings", height=10,
+                            style="Elenco.Treeview", selectmode="none")
+        for col, titolo, larg in (("da", "File", 280), ("a", "Va nella cartella", 300)):
+            tree.heading(col, text=titolo, anchor=tk.W)
+            tree.column(col, width=larg, minwidth=120, stretch=True, anchor=tk.W)
+        scroll = ttk.Scrollbar(elenco, command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        for origine, destinazione in piano:
+            tree.insert("", tk.END, values=(origine.name,
+                                            self._relativo_alla_radice(destinazione.parent)))
+
+        def conferma():
+            top.destroy()
+            self._esegui_riordino(piano)
+
+        ttk.Button(riga_bottoni, text="Riordina adesso", style="Accent.TButton",
+                   command=conferma).pack(side=tk.LEFT)
+        ttk.Button(riga_bottoni, text="Annulla", command=top.destroy).pack(side=tk.RIGHT)
+        top.bind("<Escape>", lambda e: top.destroy())
+        self._prepara_dialogo(top)
+
+    def _relativo_alla_radice(self, percorso):
+        try:
+            return str(Path(percorso).relative_to(self.radice))
+        except ValueError:
+            return str(percorso)
+
+    def _esegui_riordino(self, piano):
+        spostati, falliti = archivio.esegui_riordino(piano, self.radice)
+        if falliti:
+            elenco = "\n".join(f"  {origine.name}: {motivo}" for origine, motivo in falliti[:12])
+            messagebox.showwarning(
+                "Riordino incompleto",
+                f"Spostati {len(spostati)} file su {len(spostati) + len(falliti)}.\n\n"
+                f"Non spostati:\n{elenco}\n\n"
+                "Questi file sono rimasti dove erano: controllali a mano.")
+        else:
+            messagebox.showinfo(
+                "Riordino fatto",
+                f"{len(spostati)} file spostati nelle cartelle per anno e per settimana.\n\n"
+                "Nella cartella principale trovi un file di testo con l'elenco "
+                "di quello che \u00e8 stato spostato.")
+        self._aggiorna_lista_sessioni()
+
     def _dialog_sessioni_interrotte(self):
         """Elenco dei soli lavori non salvati: riprenderne uno, rimuoverne alcuni
         (selezione multipla) o tutti."""
@@ -894,7 +1017,7 @@ class PollineCounterGUI:
         voci = []   # [(path, info)] nello stesso ordine delle righe
 
         def ricarica():
-            voci[:] = sessione.recupera_sessioni(self.output_dir)
+            voci[:] = sessione.recupera_sessioni(self.radice)
             for item in tree.get_children():
                 tree.delete(item)
             adesso = datetime.now()
@@ -972,9 +1095,10 @@ class PollineCounterGUI:
     def _avvio_rimuovi_selezionata(self):
         voci = []
         for item in self.tree_avvio.selection():
-            tipo, path, info = self._righe_avvio[self.tree_avvio.index(item)]
-            if tipo == "journal":
-                voci.append((path, info))
+            voce = self._righe_avvio[self.tree_avvio.index(item)]
+            info = self._info_journal.get(voce.journal) if voce.journal else None
+            if info is not None:
+                voci.append((voce.journal, info))
         if voci:
             self._rimuovi_sessioni_interrotte(voci)
 
@@ -983,15 +1107,15 @@ class PollineCounterGUI:
         if not sel:
             messagebox.showwarning("Nessuna selezione", "Seleziona una sessione o un file dall'elenco.")
             return
-        tipo, path, _ = self._righe_avvio[self.tree_avvio.index(sel[0])]
-        if tipo == "journal":
-            self._avvia_da_journal(path)
-        else:
-            self._avvia_da_xlsx(path)
+        voce = self._righe_avvio[self.tree_avvio.index(sel[0])]
+        if voce.journal:                # il lavoro non salvato ha la precedenza
+            self._avvia_da_journal(voce.journal)
+        elif voce.xlsx:
+            self._avvia_da_xlsx(voce.xlsx)
 
     def _avvio_importa(self):
         raw = filedialog.askopenfilename(
-            title="Importa file conta pollinica", initialdir=str(self.output_dir),
+            title="Importa file conta pollinica", initialdir=str(self.radice),
             filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
         )
         if not raw:
@@ -1008,7 +1132,7 @@ class PollineCounterGUI:
 
         # Iniziare "da zero" una settimana gia' iniziata cancellerebbe il lavoro non
         # salvato (Journal.avvia sovrascrive): si offre prima di riprenderlo.
-        percorso_journal = self.output_dir / sessione.nome_journal(lunedi)
+        percorso_journal = archivio.percorso_journal(self.radice, lunedi)
         if percorso_journal.exists():
             risp = messagebox.askyesnocancel(
                 "Settimana già iniziata",
@@ -1022,25 +1146,33 @@ class PollineCounterGUI:
                 self._avvia_da_journal(percorso_journal)
                 return
         else:
-            nome = sessione.Settimana(lunedi).nome_file_default()
-            if (self.output_dir / nome).exists():
+            percorso_xlsx = archivio.percorso_settimanale(self.radice, lunedi)
+            if percorso_xlsx.exists():
                 risp = messagebox.askyesnocancel(
                     "File già presente",
-                    f"Nella cartella di lavoro c'è già il file:\n{nome}\nper questa settimana.\n\n"
+                    f"Per questa settimana c'è già il file:\n{percorso_xlsx.name}\n"
+                    f"nella cartella {self._relativo_alla_radice(percorso_xlsx.parent)}.\n\n"
                     "Sì: aprilo e continua da lì\n"
                     "No: crea comunque una settimana nuova\n"
                     "Annulla: torna indietro")
                 if risp is None:
                     return
                 if risp:
-                    self._avvia_da_xlsx(self.output_dir / nome)
+                    self._avvia_da_xlsx(percorso_xlsx)
                     return
 
         self.settimana = sessione.Settimana(lunedi)
-        self.journal = sessione.Journal(percorso_journal)
+        self.journal = self._apri_journal(lunedi)
         self.journal.avvia(self.settimana)
         self.percorso_salvato = None
+        self._origine_da_archiviare = None
         self._entra_in_lavoro()
+
+    def _apri_journal(self, lunedi):
+        """Journal nuovo per la settimana, in <radice>/in_corso/ (la cartella
+        viene creata se manca)."""
+        archivio.prepara_in_corso(self.radice)
+        return sessione.Journal(archivio.percorso_journal(self.radice, lunedi))
 
     def _avvia_da_journal(self, path):
         try:
@@ -1050,6 +1182,7 @@ class PollineCounterGUI:
             return
         self.journal = sessione.Journal.riprendi(path)
         self.percorso_salvato = None
+        self._origine_da_archiviare = None
         self._entra_in_lavoro()
 
     def _avvia_da_xlsx(self, path):
@@ -1075,7 +1208,7 @@ class PollineCounterGUI:
             self.settimana.lunedi = nuova
 
         # Journal.avvia sovrascrive: non farlo in silenzio se c'e' un lavoro interrotto
-        if (self.output_dir / sessione.nome_journal(self.settimana.lunedi)).exists():
+        if archivio.percorso_journal(self.radice, self.settimana.lunedi).exists():
             if not messagebox.askyesno(
                     "Lavoro non salvato",
                     "Per questa settimana c'è già un lavoro interrotto, non salvato.\n"
@@ -1085,7 +1218,11 @@ class PollineCounterGUI:
                 return
 
         self.percorso_salvato = None
-        self.journal = sessione.Journal(self.output_dir / sessione.nome_journal(self.settimana.lunedi))
+        # Il file da cui si riparte verra' spostato nella cartella della sua
+        # settimana al primo salvataggio, per non lasciare due copie con dati
+        # diversi (vale solo per i file rimasti nella vecchia cartella piatta).
+        self._origine_da_archiviare = path if Path(path).parent == self.radice else None
+        self.journal = self._apri_journal(self.settimana.lunedi)
         self.journal.avvia(self.settimana)
         self._entra_in_lavoro()
 
@@ -1108,7 +1245,7 @@ class PollineCounterGUI:
     # ================================================================
     def _entra_in_lavoro(self):
         self.frame_avvio.destroy()
-        self.soglie = esportatori.carica_soglie(self.output_dir) or {}
+        self.soglie = esportatori.carica_soglie(self.radice) or {}
         self._ora_salvataggio = None
         self._build_lavoro()
         self._var_beep.set(self.settimana.beep)
@@ -1453,7 +1590,7 @@ class PollineCounterGUI:
         self._popola_tab_codici(self.entry_cerca_codici.get())
 
     def _stampa_cheatsheet_codici(self):
-        percorso = esportatori.genera_cheatsheet_codici(self.output_dir)
+        percorso = esportatori.genera_cheatsheet_codici(self.radice)
         if percorso is None:
             messagebox.showwarning(
                 "python-docx non disponibile",
@@ -1893,19 +2030,12 @@ class PollineCounterGUI:
     # Salvataggio
     # ================================================================
     def _salva(self):
-        """Esporta in .xlsx, chiedendo dove solo la prima volta. Ritorna il
-        percorso, o None se l'utente annulla la scelta."""
-        percorso = self.percorso_salvato
-        if percorso is None:
-            scelta = filedialog.asksaveasfilename(
-                title="Salva file conta pollinica", initialdir=str(self.output_dir),
-                initialfile=self.settimana.nome_file_default(), defaultextension=".xlsx",
-                filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
-            )
-            if not scelta:
-                self._log("Salvataggio annullato.")
-                return None
-            percorso = Path(scelta)
+        """Esporta il .xlsx nella cartella della settimana dentro l'archivio.
+        Non chiede dove: il percorso lo decide archivio.py, sempre lo stesso per
+        quella settimana. Ritorna il percorso, o None se non si e' potuto
+        salvare."""
+        percorso = self.percorso_salvato or archivio.percorso_settimanale(
+            self.radice, self.settimana.lunedi)
         try:
             esportatori.esporta_xlsx(self.settimana, percorso, soglie=self.soglie or None)
         except OSError as e:
@@ -1921,7 +2051,41 @@ class PollineCounterGUI:
         self._ora_salvataggio = datetime.now().strftime("%H:%M")
         self._modificato = False
         self._log(f"[OK] File salvato: {percorso}")
+        self._archivia_originale()
         return percorso
+
+    def _archivia_originale(self):
+        """Dopo il primo salvataggio, porta nella cartella della settimana il
+        file da cui si era ripartiti, se era rimasto nella cartella principale:
+        altrimenti resterebbero due copie, una con i dati vecchi."""
+        spostato = archivio.archivia_originale(
+            self.radice, self.settimana.lunedi, self._origine_da_archiviare)
+        if spostato:
+            self._log(f"Il file di partenza è stato spostato in: "
+                      f"{self._relativo_alla_radice(spostato)}")
+        self._origine_da_archiviare = None
+
+    def _salva_copia_altrove(self):
+        """Copia del .xlsx fuori dall'archivio (da mandare per posta, da portare
+        su una chiavetta). Non diventa il file della settimana: il salvataggio
+        normale continua a scrivere nell'archivio."""
+        scelta = filedialog.asksaveasfilename(
+            title="Salva una copia", initialdir=str(self.radice),
+            initialfile=self.settimana.nome_file_default(), defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx"), ("Tutti i file", "*.*")],
+        )
+        if not scelta:
+            return
+        try:
+            esportatori.esporta_xlsx(self.settimana, Path(scelta), soglie=self.soglie or None)
+        except OSError as e:
+            self._log(f"ERRORE: non riesco a scrivere la copia {scelta}: {e}")
+            messagebox.showerror(
+                "Copia non riuscita",
+                f"Non riesco a scrivere:\n{scelta}\n\n"
+                "Se il file è aperto in Excel o in un altro programma, chiudilo e riprova.")
+            return
+        self._log(f"[OK] Copia salvata: {scelta}")
 
     # ================================================================
     # Uscita dalla sessione (comando 'q' / pulsante Esci)
@@ -1934,10 +2098,14 @@ class PollineCounterGUI:
         if risp:
             percorso = self._salva()
             if percorso is None:
-                return  # ha annullato la scelta del percorso
+                return  # salvataggio non riuscito: si resta in sessione
             self.journal.elimina()
-            self._menu_operazioni_aggiuntive(percorso.parent)
-            self._torna_ad_avvio()
+            try:
+                self._menu_operazioni_aggiuntive()
+            finally:
+                # Anche se un'esportazione va storta, i conteggi sono gia' nel
+                # .xlsx: si torna sempre alla schermata iniziale.
+                self._torna_ad_avvio()
         else:
             conserva = messagebox.askyesno(
                 "Uscita senza salvare",
@@ -1951,7 +2119,7 @@ class PollineCounterGUI:
                 self.journal.elimina()
             self._torna_ad_avvio()
 
-    def _menu_operazioni_aggiuntive(self, cartella):
+    def _menu_operazioni_aggiuntive(self):
         top = tk.Toplevel(self.root)
         top.title("Operazioni aggiuntive")
         ttk.Label(top, text="Vuoi generare anche:", padding=(18, 14, 18, 8),
@@ -1964,24 +2132,9 @@ class PollineCounterGUI:
         def _conferma():
             top.destroy()
             if var_annuale.get():
-                percorso, n = esportatori.esporta_riepilogo_annuale(
-                    self.settimana, cartella, scegli_duplicati=self._scegli_duplicati_dialogo,
-                    avvisa=self._avvisa_fattore_diverso)
-                if percorso:
-                    self._log(f"[OK] Riepilogo annuale aggiornato: {percorso} ({n} giorni)")
-                else:
-                    self._log("Nessun dato da esportare nel riepilogo annuale.")
+                self._esporta_protetto("il riepilogo annuale", self._esporta_annuale)
             if var_bollettini.get():
-                soglie = esportatori.carica_soglie(cartella)
-                if soglie is None:
-                    self._log(f"ERRORE: file soglie '{esportatori.SOGLIE_FILE_NOME}' non trovato.")
-                else:
-                    creati = esportatori.genera_bollettini_word(self.settimana, cartella, soglie=soglie)
-                    if creati:
-                        for p in creati:
-                            self._log(f"Bollettino: {p}")
-                    else:
-                        self._log("Nessun dato presente: bollettini Word non generati.")
+                self._esporta_protetto("i bollettini Word", self._esporta_bollettini)
 
         riga = ttk.Frame(top, padding=(0, 14))
         riga.pack(fill=tk.X)
@@ -1990,6 +2143,48 @@ class PollineCounterGUI:
         top.bind("<Escape>", lambda e: top.destroy())
         self._prepara_dialogo(top, 380)
         top.wait_window(top)
+
+    def _esporta_protetto(self, cosa, esportazione):
+        """Esegue un'esportazione senza che un errore possa fermare la chiusura
+        della settimana: i conteggi sono gia' salvati nel .xlsx, il resto si puo'
+        rifare dalla schermata iniziale riaprendo il file."""
+        try:
+            esportazione()
+        except Exception as e:                      # noqa: BLE001 (qualunque errore)
+            self._log(f"ERRORE: non riesco a generare {cosa}: {e}")
+            messagebox.showwarning(
+                "Esportazione non riuscita",
+                f"Non riesco a generare {cosa}:\n{e}\n\n"
+                "Se il file è aperto in Excel o in Word, chiudilo: puoi rifare "
+                "questo passaggio riaprendo la settimana dalla schermata iniziale.\n\n"
+                "I conteggi sono salvati: non è andato perso nulla.")
+
+    def _esporta_annuale(self):
+        """Riepilogo annuale: sta nella cartella dell'anno, una sola per anno
+        (prima finiva accanto all'ultimo .xlsx salvato, e bastava salvare altrove
+        per ritrovarsi con due riepiloghi a metà)."""
+        cartella = archivio.prepara_anno(self.radice, self.settimana.lunedi.year)
+        percorso, n = esportatori.esporta_riepilogo_annuale(
+            self.settimana, cartella, scegli_duplicati=self._scegli_duplicati_dialogo,
+            avvisa=self._avvisa_fattore_diverso)
+        if percorso:
+            self._log(f"[OK] Riepilogo annuale aggiornato: {percorso} ({n} giorni)")
+        else:
+            self._log("Nessun dato da esportare nel riepilogo annuale.")
+
+    def _esporta_bollettini(self):
+        """Bollettini ITA/ENG: nella cartella della settimana, accanto ai dati."""
+        soglie = esportatori.carica_soglie(self.radice)
+        if soglie is None:
+            self._log(f"ERRORE: file soglie '{esportatori.SOGLIE_FILE_NOME}' non trovato.")
+            return
+        cartella = archivio.prepara_settimana(self.radice, self.settimana.lunedi)
+        creati = esportatori.genera_bollettini_word(self.settimana, cartella, soglie=soglie)
+        if creati:
+            for p in creati:
+                self._log(f"Bollettino: {p}")
+        else:
+            self._log("Nessun dato presente: bollettini Word non generati.")
 
     def _avvisa_fattore_diverso(self, messaggio):
         self._log("Attenzione: " + messaggio.replace("\n", " "))

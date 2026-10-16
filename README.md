@@ -14,7 +14,8 @@ The main objective is to reduce manual labor on Excel files, standardize calcula
 - **Cross-platform** — Native support for Windows, macOS, and Linux.
 - **Automatic Bulletins** — Generates pollen bulletins in Italian and English (`.docx`) with a concentration color scale.
 - **Voice counting (optional)** — Record grains by voice without looking away from the microscope: say `conta ventiquattro` (code), `conta graminacee` (name) or `conta acero per tre` (quantity); `conta annulla` undoes the last entry. Works offline, repeats aloud what it understood, and ignores anything not preceded by the activation word *conta*. Italian only; see [Voice counting](#-voice-counting).
-- **Crash recovery** — Every entry, undo, correction and note is written immediately to a session journal (`~sessione_<monday>.jsonl`); after a crash or power loss the interrupted session is offered for recovery at the next start.
+- **Crash recovery** — Every entry, undo, correction and note is written immediately to a session journal (`in_corso/~sessione_<monday>.jsonl`); after a crash or power loss the interrupted session is offered for recovery at the next start.
+- **Tidy archive** — One folder per year and one per week hold that week's data file and its two bulletins; the annual summary lives in the year folder. Saving never asks where the file goes, and folders saved with earlier versions can be reorganized from the start screen (preview first, nothing overwritten).
 
 ---
 
@@ -28,6 +29,7 @@ pollencounter/
 │   ├── dominio.py                   # Pure domain logic: species codes, dates, thresholds, concentrations
 │   ├── sessione.py                  # In-memory weekly model + crash-recovery journal
 │   ├── esportatori.py               # Exports: weekly .xlsx, annual summary, Word bulletins
+│   ├── archivio.py                  # Work-folder layout and file names (single source)
 │   ├── percorsi.py                  # Path resolution (source vs. packaged executable)
 │   ├── voce.py                      # Optional voice input/output (Vosk, sounddevice, pyttsx3)
 │   ├── modelli/                     # Vosk Italian model for voice counting (not in git, see below)
@@ -36,7 +38,7 @@ pollencounter/
 │   ├── concentrazioni_polliniche.xlsx           # Concentration thresholds (single source)
 │   ├── ITA_Template_Bollettino_pubblicazione.docx  # Italian bulletin template
 │   ├── ENG_Template_Bollettino_pubblicazione.docx  # English bulletin template
-│   └── pollencounter.cfg.esempio    # Example configuration (work folder per year)
+│   └── pollencounter.cfg.esempio    # Example configuration (work folder, window, voice)
 ├── script_aiuto/                    # Linux launchers and maintenance utilities
 │   ├── AVVIA_CONTA_POLLINICA.sh     # CLI launch
 │   ├── AVVIA_CONTA_POLLINICA_GUI.sh # GUI launch
@@ -61,10 +63,10 @@ pollencounter/
 
 ## 🔄 Typical Workflow
 
-1. **Start** — Open the application and choose the work folder for the season (remembered per year in `pollencounter.cfg`). Then resume an interrupted session, reopen a saved weekly file, or start a new week from the template.
+1. **Start** — Open the application and choose the work folder once (remembered in `pollencounter.cfg`). Then resume an interrupted session, reopen a saved week, or start a new week from the template. The start screen lists one row per week.
 2. **Counting** — Select the day and type one numeric code per pollen grain/spore observed (e.g. `24` = Gramineae, `48x4` = 4 Alternaria). Weekly, daily and bulletin views update live.
-3. **Saving** — Save the week as `Conta_Pollinica_DD-MM-YYYY.xlsx` (command `s`, or `q` to save and exit).
-4. **Output** — Optionally update the annual summary (`Riepilogo_Annuale_YYYY.xlsx`) and generate the Italian/English Word bulletins (see `esempio di bollettino.pdf`). In the annual summary the concentrations are Excel formulas (count × a single conversion-factor cell, top right of the concentration table), so changing the factor recalculates everything.
+3. **Saving** — Save the week with `s` (or `q` to save and exit). No dialog asks where: the file is always `<root>/YYYY/Snn_YYYY-MM-DD/Conta_Pollinica_DD-MM-YYYY.xlsx`. *File > Save a copy elsewhere…* makes a copy outside the archive.
+4. **Output** — Optionally update the annual summary (`<root>/YYYY/Riepilogo_Annuale_YYYY.xlsx`, one per year) and generate the Italian/English Word bulletins into the week folder (see `esempio di bollettino.pdf`). In the annual summary the concentrations are Excel formulas (count × a single conversion-factor cell, top right of the concentration table), so changing the factor recalculates everything.
 
 ---
 

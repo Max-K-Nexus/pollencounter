@@ -26,11 +26,12 @@ try:
 except ImportError:
     _docx_module = None
 
+import archivio
 import dominio
 import percorsi
 
-TEMPLATE_FILE = percorsi.BUNDLE_DIR / "Polline_Template_Settimanale.xlsx"
-SOGLIE_FILE_NOME = "concentrazioni_polliniche.xlsx"
+TEMPLATE_FILE = percorsi.BUNDLE_DIR / archivio.NOME_TEMPLATE
+SOGLIE_FILE_NOME = archivio.NOME_SOGLIE
 
 # ── Stili openpyxl riutilizzati in piu' funzioni ──
 THIN_BORDER = Border(
@@ -447,7 +448,7 @@ def scrivi_riga_annuale(ws, riga, data_str, dati, modo):
 
 
 def _nome_foglio_settimana(lunedi):
-    return f"W{lunedi.isocalendar()[1]:02d}"
+    return f"W{dominio.numero_settimana(lunedi):02d}"
 
 
 def _posizione_foglio_settimana(wb_ann, nome_foglio):
@@ -465,7 +466,7 @@ def crea_foglio_settimana_annuale(wb_ann, conteggi, lunedi, fattore):
     """Crea o sovrascrive il foglio settimanale (es. 'W08') nel riepilogo annuale."""
     nome_foglio = _nome_foglio_settimana(lunedi)
     domenica = lunedi + timedelta(days=6)
-    settimana_num = lunedi.isocalendar()[1]
+    settimana_num = dominio.numero_settimana(lunedi)
 
     if nome_foglio in wb_ann.sheetnames:
         idx = wb_ann.sheetnames.index(nome_foglio)
@@ -749,8 +750,7 @@ def esporta_riepilogo_annuale(settimana, cartella, scegli_duplicati=None, avvisa
     """
     fattore = settimana.fattore
     anno = settimana.lunedi.year
-    nome_file = f"Riepilogo_Annuale_{anno}.xlsx"
-    percorso = Path(cartella) / nome_file
+    percorso = Path(cartella) / archivio.nome_annuale(anno)
 
     dati_settimana = raccogli_dati_giornalieri(settimana.conteggi)
     if not dati_settimana:
@@ -828,6 +828,7 @@ def esporta_riepilogo_annuale(settimana, cartella, scegli_duplicati=None, avvisa
     # openpyxl non salva i risultati delle formule: Excel/LibreOffice li
     # calcolano all'apertura.
     wb_ann.calculation.fullCalcOnLoad = True
+    percorso.parent.mkdir(parents=True, exist_ok=True)
     wb_ann.save(percorso)
     wb_ann.close()
     return percorso, giorni_scritti
@@ -849,7 +850,6 @@ def genera_bollettini_word(settimana, cartella, soglie=None):
     from docx.shared import RGBColor, Pt
 
     lunedi = settimana.lunedi
-    lunedi_str = lunedi.strftime("%d-%m-%Y")
     fattore = settimana.fattore
     if soglie is None:
         soglie = carica_soglie(cartella) or {}
@@ -1004,8 +1004,8 @@ def genera_bollettini_word(settimana, cartella, soglie=None):
 
             _set_row_height(new_row, 360)
 
-        output_name = f"Bollettino_{lang}_{lunedi_str}.docx"
-        output_path = Path(cartella) / output_name
+        output_path = Path(cartella) / archivio.nome_bollettino(lang, lunedi)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         doc.save(str(output_path))
         percorsi_creati.append(output_path)
 
@@ -1074,7 +1074,7 @@ def genera_cheatsheet_codici(cartella):
         for cell in table.columns[i].cells:
             cell.width = larghezza
 
-    percorso = Path(cartella) / "Cheatsheet_Codici_Specie.docx"
+    percorso = Path(cartella) / archivio.NOME_ELENCO_CODICI
     percorso.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(percorso))
     return percorso

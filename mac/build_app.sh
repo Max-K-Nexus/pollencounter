@@ -52,6 +52,7 @@ pyinstaller --windowed \
   --add-data "$CODICE/concentrazioni_polliniche.xlsx:." \
   --add-data "$CODICE/ITA_Template_Bollettino_pubblicazione.docx:." \
   --add-data "$CODICE/ENG_Template_Bollettino_pubblicazione.docx:." \
+  --hidden-import archivio \
   --hidden-import dominio \
   --hidden-import sessione \
   --hidden-import esportatori \

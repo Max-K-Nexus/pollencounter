@@ -4,6 +4,117 @@ Log delle modifiche apportate al progetto, compilato al termine di ogni task.
 
 ---
 
+## 2026-10-16
+
+### Archivio: una cartella per anno e per settimana, un solo modulo che decide i percorsi
+
+**Problema.** Tutti i file finivano nella stessa cartella piatta: i
+`Conta_Pollinica_*.xlsx`, i `Bollettino_ITA/ENG_*.docx`, il
+`Riepilogo_Annuale_*.xlsx`, i journal `~sessione_*.jsonl` e il
+`Cheatsheet_Codici_Specie.docx`. Da qui, difetti concreti:
+
+1. Riepilogo annuale **sdoppiato**: annuale e bollettini venivano scritti in
+   `percorso.parent` (la cartella dell'ultimo `.xlsx` salvato), non nella
+   cartella di lavoro. Salvando il settimanale altrove,
+   `esporta_riepilogo_annuale` non trovava il file e ne creava un secondo da
+   zero, senza avvisare.
+2. Nomi liberi in produzione: il primo salvataggio passava da
+   `asksaveasfilename`, quindi nella cartella buona convivevano
+   `Conta_Pollinica_16-03-2026-prova.xlsx`, `...test.xlsx`,
+   `rifatto_ContaPoll_160226.xlsx`.
+3. Per riconoscere i propri file il programma doveva **aprirli tutti**:
+   `cerca_file_ripresa` prendeva ogni `*.xlsx` e cercava il foglio
+   `riepilogo_settimana` (~0,25 s per file, con una cache apposita in
+   `conta_righe_log`).
+4. Journal orfani: `recupera_sessioni` guardava solo la cartella corrente,
+   quindi dopo un "Cambia cartella..." i lavori non salvati diventavano
+   invisibili (il pulsante "Apri un file da un'altra cartella..." accetta solo
+   `.xlsx`).
+5. Un errore su un'esportazione lasciava il programma a metà: in
+   `_menu_operazioni_aggiuntive` non c'era `try/except`, quindi con il
+   riepilogo annuale aperto in Excel il callback moriva con un traceback muto,
+   i bollettini non venivano generati e non si tornava alla schermata iniziale
+   (col journal già cancellato alla riga precedente).
+6. La cartella si salvava sempre sotto `datetime.now().year`, mentre l'annuale
+   usa l'anno del lunedì: a gennaio, lavorando su una settimana di dicembre, le
+   due cose divergevano.
+
+**Causa.** Nessun punto del programma decideva dove va un file: il nome nasceva
+in quattro posti (`sessione.py:63`, `esportatori.py:752`, `:1007`, `:1077`,
+`sessione.py:252`) e la cartella in altri tre (dialogo utente,
+`percorso.parent`, `self.output_dir`).
+
+**Correzione.**
+
+- **Nuovo `codice/archivio.py`**, unico punto che conosce struttura e nomi:
+  `nome_cartella_settimana`, `percorso_settimanale`, `percorso_annuale`,
+  `percorso_bollettino`, `percorso_journal`, `percorso_elenco_codici`,
+  `prepara_anno`/`prepara_settimana`/`prepara_in_corso`, `elenca`,
+  `piano_riordino`/`esegui_riordino`, `archivia_originale`. Nessun openpyxl:
+  solo `mkdir`/`stat`/`glob`/`move`.
+- **Struttura:** radice scelta una volta, dentro `<anno>/` con
+  `Riepilogo_Annuale_<anno>.xlsx` e `S<nn>_<AAAA-MM-GG>/` per ogni settimana
+  (dati + i due bollettini); journal non salvati in `in_corso/`, elenco codici
+  nella radice. Anno civile del lunedì (come l'annuale) e numero di settimana
+  ISO: lunedì 29-12-2025 è `2025/S01_2025-12-29`. I nomi dei file non cambiano.
+- **`dominio.numero_settimana(lunedi)`**: il numero ISO ha una sola fonte, usata
+  dai fogli `Wnn` dell'annuale (`esportatori.py:450`, `:468`) e dal nome della
+  cartella. Anche `NOME_SOGLIE`/`NOME_TEMPLATE` stanno in `archivio` e
+  `esportatori` li riusa (`TEMPLATE_FILE`, `SOGLIE_FILE_NOME`).
+- **`sessione.py`**: `leggi_radice_archivio`/`salva_radice_archivio` (chiave
+  `archivio` del cfg, con ripiego sulla chiave per anno più recente, quindi un
+  `pollencounter.cfg` esistente continua a funzionare — difetto 6);
+  `leggi/salva_riordino_rifiutato`; `recupera_sessioni` cerca in `in_corso/` e
+  anche nella radice, dove i journal stavano prima (difetto 4);
+  `nome_journal`/`nome_file_default` delegano i nomi ad `archivio`.
+- **Salvataggio senza dialogo** (GUI e CLI): il `.xlsx` va sempre in
+  `<radice>/<anno>/S<nn>_<data>/Conta_Pollinica_<data>.xlsx` (difetto 2). Per
+  una copia fuori dall'archivio: GUI `File > "Salva una copia altrove..."`,
+  CLI un percorso digitato invece di Invio.
+- **Annuale nella cartella dell'anno, bollettini in quella della settimana**
+  (difetto 1); `esporta_riepilogo_annuale` e `genera_bollettini_word` creano la
+  cartella di arrivo se manca, come già faceva `esporta_xlsx`.
+- **Elenco iniziale: una riga per settimana** (`archivio.elenca`), con il lavoro
+  non salvato e il `.xlsx` della stessa settimana nella stessa voce invece di
+  due righe scollegate. Si costruisce dai nomi delle cartelle, senza aprire
+  nessun file (difetto 3); `cerca_file_ripresa` resta solo per i file della
+  vecchia cartella piatta con un nome fuori schema.
+- **Riordino dei file preesistenti**, proposto e non imposto: riquadro nella
+  schermata iniziale, dialogo con l'anteprima `da -> a` file per file,
+  `shutil.move` che **non sovrascrive mai** (una destinazione già occupata
+  diventa un "non spostato" con il motivo), resoconto `_riordino_<data>.txt`
+  nella radice. "Lascia come sono" non lo richiede più. I file il cui nome non
+  dice la settimana vanno in `da_controllare/` invece di essere attribuiti a
+  indovinare, e restano nell'elenco iniziale (quindi apribili). Soglie
+  personalizzate, template ed elenco codici non vengono mai spostati.
+- **Errori di esportazione non fatali** (difetto 5): `_esporta_protetto` in GUI
+  e CLI, messaggio in italiano che dice cosa fare, e ritorno alla schermata
+  iniziale in un `finally`.
+- Guida F1, `ISTRUZIONI.txt`, le tre guide per sistema, `README.md`,
+  `CLAUDE.md` e `pollencounter.cfg.esempio` aggiornati.
+
+**Verifiche.** 243 test (`python3 -m unittest discover -s tests`), fra cui il
+nuovo `tests/test_archivio.py` (25 test: nomi, caso limite della settimana ISO a
+cavallo d'anno, elenco su struttura nuova/piatta/mista, nessuna apertura di
+file, riordino che non sovrascrive, `archivia_originale`). Giro completo della
+GUI sotto Xvfb su una copia dei dati reali: elenco iniziale, nuova settimana,
+inserimenti, salvataggio senza dialogo, annuale e bollettini nelle cartelle
+giuste, errore di esportazione gestito. CLI: journal interrotto in `in_corso/`
+recuperato e rigiocato, salvataggio e esportazioni nelle cartelle giuste,
+nessun file sciolto nella radice. Il riordino è stato provato anche sui 22 file
+reali di `letture_settimanali/` (nessuna perdita: 23 file prima, 23 dopo).
+
+**Eseguibile Windows.** `--hidden-import archivio` aggiunto a
+`windows/build_exe.bat`, `mac/build_app.sh` e alla skill `build-windows-exe`,
+altrimenti il modulo nuovo potrebbe non finire nel bundle.
+`windows/Conta_Pollinica.exe` ricompilato (Wine + PyInstaller, con la lettura
+vocale, 81 MB): il PYZ contiene `archivio` con tutte le funzioni nuove,
+`dominio.numero_settimana` e `sessione.leggi_radice_archivio`, e l'exe si avvia
+sotto Wine. Resta non provato su un Windows vero (microfono e SAPI5), come
+sempre.
+
+---
+
 ## 2026-10-15
 
 ### Bollettino dell'.xlsx esportato: colori per livello (assente/bassa/media/alta)

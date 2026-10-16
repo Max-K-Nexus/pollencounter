@@ -50,6 +50,18 @@ class TestDate(unittest.TestCase):
         self.assertEqual(d.lunedi_di(datetime(2026, 2, 12)), datetime(2026, 2, 9))
 
 
+class TestNumeroSettimana(unittest.TestCase):
+    def test_numero_iso(self):
+        self.assertEqual(d.numero_settimana(datetime(2026, 10, 12)), 42)
+        self.assertEqual(d.numero_settimana(datetime(2026, 2, 9)), 7)
+
+    def test_settimana_a_cavallo_di_due_anni(self):
+        """Lunedi' 29-12-2025 appartiene alla settimana ISO 1: e' il numero che
+        finisce sia nel foglio 'Wnn' del riepilogo annuale sia nel nome della
+        cartella della settimana."""
+        self.assertEqual(d.numero_settimana(datetime(2025, 12, 29)), 1)
+
+
 class TestDescrizioniGui(unittest.TestCase):
     def test_nome_giorno_accentato(self):
         self.assertEqual(d.nome_giorno_accentato(datetime(2026, 10, 15)), "giovedì")
