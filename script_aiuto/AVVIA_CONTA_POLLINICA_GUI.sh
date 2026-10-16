@@ -2,7 +2,7 @@
 
 # Script per avviare l'interfaccia grafica della conta pollinica
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 GUI="$SCRIPT_DIR/../codice/polline_counter_gui.py"
 
 # Controlla tkinter
